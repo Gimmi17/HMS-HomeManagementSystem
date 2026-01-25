@@ -1,0 +1,1566 @@
+=============================================================================
+MEAL PLANNER - BACKEND DEVELOPMENT LOG
+=============================================================================
+Project: Meal Planner API
+Task: B1 - Core Setup (Base Structure)
+Date: 2026-01-13
+Developer: Claude Code
+Status: COMPLETED
+
+=============================================================================
+1. PROJECT OVERVIEW
+=============================================================================
+
+This log documents the creation of the base backend structure for the Meal
+Planner project, a multi-user meal planning and nutritional tracking system.
+
+The backend is built with FastAPI (Python) and PostgreSQL, designed to be
+deployed in a Docker container on a home NAS alongside Home Assistant and
+Grocy integrations.
+
+=============================================================================
+2. TECHNOLOGY STACK DECISIONS
+=============================================================================
+
+2.1 FRAMEWORK CHOICE: FastAPI
+-----------------------------
+RATIONALE:
+- Modern Python web framework with native async support
+- Automatic OpenAPI/Swagger documentation generation
+- Excellent type hinting support with Pydantic
+- High performance (comparable to Node.js and Go)
+- Built-in data validation
+- Easy integration with SQLAlchemy ORM
+
+ALTERNATIVES CONSIDERED:
+- Django REST Framework: Too heavy for this use case, slower
+- Flask: Missing native async, less modern tooling
+- Node.js/Express: Preferred Python for ML/LLM integration (Phase 2+)
+
+2.2 DATABASE: PostgreSQL 14+
+----------------------------
+RATIONALE:
+- JSONB support for flexible ingredient/tag storage
+- UUID native support
+- Robust multi-user concurrent access
+- Excellent for complex queries (nutritional calculations)
+- Self-hosted, no vendor lock-in
+
+ALTERNATIVES CONSIDERED:
+- MySQL: Weaker JSON support, less feature-rich
+- SQLite: Not suitable for multi-user production
+- MongoDB: Overkill, prefer relational structure for this domain
+
+2.3 ORM: SQLAlchemy 2.0
+-----------------------
+RATIONALE:
+- Industry standard Python ORM
+- Excellent PostgreSQL support (JSONB, UUID, etc.)
+- New 2.0 syntax is cleaner and more type-safe
+- Migration support via Alembic
+- Complex query support for nutritional calculations
+
+2.4 AUTHENTICATION: JWT with bcrypt
+------------------------------------
+RATIONALE:
+- Stateless authentication (no server-side sessions)
+- Scalable for distributed systems
+- Industry standard (python-jose library)
+- Bcrypt for secure password hashing (resistant to rainbow tables)
+
+2.5 VALIDATION: Pydantic v2
+---------------------------
+RATIONALE:
+- Native FastAPI integration
+- Automatic API documentation from schemas
+- Runtime type validation
+- Settings management via pydantic-settings
+
+=============================================================================
+3. PROJECT STRUCTURE
+=============================================================================
+
+backend/
+├── app/
+│   ├── __init__.py                   # Package initialization
+│   ├── main.py                       # FastAPI app + health endpoint
+│   │
+│   ├── core/                         # Core configuration
+│   │   ├── __init__.py
+│   │   ├── config.py                 # Environment settings (Pydantic)
+│   │   ├── security.py               # Password hashing (bcrypt)
+│   │   └── constants.py              # Application constants
+│   │
+│   ├── db/                           # Database layer
+│   │   ├── __init__.py
+│   │   ├── session.py                # SQLAlchemy engine + SessionLocal
+│   │   └── base.py                   # Declarative Base
+│   │
+│   ├── models/                       # SQLAlchemy ORM models
+│   │   ├── __init__.py
+│   │   └── base.py                   # BaseModel (UUID, timestamps)
+│   │
+│   ├── schemas/                      # Pydantic schemas
+│   │   └── __init__.py
+│   │
+│   └── middleware/                   # FastAPI middleware
+│       ├── __init__.py
+│       └── cors.py                   # CORS configuration
+│
+├── requirements.txt                  # Python dependencies
+├── Dockerfile                        # Container image definition
+├── .env.example                      # Environment variables template
+└── creation.txt                      # This file
+
+FUTURE ADDITIONS (Other Tasks):
+├── app/api/v1/                       # API endpoints (B2-B6)
+├── app/services/                     # Business logic (B2-B6)
+├── app/integrations/                 # External services (B6)
+├── tests/                            # Unit and integration tests
+├── data/nutrizione_pulito.csv        # Nutritional database CSV
+└── alembic/                          # Database migrations (optional)
+
+=============================================================================
+4. DETAILED IMPLEMENTATION NOTES
+=============================================================================
+
+4.1 CONFIGURATION (app/core/config.py)
+---------------------------------------
+APPROACH:
+- Used pydantic-settings for type-safe environment variable loading
+- Settings loaded from .env file (12-factor app methodology)
+- All sensitive values (DATABASE_URL, SECRET_KEY) are required
+- Optional values have sensible defaults (JWT expiration, MQTT settings)
+
+KEY DECISIONS:
+- JWT_EXPIRATION: 3600 seconds (1 hour) - balance between security and UX
+- REFRESH_TOKEN_EXPIRATION: 604800 seconds (7 days) - standard practice
+- DEBUG: Boolean flag for SQL query logging and detailed errors
+- Settings singleton pattern for easy import throughout app
+
+SECURITY CONSIDERATIONS:
+- .env file must never be committed (add to .gitignore)
+- Production SECRET_KEY must be generated with cryptographic randomness
+- DATABASE_URL contains credentials, must be protected
+
+4.2 SECURITY (app/core/security.py)
+------------------------------------
+APPROACH:
+- Used passlib with bcrypt scheme for password hashing
+- Automatic salt generation per password
+- Cost factor can be adjusted if needed for security vs performance
+
+WHY BCRYPT:
+- Intentionally slow (prevents brute-force attacks)
+- Adaptive (cost factor can increase as hardware improves)
+- Industry standard for password storage
+- Built-in salt (prevents rainbow table attacks)
+
+ALTERNATIVES CONSIDERED:
+- Argon2: Newer but less mature ecosystem
+- PBKDF2: Weaker than bcrypt
+- SHA256: NEVER use for passwords (too fast, no salt)
+
+IMPLEMENTATION:
+- hash_password(): Takes plain text, returns bcrypt hash
+- verify_password(): Compares plain text with stored hash
+- Context configured with "auto" deprecation (future algorithm upgrades)
+
+4.3 DATABASE SESSION (app/db/session.py)
+-----------------------------------------
+APPROACH:
+- SQLAlchemy 2.0 style (modern syntax)
+- Connection pooling enabled by default
+- Session factory pattern (sessionmaker)
+- Dependency injection via get_db() generator
+
+ENGINE CONFIGURATION:
+- echo=settings.DEBUG: Log SQL queries in debug mode (useful for development)
+- pool_pre_ping=True: Verify connections before use (prevents stale connections)
+- pool_recycle=3600: Recycle connections after 1 hour (avoids timeouts)
+
+SESSION CONFIGURATION:
+- autocommit=False: Explicit commit required (safer, better control)
+- autoflush=False: Explicit flush required (more predictable)
+- bind=engine: Connect to PostgreSQL engine
+
+DEPENDENCY PATTERN:
+- get_db() is a FastAPI dependency
+- Automatically handles session lifecycle:
+  1. Create session
+  2. Yield to endpoint
+  3. Close session (even if exception occurs)
+- Usage: def endpoint(db: Session = Depends(get_db))
+
+4.4 BASE MODEL (app/models/base.py)
+------------------------------------
+APPROACH:
+- Abstract base class for all database models
+- Provides common fields: id, created_at, updated_at
+- Uses PostgreSQL native UUID type
+- Automatic timestamp management
+
+WHY UUID PRIMARY KEYS:
+- Security: No sequential ID guessing
+- Distributed: Can generate client-side
+- Mergeable: Easy to combine data from multiple sources
+- Consistency: Same format across all tables
+
+TIMESTAMP STRATEGY:
+- created_at: Set once on INSERT (server_default=func.now())
+- updated_at: Set on INSERT and UPDATE (onupdate=func.now())
+- Timezone-aware (DateTime(timezone=True))
+- Database-side generation ensures consistency
+
+INHERITANCE:
+All future models inherit from BaseModel:
+    class User(BaseModel):
+        __tablename__ = "users"
+        email = Column(String, unique=True)
+        # id, created_at, updated_at inherited automatically
+
+4.5 CORS MIDDLEWARE (app/middleware/cors.py)
+---------------------------------------------
+APPROACH:
+- Configured for development with localhost:3000 (React default)
+- Permissive settings for development
+- Must be tightened for production
+
+CONFIGURATION:
+- allow_origins: Whitelist of frontend URLs
+  * localhost:3000 (React)
+  * localhost:5173 (Vite)
+  * Add production domain before deployment
+- allow_credentials=True: Needed for cookies and JWT auth headers
+- allow_methods=["*"]: All HTTP methods (GET, POST, PUT, DELETE, etc.)
+- allow_headers=["*"]: All headers (Authorization, Content-Type, etc.)
+
+PRODUCTION NOTES:
+- Replace ["*"] with specific methods and headers
+- Add only production frontend domain to origins
+- Consider rate limiting middleware (future)
+
+4.6 MAIN APPLICATION (app/main.py)
+-----------------------------------
+APPROACH:
+- Single FastAPI instance
+- Automatic OpenAPI documentation
+- Health check endpoint for monitoring
+- Startup event for table creation
+
+FASTAPI CONFIGURATION:
+- title: "Meal Planner API" (shown in docs)
+- version: "1.0.0" (semantic versioning)
+- docs_url: "/docs" (Swagger UI)
+- redoc_url: "/redoc" (Alternative docs)
+- description: Detailed API info
+
+ENDPOINTS:
+1. GET /health
+   - Purpose: Container health checks
+   - Returns: {"status": "ok", "version": "1.0.0"}
+   - Used by: Docker HEALTHCHECK, monitoring tools
+
+2. GET /
+   - Purpose: API information
+   - Returns: Links to documentation
+
+STARTUP EVENT:
+- Creates all database tables via Base.metadata.create_all()
+- Safe to run multiple times (only creates missing tables)
+- Production note: Use Alembic migrations instead for schema changes
+
+FUTURE ROUTER ADDITIONS:
+- Authentication: /api/v1/auth/* (B2)
+- Users: /api/v1/users/* (B2)
+- Houses: /api/v1/houses/* (B3)
+- Recipes: /api/v1/recipes/* (B4)
+- Meals: /api/v1/meals/* (B4)
+- Foods: /api/v1/foods/* (B5)
+- Health: /api/v1/health/* (B5)
+- Grocy: /api/v1/grocy/* (B6)
+
+4.7 CONSTANTS (app/core/constants.py)
+--------------------------------------
+APPROACH:
+- Centralized constant definitions
+- Type-safe (no magic strings in code)
+- Easy to update and maintain
+
+CONSTANTS DEFINED:
+1. User Roles: OWNER, MEMBER, GUEST
+2. Meal Types: colazione, spuntino, pranzo, cena (Italian names)
+3. Recipe Difficulties: easy, medium, hard
+4. Health Record Types: cold, flu, headache, allergy, injury, other
+5. Severity Levels: mild, moderate, severe
+6. Pagination: DEFAULT_PAGE_SIZE=50, MAX_PAGE_SIZE=100
+7. Invite Settings: CODE_LENGTH=6, EXPIRATION_DAYS=7
+
+VALIDATION LISTS:
+- VALID_ROLES, VALID_MEAL_TYPES, etc.
+- Used in Pydantic schemas for enum validation
+
+=============================================================================
+5. DEPENDENCIES (requirements.txt)
+=============================================================================
+
+CORE DEPENDENCIES:
+- fastapi==0.109.0: Web framework
+- uvicorn[standard]==0.27.0: ASGI server
+- sqlalchemy==2.0.25: ORM
+- psycopg2-binary==2.9.9: PostgreSQL driver
+- pydantic==2.5.3: Validation
+- pydantic-settings==2.1.0: Settings management
+
+SECURITY:
+- python-jose[cryptography]==3.3.0: JWT tokens
+- passlib[bcrypt]==1.7.4: Password hashing
+- python-multipart==0.0.6: Form parsing
+
+HTTP CLIENT:
+- httpx==0.26.0: Async HTTP for Grocy API
+
+FUTURE (Phase 2+):
+- paho-mqtt: MQTT for Home Assistant
+- redis: Caching
+- celery: Background tasks
+- python-telegram-bot: Telegram notifications
+
+=============================================================================
+6. DOCKER CONFIGURATION
+=============================================================================
+
+DOCKERFILE STRATEGY:
+- Multi-stage build for smaller final image
+- Stage 1: Build dependencies (includes gcc, build tools)
+- Stage 2: Runtime image (only runtime libraries)
+- Non-root user (appuser) for security
+
+IMAGE SIZE OPTIMIZATION:
+- Start with python:3.11-slim (smaller than full Python image)
+- Copy only compiled packages from build stage
+- Clean apt cache after installs
+- No unnecessary build tools in final image
+
+SECURITY MEASURES:
+- Run as non-root user (UID 1000)
+- Health check endpoint for container monitoring
+- Minimal attack surface (only runtime dependencies)
+
+HEALTHCHECK:
+- Interval: 30 seconds
+- Timeout: 10 seconds
+- Start period: 5 seconds (grace period)
+- Retries: 3 attempts before marking unhealthy
+
+UVICORN CONFIGURATION:
+- Host: 0.0.0.0 (required for Docker networking)
+- Port: 8000 (exposed in Dockerfile)
+- Workers: 1 (increase based on CPU cores in production)
+  * Rule of thumb: (2 x CPU cores) + 1
+
+=============================================================================
+7. ENVIRONMENT VARIABLES (.env.example)
+=============================================================================
+
+REQUIRED VARIABLES:
+- DATABASE_URL: PostgreSQL connection string
+  * Development: postgresql://meal_planner:pass@localhost:5432/meal_planner_db
+  * Docker: postgresql://meal_planner:pass@postgres:5432/meal_planner_db
+    (Note: "postgres" is Docker service name, not "localhost")
+- SECRET_KEY: JWT signing key (generate with: openssl rand -hex 32)
+
+OPTIONAL VARIABLES:
+- JWT_EXPIRATION: Access token lifetime (default: 3600 seconds)
+- REFRESH_TOKEN_EXPIRATION: Refresh token lifetime (default: 604800 seconds)
+- GROCY_URL: Grocy instance URL (if using inventory integration)
+- GROCY_API_KEY: Grocy API key
+- MQTT_*: MQTT broker settings (Phase 2)
+
+SECURITY NOTES:
+- .env file must be added to .gitignore
+- Never commit credentials to version control
+- Use different secrets for dev/staging/production
+- Rotate SECRET_KEY if compromised
+
+=============================================================================
+8. ARCHITECTURAL DECISIONS LOG
+=============================================================================
+
+8.1 WHY SEPARATE CONFIG/SECURITY/CONSTANTS?
+--------------------------------------------
+DECISION: Split core functionality into three modules
+
+RATIONALE:
+- config.py: Environment-specific settings (changes per deployment)
+- security.py: Reusable security utilities (password hashing)
+- constants.py: Business logic constants (roles, meal types)
+- Separation of Concerns: Each module has single responsibility
+- Easier testing: Can mock settings without affecting constants
+- Better maintenance: Changes to constants don't affect config loading
+
+8.2 WHY ABSTRACT BASE MODEL?
+-----------------------------
+DECISION: Create BaseModel with common fields
+
+RATIONALE:
+- DRY Principle: id, timestamps repeated in every model
+- Consistency: All models use UUID and same timestamp strategy
+- Maintainability: Change timestamp logic in one place
+- Audit Trail: Every record has creation/modification time
+- Security: UUID prevents ID enumeration attacks
+
+8.3 WHY GENERATOR PATTERN FOR get_db()?
+----------------------------------------
+DECISION: Use generator function for database dependency
+
+RATIONALE:
+- FastAPI Dependency Injection: Native support for generators
+- Automatic Cleanup: Session closed even if exception occurs
+- Resource Safety: Prevents connection leaks
+- Testability: Easy to override in tests with mock DB
+- Clear Lifecycle: Create → Use → Close pattern
+
+8.4 WHY SEPARATE MIDDLEWARE MODULE?
+------------------------------------
+DECISION: CORS in dedicated middleware directory
+
+RATIONALE:
+- Scalability: Easy to add more middleware (logging, rate limiting)
+- Organization: Keeps main.py focused on app creation
+- Reusability: Middleware can be imported/tested independently
+- Future-proof: Phase 2 will add MQTT, request logging middleware
+
+8.5 WHY STARTUP EVENT FOR TABLE CREATION?
+------------------------------------------
+DECISION: Create tables on application startup
+
+RATIONALE:
+- Development Convenience: Automatic schema creation
+- Docker Compatibility: Works in containerized environments
+- Safe: Only creates missing tables, won't drop existing data
+
+PRODUCTION ALTERNATIVE:
+- Use Alembic migrations for controlled schema changes
+- Startup event approach is fine for MVP/development
+- Migration tool provides: versioning, rollback, collaboration
+
+=============================================================================
+9. INTEGRATION POINTS
+=============================================================================
+
+9.1 FRONTEND INTEGRATION
+------------------------
+EXPECTED SETUP:
+- Frontend: React (Vite) on port 3000
+- Backend: FastAPI on port 8000
+- Communication: REST API with JSON
+
+CORS CONFIGURATION:
+- Allows localhost:3000 (React dev server)
+- Allows localhost:5173 (Vite dev server)
+- Must add production domain before deployment
+
+API DOCUMENTATION:
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+- OpenAPI JSON: http://localhost:8000/openapi.json
+
+9.2 DATABASE INTEGRATION
+-------------------------
+CONNECTION METHOD:
+- SQLAlchemy with psycopg2-binary driver
+- Connection pooling for efficiency
+- Automatic reconnection on connection loss
+
+SCHEMA MANAGEMENT:
+- Current: Base.metadata.create_all() on startup
+- Future: Alembic migrations for production
+
+BACKUP STRATEGY (Future):
+- PostgreSQL pg_dump scheduled backups
+- Script: scripts/backup_db.sh (to be created in I1)
+
+9.3 GROCY INTEGRATION (Phase B6)
+---------------------------------
+APPROACH:
+- HTTP client: httpx (async support)
+- Proxy endpoints: /api/v1/grocy/*
+- Authentication: GROCY_API_KEY from environment
+
+INTEGRATION POINTS:
+- GET /grocy/stock: Inventory levels
+- GET /grocy/products: Product list
+- GET /grocy/products/{id}: Product details
+
+9.4 HOME ASSISTANT INTEGRATION (Phase 2)
+-----------------------------------------
+APPROACH:
+- MQTT protocol (paho-mqtt library)
+- Publish events: meal logged, recipe created, weight updated
+- Topics: meal_planner/meals, meal_planner/recipes, etc.
+
+FUTURE CUSTOM INTEGRATION:
+- Python component for HA
+- manifest.json configuration
+- Sensor entities for daily calories, weight trends
+
+=============================================================================
+10. TESTING STRATEGY
+=============================================================================
+
+10.1 MANUAL TESTING (Current)
+------------------------------
+HEALTH CHECK:
+1. Start application: uvicorn app.main:app --reload
+2. Visit: http://localhost:8000/health
+3. Expect: {"status": "ok", "version": "1.0.0"}
+
+API DOCUMENTATION:
+1. Visit: http://localhost:8000/docs
+2. Verify: Swagger UI loads with health endpoint
+
+10.2 AUTOMATED TESTING (Future)
+--------------------------------
+UNIT TESTS:
+- test_security.py: Password hashing and verification
+- test_config.py: Settings loading and validation
+- test_models.py: Model creation and relationships
+
+INTEGRATION TESTS:
+- test_database.py: Database connection and queries
+- test_endpoints.py: API endpoint functionality
+- test_auth.py: Authentication flow
+
+TESTING TOOLS:
+- pytest: Test framework
+- pytest-asyncio: Async test support
+- httpx: HTTP client for API testing
+
+10.3 LOAD TESTING (Phase 2+)
+-----------------------------
+TOOLS:
+- Locust or Apache JMeter
+- Test scenarios: concurrent users, API throughput
+- Optimize: Workers, connection pool, caching
+
+=============================================================================
+11. DEPLOYMENT STRATEGY
+=============================================================================
+
+11.1 DEVELOPMENT ENVIRONMENT
+----------------------------
+SETUP:
+1. Clone repository
+2. Create virtual environment: python -m venv venv
+3. Install dependencies: pip install -r requirements.txt
+4. Copy .env.example to .env
+5. Configure DATABASE_URL for local PostgreSQL
+6. Run: uvicorn app.main:app --reload
+
+DEVELOPMENT WORKFLOW:
+- Hot reload enabled (--reload flag)
+- Debug mode active (DEBUG=true in .env)
+- SQL queries logged (helps debug database issues)
+
+11.2 DOCKER DEPLOYMENT
+----------------------
+BUILD:
+docker build -t meal-planner-backend:latest .
+
+RUN:
+docker run -d \
+  --name meal-planner-backend \
+  -p 8000:8000 \
+  --env-file .env \
+  meal-planner-backend:latest
+
+DOCKER COMPOSE (Task I1):
+- PostgreSQL service
+- Backend service (depends on PostgreSQL)
+- Frontend service (depends on Backend)
+- Shared network for inter-service communication
+
+11.3 PRODUCTION CONSIDERATIONS
+-------------------------------
+SECURITY:
+- Use environment-specific .env files
+- Rotate SECRET_KEY regularly
+- Use strong database passwords
+- Enable HTTPS (reverse proxy: Nginx/Traefik)
+- Restrict CORS to production domain only
+
+PERFORMANCE:
+- Increase Uvicorn workers (CPU cores × 2 + 1)
+- Enable database connection pooling
+- Add Redis caching layer (Phase 2)
+- Monitor with Prometheus/Grafana (Phase 2)
+
+RELIABILITY:
+- Set up health checks in orchestration (Docker Compose/Kubernetes)
+- Configure automatic restarts on failure
+- Implement request timeout limits
+- Add rate limiting middleware
+
+=============================================================================
+12. FUTURE ENHANCEMENTS (Post-MVP)
+=============================================================================
+
+12.1 DATABASE MIGRATIONS
+------------------------
+TOOL: Alembic
+SETUP:
+alembic init alembic
+alembic revision --autogenerate -m "initial"
+alembic upgrade head
+
+BENEFITS:
+- Version controlled schema changes
+- Rollback capability
+- Team collaboration on schema
+- Production-safe deployments
+
+12.2 CACHING LAYER
+------------------
+TOOL: Redis
+USE CASES:
+- Cache food nutritional data (rarely changes)
+- Cache Grocy product list (reduce API calls)
+- Session storage (alternative to JWT)
+- Rate limiting counters
+
+12.3 BACKGROUND TASKS
+---------------------
+TOOL: Celery
+USE CASES:
+- Send email notifications
+- Generate weekly meal plans
+- Process nutritional calculations for large datasets
+- Scheduled reports
+
+12.4 API VERSIONING
+-------------------
+STRATEGY:
+- Current: /api/v1/
+- Future: /api/v2/ (breaking changes)
+- Maintain v1 for backward compatibility
+
+12.5 MONITORING & LOGGING
+--------------------------
+TOOLS:
+- Structured logging: structlog
+- Error tracking: Sentry
+- Metrics: Prometheus + Grafana
+- APM: Datadog or New Relic (optional)
+
+METRICS TO TRACK:
+- Request latency (p50, p95, p99)
+- Error rates (4xx, 5xx)
+- Database query performance
+- Active users
+- API endpoint usage
+
+=============================================================================
+13. KNOWN LIMITATIONS & TODOS
+=============================================================================
+
+CURRENT LIMITATIONS:
+1. No authentication implemented (Task B2)
+2. No API endpoints beyond health check (Tasks B2-B6)
+3. No database models beyond BaseModel (Tasks B2-B6)
+4. No error handling middleware
+5. No request/response logging
+6. No rate limiting
+7. No API versioning enforcement
+
+IMMEDIATE NEXT STEPS (Other Tasks):
+- Task B2: Implement authentication (register, login, JWT)
+- Task B3: Create house management (CRUD, invites)
+- Task B4: Create recipe and meal endpoints
+- Task B5: Import nutritional database from CSV
+- Task B6: Implement Grocy API proxy
+
+TECHNICAL DEBT:
+- Replace startup table creation with Alembic migrations
+- Add structured logging (structlog)
+- Add request ID middleware for tracing
+- Add comprehensive error handling
+- Add API response models (standardize format)
+- Add request validation middleware
+
+=============================================================================
+14. LESSONS LEARNED
+=============================================================================
+
+14.1 WHAT WENT WELL
+-------------------
+- Clean separation of concerns (config, security, db, models)
+- Comprehensive documentation in code comments
+- Type hints throughout (helps with IDE autocomplete and errors)
+- Modern SQLAlchemy 2.0 syntax (future-proof)
+- Pydantic settings make configuration type-safe
+- BaseModel pattern reduces boilerplate
+
+14.2 WHAT COULD BE IMPROVED
+---------------------------
+- Could have used factory pattern for app creation (easier testing)
+- Could have added request logging middleware from start
+- Could have added error handling middleware early
+- Database connection test on startup would be helpful
+
+14.3 BEST PRACTICES APPLIED
+----------------------------
+- 12-factor app methodology (environment config)
+- Dependency injection (FastAPI Depends)
+- Abstract base classes (DRY principle)
+- Resource management (context managers, generators)
+- Security by default (non-root Docker user, bcrypt)
+- Documentation-first approach (docstrings everywhere)
+
+=============================================================================
+15. REFERENCES & DOCUMENTATION
+=============================================================================
+
+OFFICIAL DOCUMENTATION:
+- FastAPI: https://fastapi.tiangolo.com/
+- SQLAlchemy 2.0: https://docs.sqlalchemy.org/en/20/
+- Pydantic: https://docs.pydantic.dev/
+- Uvicorn: https://www.uvicorn.org/
+- PostgreSQL: https://www.postgresql.org/docs/
+
+LIBRARIES:
+- python-jose: https://github.com/mpdavis/python-jose
+- passlib: https://passlib.readthedocs.io/
+- httpx: https://www.python-httpx.org/
+
+PROJECT SPECIFICATIONS:
+- SPEC.md: Complete project specification
+- TASKS.md: Task breakdown and dependencies
+- PROGETTO.md: Project overview
+
+=============================================================================
+16. CONTACT & SUPPORT
+=============================================================================
+
+TASK STATUS: Task B1 (Core Setup) - COMPLETED
+
+NEXT TASK:
+- Agent can proceed with Task B2 (Authentication)
+- Requires: User model, auth endpoints, JWT implementation
+- Dependencies: This task (B1) is complete
+
+QUESTIONS:
+- Refer to SPEC.md for database schema details
+- Refer to TASKS.md for API endpoint specifications
+- All configuration is documented in code comments
+
+=============================================================================
+17. COMPLETION CHECKLIST
+=============================================================================
+
+[✓] app/core/config.py - Settings management with Pydantic
+[✓] app/core/security.py - Password hashing with bcrypt
+[✓] app/core/constants.py - Application constants
+[✓] app/db/session.py - SQLAlchemy engine and session factory
+[✓] app/db/base.py - Declarative Base class
+[✓] app/models/base.py - BaseModel with UUID and timestamps
+[✓] app/middleware/cors.py - CORS configuration for frontend
+[✓] app/main.py - FastAPI application with health endpoint
+[✓] requirements.txt - Python dependencies
+[✓] Dockerfile - Multi-stage container image
+[✓] .env.example - Environment variables template
+[✓] creation.txt - This comprehensive development log
+
+[✓] All files created with extensive comments
+[✓] Code follows Python best practices (PEP 8)
+[✓] Type hints added throughout
+[✓] Security considerations documented
+[✓] Docker optimization applied
+[✓] Documentation complete
+
+=============================================================================
+TASK B1 - CORE SETUP: COMPLETE
+Date: 2026-01-13
+Next Task: B2 (Authentication)
+=============================================================================
+
+=============================================================================
+TASK B3 - HOUSES MANAGEMENT & INVITATION SYSTEM
+=============================================================================
+Date: 2026-01-15
+Developer: Claude Code
+Status: COMPLETED
+Dependencies: Task B1 (Core Setup)
+Related Tasks: Task B2 (Authentication - for complete auth integration)
+
+=============================================================================
+1. TASK OVERVIEW
+=============================================================================
+
+This task implements the complete houses management system with invitation
+functionality. Houses are the primary organizational unit for multi-user
+collaboration in the meal planner system.
+
+OBJECTIVES:
+- Create House, UserHouse, and HouseInvite models
+- Implement house CRUD operations
+- Build invitation system with 6-character codes
+- Add membership management (roles, permissions)
+- Enable multi-user collaboration
+
+KEY FEATURES:
+✓ House creation (user becomes OWNER automatically)
+✓ House listing, detail, update, delete endpoints
+✓ Invitation code generation (6-char, 7-day expiration)
+✓ Join house with invitation code
+✓ Remove members (owner only)
+✓ Role-based access (OWNER, MEMBER, GUEST)
+
+=============================================================================
+2. DATABASE MODELS
+=============================================================================
+
+2.1 HOUSE MODEL (app/models/house.py)
+--------------------------------------
+STRUCTURE:
+- Inherits from BaseModel (UUID id, created_at, updated_at)
+- owner_id: Foreign key to users table
+- name: Required, display name for the house
+- description: Optional text field
+- location: Optional string (city, address)
+- settings: JSONB field for flexible configuration
+
+DESIGN DECISIONS:
+- JSONB for settings: Allows adding new preferences without migrations
+  Example settings: timezone, notifications, default_serving_size
+- owner_id cascade DELETE: If owner deleted, house is deleted
+- Indexes on owner_id for fast owner queries
+
+RELATIONSHIPS:
+- owner: Many-to-one with User
+- members: Many-to-many with User through user_house
+- recipes: One-to-many (future implementation)
+- meals: One-to-many (future implementation)
+- invites: One-to-many with HouseInvite
+
+PROPERTIES:
+- timezone: Extracts timezone from settings, defaults to UTC
+- notifications_enabled: Checks if any notification is active
+
+2.2 USER_HOUSE MODEL (app/models/user_house.py)
+------------------------------------------------
+STRUCTURE:
+- Association table (does NOT inherit from BaseModel)
+- Composite primary key: (user_id, house_id)
+- role: String field (OWNER, MEMBER, GUEST)
+- joined_at: Timestamp when user joined
+
+DESIGN DECISIONS:
+- Composite PK prevents duplicate memberships
+- No UUID id needed (association table pattern)
+- Cascade DELETE on both foreign keys (cleanup on user/house deletion)
+- Default role is MEMBER (for invite-based joins)
+
+ROLES SYSTEM:
+- OWNER: Full admin access, can modify house, remove members, delete house
+- MEMBER: Can create recipes, log meals, view all house data
+- GUEST: Read-only access (future: limited view permissions)
+
+PROPERTIES:
+- is_owner: Quick check if user is house owner
+- can_modify_house: Permission check for house settings
+- can_create_recipes: Permission check for recipe creation
+- can_log_meals: Permission check for meal logging
+
+WHY NOT USE BASEMODEL:
+- Association tables typically don't need UUID primary keys
+- Composite PK is more semantically correct
+- Reduces table size and index overhead
+- Standard SQLAlchemy pattern for many-to-many with extra fields
+
+2.3 HOUSE_INVITE MODEL (app/models/house_invite.py)
+----------------------------------------------------
+STRUCTURE:
+- Inherits from BaseModel (UUID id, created_at, updated_at)
+- house_id: Foreign key to houses table
+- code: 6-character unique alphanumeric string
+- created_by: Foreign key to users (who created the invite)
+- used_by: Nullable foreign key to users (who redeemed it)
+- expires_at: Timestamp (typically NOW + 7 days)
+
+DESIGN DECISIONS:
+- 6 characters: Balance between usability and security
+  Total combinations: 36^6 = 2.1 billion codes
+- Uppercase only: Easier to read and share (no confusion with lowercase)
+- Unique constraint on code: Prevents duplicates
+- Indexes on code, expires_at for fast validation queries
+- Composite index (code, used_by, expires_at) for common query pattern
+
+CODE GENERATION:
+- Random selection from A-Z and 0-9 (36 characters)
+- Collision check on insert (regenerate if duplicate found)
+- Statistically very unlikely to collide (<0.0001% for 10K codes)
+
+EXPIRATION LOGIC:
+- Default: 7 days from creation
+- Expired invites cannot be redeemed
+- No automatic cleanup (keep for audit trail)
+- Can query active invites with: used_by IS NULL AND expires_at > NOW()
+
+PROPERTIES:
+- is_valid: Checks if unused and not expired
+- is_expired: Checks expiration timestamp
+- is_used: Checks if code was redeemed
+- days_until_expiry: Calculates remaining valid days
+
+SECURITY FEATURES:
+- Single-use codes (marked used after redemption)
+- Time-limited validity (prevents old code reuse)
+- Cannot join twice (membership check before adding)
+- Creator tracking (audit trail)
+
+=============================================================================
+3. BUSINESS LOGIC (app/services/house_service.py)
+=============================================================================
+
+3.1 SEPARATION OF CONCERNS
+---------------------------
+WHY SERVICE LAYER:
+- Separates business logic from HTTP handling
+- Makes logic reusable across endpoints/background tasks
+- Easier to test (no HTTP mocking required)
+- Single source of truth for complex operations
+
+SERVICE PATTERN:
+- Static methods (no state needed)
+- Takes database session as parameter
+- Returns domain objects (House, HouseInvite)
+- Raises domain exceptions (PermissionError, ValueError)
+- Caller responsible for commit/rollback (transaction control)
+
+3.2 KEY SERVICE METHODS
+------------------------
+
+create_house(db, house_data, owner_id):
+- Creates house record
+- Automatically adds creator as OWNER in user_house
+- Uses db.flush() to get house.id before commit
+- Returns created House object
+
+get_user_houses(db, user_id):
+- Queries user_house table for memberships
+- Returns list of House objects user belongs to
+- Efficient: Single JOIN query
+
+get_house_with_members(db, house_id):
+- Returns house info + full member list
+- Includes user details and membership info
+- Used for detail endpoint response
+- Format: {"house": House, "members": [{"user": User, "membership": UserHouse}]}
+
+update_house(db, house_id, house_data, user_id):
+- Only owner can update house
+- Partial update (only provided fields changed)
+- Raises PermissionError if not owner
+- Uses Pydantic exclude_unset to skip null fields
+
+delete_house(db, house_id, user_id):
+- Only owner can delete house
+- Cascades to memberships, invites, recipes, meals
+- Irreversible operation (no soft delete in MVP)
+- Raises PermissionError if not owner
+
+check_user_membership(db, user_id, house_id):
+- Checks if user is member of house
+- Returns UserHouse object or None
+- Used for permission checks in endpoints
+
+generate_invite_code():
+- Generates random 6-character code (A-Z, 0-9)
+- Pure function (no database access)
+- Caller must check uniqueness
+
+create_invite(db, house_id, created_by):
+- Generates unique code (collision check)
+- Sets expiration to NOW + 7 days
+- Returns HouseInvite object
+- Any member can create invites (not just owner)
+
+validate_and_use_invite(db, invite_code, user_id):
+- Validates code exists, not used, not expired
+- Checks user not already member
+- Marks code as used (used_by = user_id)
+- Adds user to house as MEMBER
+- Returns House object
+- Raises ValueError with specific error messages
+
+remove_member(db, house_id, user_id_to_remove, requester_id):
+- Only owner can remove members
+- Cannot remove owner themselves
+- Deletes UserHouse membership record
+- Raises PermissionError if not authorized
+
+=============================================================================
+4. API ENDPOINTS (app/api/v1/houses.py)
+=============================================================================
+
+4.1 CRUD OPERATIONS
+-------------------
+
+POST /houses
+- Create new house
+- User becomes OWNER automatically
+- Returns house with member list (HouseDetailResponse)
+- Status: 201 Created
+
+GET /houses
+- List all houses user belongs to
+- Returns basic house info (HouseResponse list)
+- No members included (lighter payload)
+
+GET /houses/{house_id}
+- Get detailed house information
+- Includes full member list with roles
+- Requires membership (403 if not member)
+- Returns HouseDetailResponse
+
+PUT /houses/{house_id}
+- Update house information
+- Only owner can update (403 if not owner)
+- Partial update (all fields optional)
+- Returns updated HouseResponse
+
+DELETE /houses/{house_id}
+- Delete house permanently
+- Only owner can delete (403 if not owner)
+- Cascades to all related data
+- Status: 204 No Content
+- IRREVERSIBLE OPERATION
+
+4.2 INVITATION SYSTEM
+---------------------
+
+POST /houses/{house_id}/invites
+- Generate invitation code
+- Any member can create invites
+- Code expires in 7 days
+- Returns HouseInviteResponse with code
+- Status: 201 Created
+- Share code externally (WhatsApp, Telegram, email)
+
+POST /houses/join
+- Join house using invitation code
+- Validates code (exists, not used, not expired)
+- Checks user not already member
+- Marks code as used
+- Adds user as MEMBER
+- Returns HouseDetailResponse
+- Errors: 404 (invalid code), 400 (expired/used/already member)
+
+4.3 MEMBER MANAGEMENT
+---------------------
+
+DELETE /houses/{house_id}/members/{user_id}
+- Remove member from house
+- Only owner can remove members
+- Cannot remove owner
+- Returns HouseMemberRemoveResponse
+- Errors: 403 (not owner, trying to remove owner), 404 (house/user not found)
+
+4.4 ERROR HANDLING PATTERN
+---------------------------
+All endpoints use consistent error handling:
+- Try-except blocks catch service layer exceptions
+- Rollback on errors (db.rollback())
+- Map domain exceptions to HTTP status codes:
+  - PermissionError -> 403 Forbidden
+  - ValueError -> 400 Bad Request
+  - Not found -> 404 Not Found
+  - Generic Exception -> 500 Internal Server Error
+- Detailed error messages for debugging
+
+=============================================================================
+5. PYDANTIC SCHEMAS (app/schemas/house.py)
+=============================================================================
+
+5.1 REQUEST SCHEMAS
+-------------------
+
+HouseCreate:
+- name (required): Display name
+- description (optional): House description
+- location (optional): Physical location
+- settings (optional, default {}): JSONB configuration
+
+HouseUpdate:
+- All fields optional (partial update)
+- Only provided fields will be updated
+- Uses exclude_unset=True in service layer
+
+HouseJoinRequest:
+- invite_code (required): 6-character code
+- Validator: Converts to uppercase automatically
+
+5.2 RESPONSE SCHEMAS
+--------------------
+
+HouseResponse (basic house info):
+- id, owner_id, name, description, location, settings
+- created_at, updated_at
+- Used for list endpoint (lighter payload)
+
+HouseDetailResponse (extends HouseResponse):
+- Adds members: List[HouseMemberResponse]
+- Used for detail/create endpoints
+
+HouseMemberResponse:
+- user_id, email, full_name, role, joined_at
+- Nested in HouseDetailResponse
+
+HouseInviteResponse:
+- id, house_id, code, created_by, expires_at
+- is_valid (computed property)
+- created_at
+
+HouseMemberRemoveResponse:
+- success, message, house_id, removed_user_id
+- Confirmation response
+
+5.3 VALIDATION & DOCUMENTATION
+-------------------------------
+- Field constraints: min_length, max_length
+- Example values for OpenAPI docs
+- from_attributes = True for ORM compatibility
+- json_schema_extra for complete examples in Swagger UI
+
+=============================================================================
+6. INTEGRATION WITH EXISTING BACKEND
+=============================================================================
+
+6.1 MODEL REGISTRATION
+-----------------------
+Updated app/models/__init__.py:
+- Imported House, UserHouse, HouseInvite
+- Added to __all__ list
+- Ensures models are registered with SQLAlchemy Base
+- Tables will be created on startup (Base.metadata.create_all)
+
+6.2 ROUTER REGISTRATION
+------------------------
+Updated app/api/v1/router.py:
+- Imported houses router
+- Included in api_router with tag "Houses"
+- Prefix defined in houses.router itself (/houses)
+- Added detailed comment explaining endpoints
+
+6.3 DEPENDENCIES
+----------------
+Uses existing dependencies from app/api/v1/deps.py:
+- get_current_user: Extracts authenticated user from JWT
+- get_db: Provides database session
+- NOTE: get_current_user is currently placeholder (Task B2)
+
+=============================================================================
+7. DATABASE MIGRATIONS (Future Enhancement)
+=============================================================================
+
+CURRENT APPROACH:
+- Tables created via Base.metadata.create_all() on startup
+- Simple and sufficient for MVP development
+- Works well with Docker container restarts
+
+RECOMMENDED FOR PRODUCTION:
+- Use Alembic for database migrations
+- Version control schema changes
+- Safer for data preservation during updates
+
+MIGRATION COMMANDS (Future):
+```bash
+# Initialize Alembic
+alembic init alembic
+
+# Create migration for houses
+alembic revision --autogenerate -m "Add house tables"
+
+# Apply migration
+alembic upgrade head
+```
+
+=============================================================================
+8. SECURITY CONSIDERATIONS
+=============================================================================
+
+8.1 AUTHENTICATION
+------------------
+- All endpoints require authentication (except noted)
+- JWT token validation via get_current_user dependency
+- User must be logged in to access any house functionality
+
+8.2 AUTHORIZATION
+-----------------
+- Membership checks before showing house data
+- Owner-only operations clearly enforced:
+  - Update house settings
+  - Delete house
+  - Remove members
+- Service layer raises PermissionError (not HTTP layer)
+
+8.3 INVITATION CODE SECURITY
+-----------------------------
+- Codes are time-limited (7-day expiration)
+- Single-use only (cannot reuse after redemption)
+- Random generation prevents guessing
+- 36^6 combinations = extremely low collision probability
+- Uppercase only reduces phishing/confusion
+
+8.4 DATA PRIVACY
+----------------
+- Users can only see houses they belong to
+- Member list only visible to house members
+- No global house listing endpoint
+- Cascade deletes prevent orphaned data
+
+8.5 SQL INJECTION PROTECTION
+-----------------------------
+- SQLAlchemy ORM prevents SQL injection
+- Parameterized queries automatically
+- No raw SQL execution
+- UUID primary keys prevent enumeration attacks
+
+=============================================================================
+9. TESTING RECOMMENDATIONS
+=============================================================================
+
+9.1 UNIT TESTS (Service Layer)
+-------------------------------
+Test files: tests/test_house_service.py
+
+TEST CASES:
+- create_house: Verifies house creation and owner membership
+- get_user_houses: Tests filtering by user_id
+- get_house_with_members: Validates member data structure
+- update_house: Tests partial updates and owner validation
+- delete_house: Verifies cascade deletion and permissions
+- generate_invite_code: Checks code format and uniqueness
+- create_invite: Tests expiration calculation
+- validate_and_use_invite: Tests all error cases (expired, used, etc)
+- remove_member: Tests permission checks
+
+FIXTURES NEEDED:
+- db_session: SQLAlchemy test session
+- test_user: User factory
+- test_house: House factory
+- test_invite: HouseInvite factory
+
+9.2 INTEGRATION TESTS (API Layer)
+----------------------------------
+Test files: tests/test_houses_api.py
+
+TEST CASES:
+- POST /houses: Create house and verify membership
+- GET /houses: List user's houses
+- GET /houses/{id}: Get house details with members
+- PUT /houses/{id}: Update house (owner check)
+- DELETE /houses/{id}: Delete house (owner check)
+- POST /houses/{id}/invites: Generate invite code
+- POST /houses/join: Join with valid/invalid/expired codes
+- DELETE /houses/{id}/members/{user_id}: Remove member
+
+AUTHENTICATION:
+- Mock JWT tokens for different users
+- Test unauthorized access (403 errors)
+- Test non-member access (403 errors)
+
+9.3 END-TO-END TESTS
+--------------------
+SCENARIO: Complete invitation flow
+1. User A creates house
+2. User A generates invitation code
+3. User B registers new account
+4. User B joins house with code
+5. Verify both users see same house
+6. User A removes User B
+7. Verify User B no longer has access
+
+=============================================================================
+10. PERFORMANCE CONSIDERATIONS
+=============================================================================
+
+10.1 DATABASE INDEXES
+----------------------
+EXISTING INDEXES:
+- houses.owner_id: Fast owner queries
+- user_house.user_id: Fast user membership lookup
+- user_house.house_id: Fast house member listing
+- house_invites.code: Fast code validation
+- house_invites.expires_at: Efficient expiration queries
+- Composite index (code, used_by, expires_at): Optimized invite validation
+
+10.2 QUERY OPTIMIZATION
+-----------------------
+- get_user_houses: Single JOIN query (not N+1)
+- get_house_with_members: Batch load members (not lazy load)
+- check_user_membership: Uses composite index
+- Invite validation: Single query with all conditions
+
+10.3 CACHING OPPORTUNITIES (Future)
+-----------------------------------
+- Cache user house list (invalidate on membership change)
+- Cache house member count
+- Cache active invite count per house
+
+10.4 PAGINATION (Future Enhancement)
+------------------------------------
+Currently not implemented for MVP:
+- House list is unbounded (assumes <100 houses per user)
+- Member list is unbounded (assumes <50 members per house)
+
+For production:
+- Add limit/offset to GET /houses
+- Add pagination to member list
+
+=============================================================================
+11. API DOCUMENTATION (Swagger/OpenAPI)
+=============================================================================
+
+AUTOMATIC DOCUMENTATION:
+- FastAPI generates OpenAPI schema automatically
+- All schemas have examples for Swagger UI
+- Endpoint descriptions include usage notes
+- Response models documented with field descriptions
+
+ACCESS SWAGGER UI:
+- URL: http://localhost:8000/docs
+- Interactive API testing
+- Schema exploration
+- Example requests/responses
+
+REDOC ALTERNATIVE:
+- URL: http://localhost:8000/redoc
+- Alternative documentation format
+- Better for reading (less interactive)
+
+=============================================================================
+12. USAGE EXAMPLES
+=============================================================================
+
+12.1 CREATE HOUSE (curl)
+------------------------
+```bash
+curl -X POST "http://localhost:8000/api/v1/houses" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Casa Rossi",
+    "description": "Famiglia Rossi - 4 persone",
+    "location": "Milano, Italia",
+    "settings": {
+      "timezone": "Europe/Rome"
+    }
+  }'
+```
+
+12.2 GENERATE INVITE (Python)
+------------------------------
+```python
+import httpx
+
+async def generate_invite(house_id: str, token: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"http://localhost:8000/api/v1/houses/{house_id}/invites",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        invite = response.json()
+        print(f"Share this code: {invite['code']}")
+        print(f"Expires: {invite['expires_at']}")
+        return invite['code']
+```
+
+12.3 JOIN HOUSE (curl)
+----------------------
+```bash
+curl -X POST "http://localhost:8000/api/v1/houses/join" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"invite_code": "ABC123"}'
+```
+
+12.4 LIST USER'S HOUSES (Python)
+---------------------------------
+```python
+from app.services.house_service import HouseService
+from app.db.session import SessionLocal
+
+db = SessionLocal()
+houses = HouseService.get_user_houses(db, user_id)
+for house in houses:
+    print(f"{house.name} - {house.location}")
+```
+
+=============================================================================
+13. FUTURE ENHANCEMENTS
+=============================================================================
+
+13.1 PHASE 2 FEATURES
+---------------------
+- Transfer house ownership
+- Co-owner role (multiple owners)
+- House archiving (soft delete)
+- Invitation templates (pre-filled settings)
+- Invitation usage limits (max uses per code)
+- Email invitations (send code via email)
+- Public houses (join without invitation)
+
+13.2 ADMINISTRATIVE FEATURES
+-----------------------------
+- House activity log (audit trail)
+- Member statistics (meals logged, recipes created)
+- House analytics dashboard
+- Export house data (recipes, meals)
+- Bulk member management (invite multiple users)
+
+13.3 INTEGRATION FEATURES
+-------------------------
+- MQTT notifications on member join
+- Home Assistant integration (display house info)
+- Telegram bot for invite sharing
+- n8n automation triggers (new member joined)
+
+=============================================================================
+14. TROUBLESHOOTING
+=============================================================================
+
+14.1 COMMON ISSUES
+------------------
+
+ERROR: "House not found"
+- Cause: User not a member of the house
+- Solution: Use GET /houses to list accessible houses
+
+ERROR: "Only house owner can..."
+- Cause: Trying owner-only operation as MEMBER
+- Solution: Check membership role, contact house owner
+
+ERROR: "This invitation has expired"
+- Cause: Invite code older than 7 days
+- Solution: Request new invitation code
+
+ERROR: "This invitation has already been used"
+- Cause: Code was redeemed by another user
+- Solution: Request new invitation code
+
+ERROR: "You are already a member of this house"
+- Cause: Trying to join house you're already in
+- Solution: Use GET /houses/{id} to view house details
+
+14.2 DATABASE CONSTRAINTS
+--------------------------
+
+UNIQUE CONSTRAINT: house_invites.code
+- Error: IntegrityError on invite creation
+- Cause: Code collision (very rare)
+- Solution: Service automatically regenerates code
+
+FOREIGN KEY: user_house.user_id
+- Error: User does not exist
+- Cause: Trying to add non-existent user
+- Solution: Ensure user exists before adding membership
+
+COMPOSITE PK: (user_id, house_id) in user_house
+- Error: Duplicate membership
+- Cause: Trying to add user already in house
+- Solution: Check membership before inserting
+
+=============================================================================
+15. LESSONS LEARNED
+=============================================================================
+
+15.1 WHAT WENT WELL
+-------------------
+- Clean separation: Models -> Service -> API
+- Comprehensive error handling with specific messages
+- Security-first design (time-limited, single-use invites)
+- Extensive documentation in all files
+- Type hints throughout (excellent IDE support)
+- Flexible JSONB settings field
+
+15.2 DESIGN DECISIONS EXPLAINED
+--------------------------------
+
+WHY 6-CHARACTER CODES:
+- Shorter = easier to share (WhatsApp, Telegram)
+- 36^6 combinations = 2.1 billion codes (sufficient security)
+- Long enough to prevent guessing, short enough for usability
+- Uppercase only = reduces phishing/typos
+
+WHY 7-DAY EXPIRATION:
+- Long enough to share with family/friends
+- Short enough to limit security exposure
+- Expired codes force regeneration (reduces old code reuse)
+
+WHY COMPOSITE PRIMARY KEY for UserHouse:
+- Semantic correctness (user+house uniquely identifies membership)
+- Prevents duplicate memberships
+- Smaller table size (no UUID id needed)
+- Standard SQLAlchemy association pattern
+
+WHY CASCADE DELETE:
+- Clean data: No orphaned memberships or invites
+- Consistent state: Delete house = delete all related data
+- Simpler logic: No manual cleanup required
+
+15.3 TRADE-OFFS
+---------------
+
+CHOSEN: Time-limited invites
+ALTERNATIVE: Permanent invite links
+REASONING: Security over convenience (old links expire)
+
+CHOSEN: Single-use codes
+ALTERNATIVE: Multi-use codes
+REASONING: Better tracking and security
+
+CHOSEN: Any member can invite
+ALTERNATIVE: Only owner can invite
+REASONING: Collaboration-friendly, easier onboarding
+
+CHOSEN: Composite PK for UserHouse
+ALTERNATIVE: UUID id + unique constraint
+REASONING: Smaller table, semantic correctness
+
+=============================================================================
+16. COMPLETION CHECKLIST
+=============================================================================
+
+[✓] app/models/house.py - House model with owner and settings
+[✓] app/models/user_house.py - Association table with roles
+[✓] app/models/house_invite.py - Invitation system model
+[✓] app/services/house_service.py - Complete business logic
+[✓] app/schemas/house.py - Request/response schemas with validation
+[✓] app/api/v1/houses.py - All CRUD and invitation endpoints
+[✓] app/models/__init__.py - Model registration
+[✓] app/api/v1/router.py - Router integration
+[✓] creation.txt - Comprehensive documentation (this file)
+
+[✓] All models with extensive comments
+[✓] All service methods documented
+[✓] All endpoints with OpenAPI documentation
+[✓] Type hints throughout
+[✓] Error handling implemented
+[✓] Security considerations addressed
+[✓] Performance optimizations (indexes)
+[✓] Future enhancements documented
+
+INTEGRATION NOTES:
+- Models are registered and will create tables on app startup
+- Router is included in main API router
+- Endpoints available at /api/v1/houses/*
+- Dependencies (get_current_user, get_db) are used
+- Ready for authentication integration (Task B2)
+
+=============================================================================
+TASK B3 - HOUSES MANAGEMENT: COMPLETE
+Date: 2026-01-15
+Next Task: B4 (Recipes + Meals) or continue with B2 (Auth) for full system
+=============================================================================

@@ -1,0 +1,64 @@
+version: '3.8'
+
+# Development override configuration
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  # Backend - Development mode with hot reload
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development  # Use development stage if multi-stage Dockerfile
+    volumes:
+      # Mount source code for hot reload
+      - ./backend/app:/app/app:ro
+      - ./backend/requirements.txt:/app/requirements.txt:ro
+    environment:
+      # Development specific settings
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+      DEBUG: 1
+    ports:
+      - "8847:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    restart: "no"  # Don't restart automatically in dev
+
+  # Frontend - Development mode with hot reload
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development  # Use development stage if multi-stage Dockerfile
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js:ro
+      - ./frontend/postcss.config.js:/app/postcss.config.js:ro
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://192.168.1.52:8847/api/v1
+    ports:
+      - "5052:3000"
+    command: npm run dev -- --host 0.0.0.0 --port 3000
+    restart: "no"  # Don't restart automatically in dev
+
+  # PostgreSQL - Development mode
+  postgres:
+    ports:
+      # Expose PostgreSQL port for local development tools (DBeaver, pgAdmin, etc)
+      - "5432:5432"
+    volumes:
+      # Use named volume for data persistence during development
+      - postgres_dev_data:/var/lib/postgresql/data
+    restart: "no"
+
+volumes:
+  postgres_dev_data:
+    driver: local

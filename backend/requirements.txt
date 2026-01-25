@@ -1,0 +1,32 @@
+# Meal Planner Backend - Python Dependencies
+# Compatible with Python 3.11+
+
+# Web Framework
+fastapi==0.109.0              # Modern, fast web framework for building APIs
+uvicorn[standard]==0.27.0     # ASGI server for running FastAPI (with standard extras)
+
+# Database
+sqlalchemy==2.0.25            # SQL toolkit and ORM (version 2.0 with new syntax)
+psycopg2-binary==2.9.9        # PostgreSQL adapter for Python
+alembic==1.13.1               # Database migration tool (optional, for future use)
+
+# Data Validation
+pydantic==2.5.3               # Data validation using Python type hints
+pydantic-settings==2.1.0      # Settings management from environment variables
+email-validator==2.1.0        # Email validation for Pydantic
+
+# Security & Authentication
+python-jose[cryptography]==3.3.0  # JWT token creation and validation
+passlib[bcrypt]==1.7.4        # Password hashing with bcrypt algorithm
+bcrypt==4.0.1                 # Pin bcrypt version for passlib compatibility
+python-multipart==0.0.6       # Form data parsing (required for file uploads)
+
+# HTTP Client
+httpx==0.26.0                 # Async HTTP client (for Grocy API integration)
+
+# Future Dependencies (Phase 2+)
+# Uncomment when needed:
+# paho-mqtt==1.6.1            # MQTT client for Home Assistant integration
+# redis==5.0.1                # Redis client for caching
+# celery==5.3.4               # Task queue for background jobs
+# python-telegram-bot==20.7   # Telegram bot integration

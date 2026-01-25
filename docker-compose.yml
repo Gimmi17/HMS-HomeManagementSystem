@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: meal-planner-db
+    environment:
+      POSTGRES_USER: meal_planner
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: meal_planner_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - meal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: meal-planner-backend
+    environment:
+      # Database
+      DATABASE_URL: postgresql://meal_planner:${DB_PASSWORD}@postgres:5432/meal_planner_db
+
+      # Security
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
+      REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-604800}
+
+      # Grocy Integration
+      GROCY_URL: ${GROCY_URL}
+      GROCY_API_KEY: ${GROCY_API_KEY}
+
+      # MQTT (optional)
+      MQTT_BROKER: ${MQTT_BROKER:-}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+
+      # Python
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "8847:8000"
+    volumes:
+      - backend_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - meal-network
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: meal-planner-frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-/api/v1}
+      VITE_APP_NAME: ${VITE_APP_NAME:-Meal Planner}
+    ports:
+      - "5052:3000"
+      - "5053:3443"
+    volumes:
+      - ./frontend/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - meal-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    external: true
+    name: meal-planner_postgres_dev_data
+  backend_logs:
+    driver: local
+
+networks:
+  meal-network:
+    driver: bridge

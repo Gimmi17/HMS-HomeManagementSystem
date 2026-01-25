@@ -1,0 +1,886 @@
+=================================================================================
+MEAL PLANNER - DOCKER & INFRASTRUCTURE CREATION LOG
+=================================================================================
+Date: 2026-01-13
+Task: I1 - Docker Compose + Scripts
+Status: COMPLETED
+=================================================================================
+
+OVERVIEW
+--------
+Created complete Docker infrastructure for Meal Planner project including:
+- Production-ready docker-compose configuration
+- Development override for hot reload
+- Environment variables template
+- Automated setup and backup scripts
+- Comprehensive documentation
+
+=================================================================================
+FILES CREATED
+=================================================================================
+
+1. docker-compose.yml
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/
+   Purpose: Production configuration
+
+   Services configured:
+   - postgres: PostgreSQL 14-alpine
+     * Port: 5432 (internal only in production)
+     * Health check: pg_isready every 5s
+     * Volume: postgres_data (persistent)
+     * Environment: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+
+   - backend: FastAPI Python application
+     * Build: ./backend/Dockerfile
+     * Port: 8000:8000 (exposed)
+     * Depends on: postgres (healthy)
+     * Environment: DATABASE_URL, SECRET_KEY, JWT settings, Grocy config, MQTT
+     * Command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+   - frontend: React + TypeScript application
+     * Build: ./frontend/Dockerfile
+     * Port: 3000:3000 (exposed)
+     * Depends on: backend
+     * Environment: VITE_API_URL, VITE_APP_NAME
+
+   Network: meal-network (bridge driver)
+   Volumes: postgres_data (local driver)
+
+2. docker-compose.dev.yml
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/
+   Purpose: Development override configuration
+
+   Key features:
+   - Hot reload for backend (--reload flag)
+   - Hot reload for frontend (Vite dev server)
+   - Source code mounted as volumes (read-only)
+   - PostgreSQL exposed on port 5432 for local tools
+   - Debug mode enabled
+   - No automatic restart (restart: "no")
+
+   Volume mounts:
+   Backend:
+   - ./backend/app → /app/app (source code)
+   - ./backend/requirements.txt → /app/requirements.txt
+
+   Frontend:
+   - ./frontend/src → /app/src
+   - ./frontend/public → /app/public
+   - Configuration files (vite.config.ts, tsconfig.json, etc.)
+   - node_modules excluded to avoid conflicts
+
+3. .env.example
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/
+   Purpose: Environment variables template
+
+   Variables included:
+
+   Database:
+   - DB_PASSWORD (required, secure random)
+
+   Security:
+   - SECRET_KEY (required, 32-byte hex, use openssl rand -hex 32)
+   - JWT_EXPIRATION (default: 3600 seconds = 1 hour)
+   - REFRESH_TOKEN_EXPIRATION (default: 604800 seconds = 7 days)
+
+   Grocy Integration:
+   - GROCY_URL (required for inventory features)
+   - GROCY_API_KEY (required, get from Grocy settings)
+
+   MQTT (optional, for Home Assistant):
+   - MQTT_BROKER (hostname or IP)
+   - MQTT_PORT (default: 1883)
+   - MQTT_USER (optional)
+   - MQTT_PASSWORD (optional)
+
+   Frontend:
+   - VITE_API_URL (backend API URL)
+   - VITE_APP_NAME (application display name)
+
+   Future integrations (commented):
+   - OPENWEBUI_URL (for LLM suggestions - Phase 2)
+   - TELEGRAM_BOT_TOKEN (for notifications - Phase 2)
+   - N8N_URL (for automations - Phase 2)
+
+4. scripts/setup_dev.sh
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/scripts/
+   Purpose: Automated development environment setup
+   Permissions: chmod +x (executable)
+
+   Features:
+   - Creates .env from .env.example if not exists
+   - Generates secure SECRET_KEY with openssl (32-byte hex)
+   - Generates secure DB_PASSWORD with openssl (base64, alphanumeric)
+   - Checks Docker and docker-compose installation
+   - Stops existing containers (cleanup)
+   - Builds and starts containers in dev mode
+   - Waits for services to be ready (PostgreSQL, backend)
+   - Runs database migrations if Alembic configured
+   - Imports food data from CSV if available
+   - Displays service URLs and useful commands
+
+   Implementation details:
+   - Uses bash with -e flag (exit on error)
+   - Color-coded output (red, green, yellow, blue)
+   - Health checks with retries (30 attempts, 1s interval)
+   - Detects openssl availability
+   - Handles missing dependencies gracefully
+   - Interactive prompt for Grocy configuration
+
+   Output includes:
+   - Service URLs (frontend, backend, docs, database)
+   - Development features enabled
+   - Useful docker-compose commands
+   - Reminders for manual configuration
+
+5. scripts/backup_db.sh
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/scripts/
+   Purpose: PostgreSQL database backup with rotation
+   Permissions: chmod +x (executable)
+
+   Features:
+   - Creates timestamped backup files (YYYYMMDD_HHMMSS)
+   - Compresses backups with gzip
+   - Stores in ./backups directory
+   - Keeps last N backups (configurable, default: 7)
+   - Verifies backup integrity (gzip -t)
+   - Can be run manually or via cron
+
+   Usage:
+   - ./scripts/backup_db.sh         # Keep last 7 backups
+   - ./scripts/backup_db.sh 14      # Keep last 14 backups
+
+   Implementation details:
+   - Uses pg_dump with --clean, --if-exists, --create flags
+   - Runs inside Docker container (docker exec)
+   - Checks container is running before backup
+   - Calculates and displays backup size
+   - Lists all existing backups after completion
+   - Provides restore command in output
+
+   Cron example:
+   - Daily at 3 AM: 0 3 * * * /path/to/scripts/backup_db.sh
+
+   Backup format:
+   - File: meal_planner_backup_YYYYMMDD_HHMMSS.sql.gz
+   - Location: ./backups/
+   - Compression: gzip
+   - Database: meal_planner_db
+   - User: meal_planner
+
+6. README.md
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/
+   Purpose: Project documentation and quick reference
+
+   Sections:
+   - Quick Start (development and production)
+   - Project structure
+   - Docker commands (dev and prod)
+   - Database commands (backup, restore, access)
+   - Configuration (environment variables)
+   - Port mapping
+   - Development (hot reload, structure)
+   - API endpoints reference
+   - Database schema overview
+   - Backup and restore procedures
+   - Troubleshooting guide
+   - Integrations (Grocy, Home Assistant)
+   - Roadmap (Phase 1, 2, 3)
+
+   Key information:
+   - Service URLs and ports
+   - Command examples for common tasks
+   - Environment variable descriptions
+   - Database migration commands
+   - Cron setup for automated backups
+   - Error resolution steps
+
+7. .gitignore
+   Location: /Users/gimmidefranceschi/HomeLab/food/meal-planner/
+   Purpose: Git ignore rules
+
+   Ignores:
+   - Environment files (.env, .env.local)
+   - Backups (backups/, *.sql, *.sql.gz)
+   - Database files (*.db, *.sqlite)
+   - Logs (logs/, *.log)
+   - OS files (.DS_Store, Thumbs.db)
+   - IDE files (.vscode/, .idea/)
+   - Python artifacts (__pycache__, *.pyc, venv/)
+   - Node artifacts (node_modules/, dist/, build/)
+   - Docker files (.dockerignore)
+   - Temporary files (tmp/, *.tmp, *.bak)
+   - Secrets (*.pem, *.key, secrets/)
+   - Data files (*.csv, except examples and nutrizione_pulito.csv)
+
+=================================================================================
+TECHNICAL DECISIONS & REASONING
+=================================================================================
+
+INFRASTRUCTURE DESIGN
+---------------------
+
+1. Multi-Service Architecture
+   Why: Separation of concerns, independent scaling
+   - PostgreSQL: Data persistence layer
+   - Backend: Business logic and API (FastAPI)
+   - Frontend: User interface (React + Vite)
+
+   Benefits:
+   - Each service can be updated independently
+   - Easy to scale specific components
+   - Clear responsibility boundaries
+   - Failure isolation
+
+2. Docker Compose Choice
+   Why: Simple orchestration for small/medium deployments
+   - Native multi-container support
+   - Easy environment variable management
+   - Volume management built-in
+   - Network isolation
+   - Compatible with NAS systems (Synology, QNAP)
+
+   Alternative considered: Kubernetes
+   Reason for rejection: Overkill for single-host deployment
+
+3. PostgreSQL 14-alpine
+   Why: Lightweight, production-ready database
+   - Alpine base: ~5MB vs ~100MB for full Debian
+   - PostgreSQL 14: Latest stable with JSONB improvements
+   - Health check: Ensures backend only starts when DB is ready
+   - Named volumes: Data persists across container restarts
+
+   Alternative considered: MySQL, SQLite
+   Reason for choice: JSONB support, better multi-tenant features
+
+4. Network Configuration
+   Why: Bridge network for service isolation
+   - Services communicate via service names (postgres, backend, frontend)
+   - PostgreSQL not exposed externally in production (security)
+   - Only frontend and backend ports exposed
+
+   Security benefits:
+   - Database not accessible from internet
+   - Service-to-service communication isolated
+   - Easy to add firewall rules
+
+DEVELOPMENT EXPERIENCE
+----------------------
+
+1. Hot Reload Implementation
+   Why: Fast development iteration
+
+   Backend (FastAPI):
+   - uvicorn --reload flag
+   - Watches /app/app directory
+   - Restart on .py file changes
+   - ~1-2 second reload time
+
+   Frontend (Vite):
+   - npm run dev with HMR
+   - Instant updates without full reload
+   - Preserves application state
+   - ~100ms update time
+
+   Implementation:
+   - Source code mounted as read-only volumes
+   - node_modules excluded (conflicts)
+   - Separate dev volumes for isolation
+
+2. Volume Strategy
+   Why: Balance between performance and safety
+
+   Production:
+   - No volume mounts (code baked into image)
+   - Only postgres_data for persistence
+   - Immutable containers
+
+   Development:
+   - Source code mounted read-only
+   - Excludes node_modules, __pycache__
+   - Named volumes for database (postgres_dev_data)
+
+   Benefits:
+   - Fast code changes in dev
+   - Production immutability
+   - Clear separation of environments
+
+3. Port Exposure
+   Why: Flexibility and security
+
+   Production:
+   - Frontend: 3000 (public)
+   - Backend: 8000 (public)
+   - PostgreSQL: internal only
+
+   Development:
+   - Frontend: 3000 (public)
+   - Backend: 8000 (public)
+   - PostgreSQL: 5432 (exposed for tools like DBeaver, pgAdmin)
+
+   Reasoning:
+   - Developers need database access
+   - Production DB should never be exposed
+   - Easy to change ports in compose file
+
+AUTOMATION SCRIPTS
+------------------
+
+1. setup_dev.sh Design
+   Why: One-command environment setup
+
+   Features chosen:
+   - Automatic .env creation: Reduces setup friction
+   - Secure key generation: Uses openssl for cryptographic security
+   - Health checks: Ensures services are actually ready
+   - CSV import: Automates food database seeding
+   - Colored output: Better UX and error visibility
+
+   Implementation choices:
+   - Bash (not Python): Universal availability on Unix systems
+   - Exit on error (-e): Fail fast on problems
+   - Retries with timeouts: Handles slow startup gracefully
+   - Informative output: Guides user through process
+
+   Error handling:
+   - Checks Docker installation
+   - Verifies container health
+   - Provides fallback instructions
+   - Non-blocking warnings for optional features
+
+2. backup_db.sh Design
+   Why: Data protection and disaster recovery
+
+   Features chosen:
+   - Timestamped files: Easy to identify backup date
+   - Gzip compression: Saves disk space (typically 10:1 ratio)
+   - Rotation: Prevents disk space exhaustion
+   - Integrity verification: Ensures backup is valid
+   - Restore instructions: Included in output
+
+   Implementation choices:
+   - pg_dump flags:
+     --clean: Drop objects before recreating
+     --if-exists: No errors if objects don't exist
+     --create: Include CREATE DATABASE statement
+     --verbose: Progress output
+
+   - Rotation logic:
+     * Keeps N most recent backups
+     * Uses ls -1t (time-sorted) for accurate ordering
+     * Removes oldest files automatically
+
+   - Cron-friendly:
+     * Exit codes for monitoring
+     * Log-friendly output
+     * No interactive prompts
+
+ENVIRONMENT VARIABLES
+---------------------
+
+1. Security Variables
+   Why: Separate secrets from code
+
+   SECRET_KEY:
+   - 32-byte hex (64 characters)
+   - Generated with openssl rand -hex 32
+   - Used for JWT signing
+   - MUST be kept secret and random
+
+   DB_PASSWORD:
+   - Base64 encoded random bytes
+   - Alphanumeric only (Docker compatibility)
+   - Auto-generated in setup script
+
+   GROCY_API_KEY:
+   - User-provided (from Grocy instance)
+   - Required for inventory features
+   - Stored in .env (not committed)
+
+2. Configuration Variables
+   Why: Flexibility without code changes
+
+   JWT_EXPIRATION:
+   - Default: 3600 seconds (1 hour)
+   - Short-lived for security
+   - Balanced with UX
+
+   REFRESH_TOKEN_EXPIRATION:
+   - Default: 604800 seconds (7 days)
+   - Allows "remember me" functionality
+   - Longer duration acceptable (refresh tokens)
+
+   Reasoning:
+   - Standard OAuth2 pattern
+   - Access token: Short-lived, frequently used
+   - Refresh token: Long-lived, rarely used
+
+3. Integration Variables
+   Why: External service configuration
+
+   GROCY_URL, GROCY_API_KEY:
+   - Required for inventory features
+   - User's own Grocy instance
+   - Not validated at startup (graceful degradation)
+
+   MQTT settings:
+   - Optional (Home Assistant integration)
+   - Empty values = feature disabled
+   - No errors if not configured
+
+   Future integrations:
+   - Commented in .env.example
+   - Easy to enable when Phase 2 starts
+   - No code changes needed
+
+DATABASE STRATEGY
+-----------------
+
+1. Health Checks
+   Why: Prevent race conditions
+
+   Implementation:
+   - pg_isready every 5 seconds
+   - 5 second timeout
+   - 5 retries (25 seconds total)
+
+   Benefits:
+   - Backend waits for PostgreSQL to be ready
+   - No connection errors on startup
+   - Clean container dependencies
+
+   Alternative considered: Sleep timer
+   Reason for rejection: Fixed delay not reliable
+
+2. Volume Persistence
+   Why: Data survives container restarts
+
+   Production:
+   - postgres_data: Named volume
+   - Persists across restarts
+   - Easy to backup with Docker
+
+   Development:
+   - postgres_dev_data: Separate volume
+   - Isolates dev/prod data
+   - Can be wiped without affecting prod
+
+   Benefits:
+   - Data safety
+   - Easy cleanup in dev
+   - Clear environment separation
+
+3. Backup Strategy
+   Why: Disaster recovery and compliance
+
+   Format: SQL dump (compressed)
+   - Human-readable (can edit if needed)
+   - Version-independent (works across Postgres versions)
+   - Complete schema and data
+
+   Alternative considered: Binary pg_basebackup
+   Reason for rejection: Version-specific, harder to restore
+
+   Rotation: Keep last N backups
+   - Prevents disk space issues
+   - Configurable retention
+   - Automatic cleanup
+
+   Alternative considered: Keep all backups
+   Reason for rejection: Disk space growth unbounded
+
+DOCUMENTATION
+-------------
+
+1. README.md Structure
+   Why: Progressive disclosure of information
+
+   Organization:
+   - Quick Start first: Get running fast
+   - Commands reference: Copy-paste ready
+   - Troubleshooting: Common issues solved
+   - Deep dive sections: For when needed
+
+   Writing style:
+   - Short paragraphs
+   - Code examples for everything
+   - Clear section headers
+   - Links to detailed docs
+
+2. Inline Comments
+   Why: Self-documenting code
+
+   docker-compose.yml:
+   - Service purpose explained
+   - Why specific settings chosen
+   - Environment variable descriptions
+
+   Scripts:
+   - Function documentation
+   - Step-by-step comments
+   - Error handling explained
+
+3. .env.example Documentation
+   Why: Guide users through configuration
+
+   Format:
+   - Grouped by category
+   - Comments for each variable
+   - Examples where helpful
+   - Security warnings where needed
+
+   Benefits:
+   - Users understand what to configure
+   - Less support needed
+   - Easier onboarding
+
+=================================================================================
+INTEGRATION POINTS
+=================================================================================
+
+GROCY
+-----
+Configuration:
+- GROCY_URL: Full URL with protocol and port
+- GROCY_API_KEY: API key from Grocy settings
+
+Backend integration:
+- HTTP client (httpx) in app/integrations/grocy.py
+- Proxy endpoints: /api/v1/grocy/stock, /api/v1/grocy/products
+- Error handling: Graceful degradation if Grocy unavailable
+- Caching: Optional, for Phase 2
+
+Endpoints provided:
+- GET /api/v1/grocy/stock - Current inventory
+- GET /api/v1/grocy/products - Product list
+- GET /api/v1/grocy/products/{id} - Product details
+
+HOME ASSISTANT (MQTT)
+---------------------
+Configuration:
+- MQTT_BROKER: Hostname or IP
+- MQTT_PORT: Default 1883
+- MQTT_USER: Optional authentication
+- MQTT_PASSWORD: Optional authentication
+
+Backend integration:
+- MQTT publisher in app/integrations/mqtt.py
+- Publishes events on meal/recipe creation
+- Topics:
+  * meal-planner/meals/created
+  * meal-planner/recipes/created
+  * meal-planner/health/weight
+
+Home Assistant usage:
+- Subscribe to topics in automation.yaml
+- Display widgets in Lovelace UI
+- Trigger automations on events
+
+FUTURE INTEGRATIONS
+-------------------
+Phase 2+:
+- OpenWebUI: LLM suggestions based on inventory
+- n8n: Complex automations and workflows
+- Telegram: Notifications and bot commands
+
+Configuration ready:
+- Variables commented in .env.example
+- No code changes needed to enable
+- Backend structured for extension
+
+=================================================================================
+DEPLOYMENT WORKFLOW
+=================================================================================
+
+DEVELOPMENT
+-----------
+1. Clone repository
+2. Run ./scripts/setup_dev.sh
+3. Edit .env with Grocy credentials
+4. Code changes auto-reload
+5. Access services at localhost
+
+Commands:
+- Start: ./scripts/setup_dev.sh
+- Logs: docker-compose logs -f
+- Stop: docker-compose down
+- Backup: ./scripts/backup_db.sh
+
+PRODUCTION
+----------
+1. Clone on NAS/server
+2. Copy .env.example to .env
+3. Generate secrets (openssl rand -hex 32)
+4. Configure Grocy URLs
+5. Run: docker-compose up -d
+6. Setup cron for backups
+
+Commands:
+- Start: docker-compose up -d
+- Update: docker-compose up -d --build
+- Logs: docker-compose logs -f
+- Stop: docker-compose down
+
+MAINTENANCE
+-----------
+Regular tasks:
+- Database backup: Automated via cron (daily at 3 AM)
+- Log rotation: Docker handles automatically
+- Updates: Rebuild containers with new code
+
+Backup restoration:
+```bash
+gunzip < backups/backup_file.sql.gz | \
+  docker exec -i meal-planner-db psql -U meal_planner -d postgres
+```
+
+=================================================================================
+SECURITY CONSIDERATIONS
+=================================================================================
+
+SECRETS MANAGEMENT
+------------------
+- All secrets in .env (not in code)
+- .env excluded from git (.gitignore)
+- .env.example has safe placeholders
+- Auto-generation of random secrets (setup script)
+
+Recommendations:
+- Use openssl for key generation
+- Change secrets in production
+- Never commit .env
+- Rotate keys periodically
+
+NETWORK SECURITY
+----------------
+- PostgreSQL not exposed externally (production)
+- Bridge network isolates services
+- Only necessary ports exposed
+- JWT for authentication (stateless)
+
+Recommendations:
+- Use reverse proxy (nginx/traefik) in production
+- Enable HTTPS with Let's Encrypt
+- Firewall rules for exposed ports
+- Rate limiting on API
+
+DATABASE SECURITY
+-----------------
+- Strong passwords (auto-generated)
+- Password hashing for users (bcrypt)
+- JWT tokens with expiration
+- Refresh token rotation
+
+Recommendations:
+- Regular backups (automated)
+- Encrypted backups for off-site storage
+- Database access audit logging
+- Row-level security policies (future)
+
+=================================================================================
+PERFORMANCE CONSIDERATIONS
+=================================================================================
+
+CONTAINER EFFICIENCY
+--------------------
+- Alpine Linux base: Minimal size (~5-10MB)
+- Multi-stage builds: Smaller production images
+- Layer caching: Faster rebuilds
+- Named volumes: Better I/O than bind mounts
+
+Expected sizes:
+- postgres:14-alpine: ~80MB
+- backend: ~200-300MB (Python + dependencies)
+- frontend: ~150-200MB (Node + build)
+
+STARTUP TIME
+------------
+- Health checks: Ensure proper startup order
+- Depends_on: Backend waits for database
+- No unnecessary restarts in dev
+
+Expected times:
+- PostgreSQL: 3-5 seconds
+- Backend: 5-10 seconds
+- Frontend: 5-10 seconds
+- Total: ~20 seconds cold start
+
+RESOURCE USAGE
+--------------
+Expected resources:
+- PostgreSQL: ~50-100MB RAM, minimal CPU
+- Backend: ~100-200MB RAM, low CPU
+- Frontend: ~50MB RAM, minimal CPU (static serving)
+- Total: ~200-400MB RAM
+
+Scaling considerations:
+- Horizontal: Multiple backend containers behind load balancer
+- Vertical: Increase PostgreSQL resources for large datasets
+- Caching: Add Redis for frequently accessed data (Phase 2)
+
+=================================================================================
+TESTING STRATEGY
+=================================================================================
+
+DEVELOPMENT TESTING
+-------------------
+1. Container Health
+   ```bash
+   docker-compose ps  # All should show "healthy" or "running"
+   ```
+
+2. Service Connectivity
+   ```bash
+   curl http://localhost:8000/health  # Backend health check
+   curl http://localhost:3000         # Frontend
+   ```
+
+3. Database Access
+   ```bash
+   docker-compose exec postgres psql -U meal_planner -d meal_planner_db -c "\dt"
+   ```
+
+INTEGRATION TESTING
+-------------------
+1. End-to-end flow:
+   - Register user → Create house → Create recipe → Log meal
+
+2. Grocy integration:
+   - Configure Grocy credentials
+   - Test /api/v1/grocy/stock endpoint
+   - Verify inventory display
+
+3. Backup/restore:
+   - Create backup
+   - Destroy database
+   - Restore from backup
+   - Verify data integrity
+
+=================================================================================
+TROUBLESHOOTING GUIDE
+=================================================================================
+
+COMMON ISSUES
+-------------
+
+1. Port already in use
+   Symptom: "port is already allocated"
+   Solution: Change port in docker-compose.yml or stop conflicting service
+
+2. Database connection error
+   Symptom: Backend can't connect to PostgreSQL
+   Solution:
+   - Check DB_PASSWORD matches in .env
+   - Verify postgres container is running
+   - Check health status: docker-compose ps
+
+3. Hot reload not working
+   Symptom: Code changes not reflected
+   Solution:
+   - Verify volumes are mounted (docker-compose config)
+   - Check container logs (docker-compose logs -f)
+   - Restart container: docker-compose restart backend
+
+4. Grocy integration fails
+   Symptom: 401 Unauthorized or connection error
+   Solution:
+   - Verify GROCY_URL is correct (include http:// and port)
+   - Check GROCY_API_KEY is valid
+   - Test with curl: curl -H "GROCY-API-KEY: key" $GROCY_URL/api/system/info
+
+5. Backup fails
+   Symptom: backup_db.sh exits with error
+   Solution:
+   - Check database container is running
+   - Verify ./backups directory is writable
+   - Check disk space: df -h
+
+DEBUGGING COMMANDS
+------------------
+```bash
+# View logs
+docker-compose logs -f [service]
+
+# Execute command in container
+docker-compose exec backend bash
+
+# Check container status
+docker-compose ps
+
+# Inspect container
+docker inspect meal-planner-backend
+
+# Check resource usage
+docker stats
+
+# View environment variables
+docker-compose exec backend env
+```
+
+=================================================================================
+FUTURE IMPROVEMENTS
+=================================================================================
+
+PHASE 2 ENHANCEMENTS
+--------------------
+1. Redis caching layer
+   - Cache Grocy API responses
+   - Session storage
+   - Rate limiting
+
+2. Health checks for all services
+   - Backend: /health endpoint
+   - Frontend: Serve health.html
+   - Custom health check scripts
+
+3. Logging aggregation
+   - Centralized logging (ELK stack)
+   - Structured JSON logs
+   - Log rotation
+
+4. Monitoring
+   - Prometheus metrics
+   - Grafana dashboards
+   - Alert rules
+
+PHASE 3 ENHANCEMENTS
+--------------------
+1. Container orchestration
+   - Kubernetes manifests
+   - Helm charts
+   - Auto-scaling
+
+2. CI/CD pipeline
+   - GitHub Actions
+   - Automated testing
+   - Automated deployment
+
+3. Security hardening
+   - Non-root containers
+   - Read-only file systems
+   - Security scanning
+
+=================================================================================
+MAINTENANCE LOG
+=================================================================================
+
+Initial Setup - 2026-01-13
+--------------------------
+- Created docker-compose.yml (production config)
+- Created docker-compose.dev.yml (development override)
+- Created .env.example (environment template)
+- Created scripts/setup_dev.sh (automated setup)
+- Created scripts/backup_db.sh (database backup)
+- Created README.md (project documentation)
+- Created .gitignore (git exclusions)
+- Made scripts executable (chmod +x)
+
+Next Steps:
+- Backend Dockerfile creation (Task B1)
+- Frontend Dockerfile creation (with frontend setup)
+- Database schema implementation (Task B1)
+- API endpoints implementation (Tasks B2-B6)
+
+=================================================================================
+END OF CREATION LOG
+=================================================================================
