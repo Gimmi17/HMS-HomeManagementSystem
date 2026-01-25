@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: hms-db
+    environment:
+      POSTGRES_USER: meal_planner
+      POSTGRES_PASSWORD: HmsSecurePass2024!
+      POSTGRES_DB: meal_planner_db
+    volumes:
+      - hms_postgres_data:/var/lib/postgresql/data
+    networks:
+      - hms-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hms-backend
+    environment:
+      DATABASE_URL: postgresql://meal_planner:HmsSecurePass2024!@postgres:5432/meal_planner_db
+      SECRET_KEY: x7k9m2p4q8w1e5r3t6y0u8i2o5a3s7d1f4g6h9j2l5z8c1v4b7n0m3
+      JWT_EXPIRATION: "3600"
+      REFRESH_TOKEN_EXPIRATION: "604800"
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8847:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - hms-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hms-frontend
+    ports:
+      - "5052:3000"
+    depends_on:
+      - backend
+    networks:
+      - hms-network
+    restart: unless-stopped
+
+volumes:
+  hms_postgres_data:
+
+networks:
+  hms-network:
+    driver: bridge
