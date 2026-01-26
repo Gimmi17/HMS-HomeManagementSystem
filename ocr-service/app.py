@@ -35,7 +35,6 @@ def get_ocr():
         _ocr_instance = PaddleOCR(
             use_angle_cls=True,
             lang='it',
-            use_gpu=False,
             show_log=False
         )
         logger.info("PaddleOCR initialized")
