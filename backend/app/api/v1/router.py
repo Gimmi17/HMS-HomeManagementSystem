@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin
 
 
 # Create main v1 router
@@ -162,4 +162,15 @@ api_router.include_router(
     error_logs.router,
     # prefix is already defined in error_logs.router (/error-logs)
     tags=["Error Logs"],
+)
+
+
+# Include admin endpoints
+# Endpoints: POST /admin/import-database
+# Database import functionality (one-shot migration tool)
+# Requires authentication
+api_router.include_router(
+    admin.router,
+    # prefix is already defined in admin.router (/admin)
+    tags=["Admin"],
 )

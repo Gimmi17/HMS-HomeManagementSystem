@@ -32,6 +32,12 @@ const settingsLinks: SettingsLink[] = [
     description: 'Gestisci membri e inviti',
     icon: '👥',
   },
+  {
+    to: '/settings/import-database',
+    title: 'Import Database',
+    description: 'Importa dati da backup SQL',
+    icon: '📥',
+  },
 ]
 
 export function Settings() {
