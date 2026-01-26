@@ -9,12 +9,18 @@ FROM python:3.11-slim AS base
 # Set working directory inside container
 WORKDIR /app
 
-# Install system dependencies required for PostgreSQL and cryptography
+# Install system dependencies required for PostgreSQL, cryptography, and PaddleOCR
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     gcc \
     g++ \
     libpq-dev \
+    # PaddleOCR dependencies
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
@@ -50,6 +56,12 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     libpq5 \
+    # PaddleOCR runtime dependencies
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from base stage

@@ -8,6 +8,8 @@ sets up middleware, and defines the health check endpoint.
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.core.config import settings
 from app.middleware.cors import setup_cors
@@ -163,6 +165,11 @@ app.include_router(
     api_router,
     prefix=f"/api/{settings.API_VERSION}",
 )
+
+# Mount static files for receipt images
+receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "receipts")
+if os.path.exists(receipts_dir):
+    app.mount(f"/api/{settings.API_VERSION}/static/receipts", StaticFiles(directory=receipts_dir), name="receipts")
 
 # API Documentation:
 # Swagger UI: http://localhost:8000/docs

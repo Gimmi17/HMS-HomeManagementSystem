@@ -102,6 +102,12 @@ class ShoppingList(BaseModel):
         cascade="all, delete-orphan",
         order_by="ShoppingListItem.position"
     )
+    receipts = relationship(
+        "Receipt",
+        back_populates="shopping_list",
+        cascade="all, delete-orphan",
+        order_by="Receipt.created_at"
+    )
 
     def __repr__(self):
         return f"<ShoppingList(id={self.id}, name='{self.name}', status={self.status})>"

@@ -24,6 +24,12 @@ python-multipart==0.0.6       # Form data parsing (required for file uploads)
 # HTTP Client
 httpx==0.26.0                 # Async HTTP client (for Grocy API integration)
 
+# OCR Dependencies (Receipt Scanning)
+paddleocr>=2.7.0              # OCR engine (97% accuracy on receipts)
+paddlepaddle>=2.5.0           # PaddlePaddle deep learning framework (CPU version)
+Pillow>=10.0.0                # Image processing
+rapidfuzz>=3.0.0              # Fuzzy string matching for reconciliation
+
 # Future Dependencies (Phase 2+)
 # Uncomment when needed:
 # paho-mqtt==1.6.1            # MQTT client for Home Assistant integration
