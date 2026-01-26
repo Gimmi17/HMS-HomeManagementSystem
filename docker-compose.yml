@@ -45,6 +45,9 @@ services:
       MQTT_USER: ${MQTT_USER:-}
       MQTT_PASSWORD: ${MQTT_PASSWORD:-}
 
+      # OCR Service
+      OCR_SERVICE_URL: http://ocr:8001
+
       # Python
       PYTHONUNBUFFERED: 1
     ports:
@@ -58,6 +61,17 @@ services:
       - meal-network
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # OCR Service (PaddleOCR microservice)
+  ocr:
+    build:
+      context: ./ocr-service
+      dockerfile: Dockerfile
+    container_name: meal-planner-ocr
+    networks:
+      - meal-network
+    restart: unless-stopped
+    # Note: First build will take a while (~5-10 min) due to PaddlePaddle download
 
   # React Frontend
   frontend:
