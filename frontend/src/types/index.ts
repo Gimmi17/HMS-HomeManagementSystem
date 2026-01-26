@@ -339,11 +339,20 @@ export interface ReceiptItem {
   updated_at: string
 }
 
+export interface ReceiptImage {
+  id: string
+  receipt_id: string
+  position: number
+  image_path: string
+  raw_ocr_text?: string
+  ocr_confidence?: number
+  created_at: string
+}
+
 export interface Receipt {
   id: string
   shopping_list_id: string
   uploaded_by?: string
-  image_path: string
   status: ReceiptStatus
   raw_ocr_text?: string
   ocr_confidence?: number
@@ -351,6 +360,7 @@ export interface Receipt {
   total_amount_detected?: number
   processed_at?: string
   error_message?: string
+  images: ReceiptImage[]
   items: ReceiptItem[]
   created_at: string
   updated_at: string
@@ -362,6 +372,7 @@ export interface ReceiptSummary {
   status: ReceiptStatus
   store_name_detected?: string
   total_amount_detected?: number
+  image_count: number
   item_count: number
   matched_count: number
   created_at: string

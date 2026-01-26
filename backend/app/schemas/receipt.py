@@ -65,6 +65,22 @@ class ReceiptItemUpdate(BaseModel):
     shopping_list_item_id: Optional[UUID] = None
 
 
+# Receipt Image Schemas
+
+class ReceiptImageResponse(BaseModel):
+    """Schema for receipt image response"""
+    id: UUID
+    receipt_id: UUID
+    position: int
+    image_path: str
+    raw_ocr_text: Optional[str] = None
+    ocr_confidence: Optional[float] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Receipt Schemas
 
 class ReceiptResponse(BaseModel):
@@ -72,7 +88,6 @@ class ReceiptResponse(BaseModel):
     id: UUID
     shopping_list_id: UUID
     uploaded_by: Optional[UUID] = None
-    image_path: str
     status: ReceiptStatusEnum
     raw_ocr_text: Optional[str] = None
     ocr_confidence: Optional[float] = None
@@ -80,6 +95,7 @@ class ReceiptResponse(BaseModel):
     total_amount_detected: Optional[float] = None
     processed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    images: List[ReceiptImageResponse] = []
     items: List[ReceiptItemResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -95,6 +111,7 @@ class ReceiptSummary(BaseModel):
     status: ReceiptStatusEnum
     store_name_detected: Optional[str] = None
     total_amount_detected: Optional[float] = None
+    image_count: int = Field(0, description="Number of images")
     item_count: int = Field(0, description="Number of extracted items")
     matched_count: int = Field(0, description="Number of matched items")
     created_at: datetime

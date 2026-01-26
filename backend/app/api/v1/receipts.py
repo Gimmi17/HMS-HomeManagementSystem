@@ -17,9 +17,10 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.shopping_list import ShoppingList, ShoppingListItem
-from app.models.receipt import Receipt, ReceiptItem, ReceiptStatus, ReceiptItemMatchStatus
+from app.models.receipt import Receipt, ReceiptImage, ReceiptItem, ReceiptStatus, ReceiptItemMatchStatus
 from app.schemas.receipt import (
     ReceiptResponse,
+    ReceiptImageResponse,
     ReceiptSummary,
     ReceiptsResponse,
     ReceiptItemResponse,
@@ -51,12 +52,11 @@ def ensure_receipts_dir():
 
 
 def build_receipt_response(receipt: Receipt) -> ReceiptResponse:
-    """Helper to build ReceiptResponse with items."""
+    """Helper to build ReceiptResponse with images and items."""
     return ReceiptResponse(
         id=receipt.id,
         shopping_list_id=receipt.shopping_list_id,
         uploaded_by=receipt.uploaded_by,
-        image_path=receipt.image_path,
         status=receipt.status,
         raw_ocr_text=receipt.raw_ocr_text,
         ocr_confidence=receipt.ocr_confidence,
@@ -64,6 +64,18 @@ def build_receipt_response(receipt: Receipt) -> ReceiptResponse:
         total_amount_detected=receipt.total_amount_detected,
         processed_at=receipt.processed_at,
         error_message=receipt.error_message,
+        images=[
+            ReceiptImageResponse(
+                id=img.id,
+                receipt_id=img.receipt_id,
+                position=img.position,
+                image_path=img.image_path,
+                raw_ocr_text=img.raw_ocr_text,
+                ocr_confidence=img.ocr_confidence,
+                created_at=img.created_at
+            )
+            for img in receipt.images
+        ],
         items=receipt.items,
         created_at=receipt.created_at,
         updated_at=receipt.updated_at
@@ -73,14 +85,15 @@ def build_receipt_response(receipt: Receipt) -> ReceiptResponse:
 @router.post("/shopping-lists/{list_id}/upload", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
 async def upload_receipt(
     list_id: UUID,
-    file: UploadFile = File(..., description="Receipt image (JPG, PNG, WEBP)"),
+    files: list[UploadFile] = File(..., description="Receipt images (JPG, PNG, WEBP) - multiple files supported for long receipts"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Upload a receipt image for a shopping list.
+    Upload receipt images for a shopping list.
 
-    Accepts JPG, PNG, or WEBP images.
+    Accepts multiple JPG, PNG, or WEBP images.
+    For long receipts, upload images in order (top to bottom).
     Creates a receipt record with status 'uploaded'.
     """
     # Verify shopping list exists
@@ -91,45 +104,71 @@ async def upload_receipt(
             detail="Lista della spesa non trovata"
         )
 
-    # Validate file type
-    allowed_types = ['image/jpeg', 'image/png', 'image/webp']
-    if file.content_type not in allowed_types:
+    if not files or len(files) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Tipo file non supportato. Usa: JPG, PNG, WEBP"
+            detail="Nessuna immagine fornita"
         )
 
-    # Generate unique filename
-    ext = file.filename.split('.')[-1] if file.filename else 'jpg'
-    filename = f"{uuid4()}.{ext}"
+    # Validate file types
+    allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+    for file in files:
+        if file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Tipo file non supportato: {file.filename}. Usa: JPG, PNG, WEBP"
+            )
 
     # Ensure directory exists
     ensure_receipts_dir()
 
-    # Save file
-    file_path = os.path.join(RECEIPTS_DIR, filename)
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        logger.error(f"Failed to save receipt image: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Errore nel salvataggio dell'immagine"
-        )
-
-    # Create receipt record
+    # Create receipt record first
     receipt = Receipt(
         shopping_list_id=list_id,
         uploaded_by=current_user.id,
-        image_path=filename,
         status=ReceiptStatus.UPLOADED
     )
     db.add(receipt)
-    db.commit()
-    db.refresh(receipt)
+    db.flush()  # Get the receipt ID
 
-    logger.info(f"Receipt uploaded: {receipt.id} for list {list_id}")
+    # Save files and create ReceiptImage records
+    saved_files = []
+    try:
+        for idx, file in enumerate(files):
+            # Generate unique filename
+            ext = file.filename.split('.')[-1] if file.filename else 'jpg'
+            filename = f"{receipt.id}_{idx}.{ext}"
+
+            # Save file
+            file_path = os.path.join(RECEIPTS_DIR, filename)
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            saved_files.append(file_path)
+
+            # Create ReceiptImage record
+            receipt_image = ReceiptImage(
+                receipt_id=receipt.id,
+                position=idx,
+                image_path=filename
+            )
+            db.add(receipt_image)
+
+        db.commit()
+        db.refresh(receipt)
+
+        logger.info(f"Receipt uploaded: {receipt.id} for list {list_id}, {len(files)} images")
+
+    except Exception as e:
+        # Cleanup saved files on error
+        for fp in saved_files:
+            if os.path.exists(fp):
+                os.remove(fp)
+        db.rollback()
+        logger.error(f"Failed to save receipt images: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nel salvataggio delle immagini"
+        )
 
     return build_receipt_response(receipt)
 
@@ -142,8 +181,9 @@ async def process_receipt_ocr(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Process a receipt image with OCR.
+    Process receipt images with OCR.
 
+    Processes all images in order and concatenates the text.
     Extracts text and parses product lines.
     Updates receipt status to 'processed' or 'error'.
     """
@@ -158,27 +198,60 @@ async def process_receipt_ocr(
     if receipt.status in [ReceiptStatus.PROCESSED, ReceiptStatus.RECONCILED]:
         return build_receipt_response(receipt)
 
+    # Check if has images
+    if not receipt.images:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nessuna immagine caricata per questo scontrino"
+        )
+
     # Update status to processing
     receipt.status = ReceiptStatus.PROCESSING
     db.commit()
 
-    # Process with OCR
-    image_path = os.path.join(RECEIPTS_DIR, receipt.image_path)
-
     try:
-        ocr_result = process_receipt(image_path)
+        # Process all images and combine results
+        all_raw_text = []
+        all_product_lines = []
+        all_confidences = []
+        store_name = None
+        total_amount = None
 
-        # Save OCR results
-        receipt.raw_ocr_text = ocr_result.raw_text
-        receipt.ocr_confidence = ocr_result.average_confidence
-        receipt.store_name_detected = ocr_result.store_name
-        receipt.total_amount_detected = ocr_result.total_amount
+        for receipt_image in sorted(receipt.images, key=lambda x: x.position):
+            image_path = os.path.join(RECEIPTS_DIR, receipt_image.image_path)
+
+            ocr_result = process_receipt(image_path)
+
+            # Store per-image OCR results
+            receipt_image.raw_ocr_text = ocr_result.raw_text
+            receipt_image.ocr_confidence = ocr_result.average_confidence
+
+            # Accumulate results
+            all_raw_text.append(ocr_result.raw_text)
+            all_confidences.append(ocr_result.average_confidence)
+
+            # Get product lines from this image
+            product_lines = get_product_lines(ocr_result)
+            all_product_lines.extend(product_lines)
+
+            # Take store name from first image that has it
+            if not store_name and ocr_result.store_name:
+                store_name = ocr_result.store_name
+
+            # Take total from last image that has it (usually at the bottom)
+            if ocr_result.total_amount:
+                total_amount = ocr_result.total_amount
+
+        # Save combined OCR results
+        receipt.raw_ocr_text = "\n---\n".join(all_raw_text)
+        receipt.ocr_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+        receipt.store_name_detected = store_name
+        receipt.total_amount_detected = total_amount
         receipt.processed_at = datetime.now(timezone.utc)
         receipt.status = ReceiptStatus.PROCESSED
 
-        # Create receipt items from product lines
-        product_lines = get_product_lines(ocr_result)
-        for idx, line in enumerate(product_lines):
+        # Create receipt items from all product lines
+        for idx, line in enumerate(all_product_lines):
             item = ReceiptItem(
                 receipt_id=receipt.id,
                 position=idx,
@@ -194,7 +267,7 @@ async def process_receipt_ocr(
         db.commit()
         db.refresh(receipt)
 
-        logger.info(f"Receipt processed: {receipt.id}, {len(product_lines)} items extracted")
+        logger.info(f"Receipt processed: {receipt.id}, {len(all_product_lines)} items from {len(receipt.images)} images")
 
     except Exception as e:
         logger.error(f"OCR processing failed for receipt {receipt_id}: {e}")
@@ -388,6 +461,7 @@ async def get_receipts_for_list(
 
     summaries = []
     for receipt in receipts:
+        image_count = len(receipt.images)
         item_count = len(receipt.items)
         matched_count = sum(1 for item in receipt.items if item.match_status == ReceiptItemMatchStatus.MATCHED)
 
@@ -397,6 +471,7 @@ async def get_receipts_for_list(
             status=receipt.status,
             store_name_detected=receipt.store_name_detected,
             total_amount_detected=receipt.total_amount_detected,
+            image_count=image_count,
             item_count=item_count,
             matched_count=matched_count,
             created_at=receipt.created_at
@@ -506,14 +581,18 @@ async def add_extra_items_to_list(
     }
 
 
-@router.delete("/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_receipt(
+@router.post("/{receipt_id}/images", response_model=ReceiptResponse)
+async def add_receipt_images(
     receipt_id: UUID,
+    files: list[UploadFile] = File(..., description="Additional receipt images"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Delete a receipt and its image.
+    Add more images to an existing receipt.
+
+    Images are added to the end of the existing images.
+    Receipt must be in 'uploaded' status (not yet processed).
     """
     receipt = db.query(Receipt).filter(Receipt.id == receipt_id).first()
     if not receipt:
@@ -522,13 +601,90 @@ async def delete_receipt(
             detail="Scontrino non trovato"
         )
 
-    # Delete image file
-    image_path = os.path.join(RECEIPTS_DIR, receipt.image_path)
-    if os.path.exists(image_path):
-        try:
-            os.remove(image_path)
-        except Exception as e:
-            logger.warning(f"Failed to delete receipt image: {e}")
+    # Can only add images if not yet processed
+    if receipt.status not in [ReceiptStatus.UPLOADED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Non puoi aggiungere immagini a uno scontrino già elaborato"
+        )
+
+    # Validate file types
+    allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+    for file in files:
+        if file.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Tipo file non supportato: {file.filename}. Usa: JPG, PNG, WEBP"
+            )
+
+    # Get current max position
+    current_max_position = max([img.position for img in receipt.images], default=-1)
+
+    # Save new files
+    ensure_receipts_dir()
+    saved_files = []
+
+    try:
+        for idx, file in enumerate(files):
+            position = current_max_position + 1 + idx
+            ext = file.filename.split('.')[-1] if file.filename else 'jpg'
+            filename = f"{receipt.id}_{position}.{ext}"
+
+            file_path = os.path.join(RECEIPTS_DIR, filename)
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            saved_files.append(file_path)
+
+            receipt_image = ReceiptImage(
+                receipt_id=receipt.id,
+                position=position,
+                image_path=filename
+            )
+            db.add(receipt_image)
+
+        db.commit()
+        db.refresh(receipt)
+
+        logger.info(f"Added {len(files)} images to receipt {receipt_id}")
+
+    except Exception as e:
+        for fp in saved_files:
+            if os.path.exists(fp):
+                os.remove(fp)
+        db.rollback()
+        logger.error(f"Failed to add receipt images: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Errore nel salvataggio delle immagini"
+        )
+
+    return build_receipt_response(receipt)
+
+
+@router.delete("/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_receipt(
+    receipt_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a receipt and all its images.
+    """
+    receipt = db.query(Receipt).filter(Receipt.id == receipt_id).first()
+    if not receipt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scontrino non trovato"
+        )
+
+    # Delete all image files
+    for receipt_image in receipt.images:
+        image_path = os.path.join(RECEIPTS_DIR, receipt_image.image_path)
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete receipt image: {e}")
 
     db.delete(receipt)
     db.commit()

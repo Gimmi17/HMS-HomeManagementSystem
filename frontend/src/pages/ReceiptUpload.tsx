@@ -1,10 +1,16 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import receiptsService from '@/services/receipts'
 import shoppingListsService from '@/services/shoppingLists'
 import type { Receipt, ReceiptItem, ReconciliationResponse, ShoppingList, ReceiptItemMatchStatus } from '@/types'
 
 type ProcessingStep = 'idle' | 'uploading' | 'processing' | 'reconciling' | 'done' | 'error'
+
+interface ImagePreview {
+  id: string
+  file: File
+  url: string
+}
 
 const MATCH_STATUS_COLORS: Record<ReceiptItemMatchStatus, { bg: string; text: string; label: string }> = {
   matched: { bg: 'bg-green-100', text: 'text-green-700', label: 'Corrispondente' },
@@ -15,13 +21,12 @@ const MATCH_STATUS_COLORS: Record<ReceiptItemMatchStatus, { bg: string; text: st
 
 export function ReceiptUpload() {
   const { listId } = useParams()
-  const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [shoppingList, setShoppingList] = useState<ShoppingList | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([])
   const [step, setStep] = useState<ProcessingStep>('idle')
   const [error, setError] = useState<string | null>(null)
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
@@ -43,24 +48,61 @@ export function ReceiptUpload() {
     fetchList()
   }, [listId])
 
-  const handleFileSelect = async (file: File) => {
-    if (!listId) return
+  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach((p) => URL.revokeObjectURL(p.url))
+    }
+  }, [])
 
-    // Validate file type
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError('Formato non supportato. Usa JPG, PNG o WEBP.')
-      return
+  const addFiles = (files: File[]) => {
+    const validFiles = files.filter((file) =>
+      ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)
+    )
+
+    if (validFiles.length !== files.length) {
+      setError('Alcuni file non sono supportati. Usa JPG, PNG o WEBP.')
     }
 
-    // Create preview
-    const url = URL.createObjectURL(file)
-    setPreviewUrl(url)
+    const newPreviews: ImagePreview[] = validFiles.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file,
+      url: URL.createObjectURL(file),
+    }))
+
+    setImagePreviews((prev) => [...prev, ...newPreviews])
+    setError(null)
+  }
+
+  const removeImage = (id: string) => {
+    setImagePreviews((prev) => {
+      const toRemove = prev.find((p) => p.id === id)
+      if (toRemove) {
+        URL.revokeObjectURL(toRemove.url)
+      }
+      return prev.filter((p) => p.id !== id)
+    })
+  }
+
+  const moveImage = (fromIndex: number, toIndex: number) => {
+    setImagePreviews((prev) => {
+      const newPreviews = [...prev]
+      const [moved] = newPreviews.splice(fromIndex, 1)
+      newPreviews.splice(toIndex, 0, moved)
+      return newPreviews
+    })
+  }
+
+  const handleUploadAndProcess = async () => {
+    if (!listId || imagePreviews.length === 0) return
+
     setError(null)
 
     try {
       // Step 1: Upload
       setStep('uploading')
-      const uploaded = await receiptsService.upload(listId, file)
+      const files = imagePreviews.map((p) => p.file)
+      const uploaded = await receiptsService.upload(listId, files)
       setReceipt(uploaded)
 
       // Step 2: Process OCR
@@ -80,7 +122,7 @@ export function ReceiptUpload() {
       setStep('done')
     } catch (err) {
       console.error('Processing failed:', err)
-      setError('Errore durante l\'elaborazione. Riprova.')
+      setError("Errore durante l'elaborazione. Riprova.")
       setStep('error')
     }
   }
@@ -89,9 +131,9 @@ export function ReceiptUpload() {
     e.preventDefault()
     setIsDragging(false)
 
-    const file = e.dataTransfer.files[0]
-    if (file) {
-      handleFileSelect(file)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      addFiles(files)
     }
   }
 
@@ -105,10 +147,12 @@ export function ReceiptUpload() {
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      handleFileSelect(file)
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      addFiles(files)
     }
+    // Reset input to allow selecting same file again
+    e.target.value = ''
   }
 
   const toggleExtraSelection = (itemId: string) => {
@@ -135,14 +179,17 @@ export function ReceiptUpload() {
       setSelectedExtras(new Set())
     } catch (err) {
       console.error('Failed to add extras:', err)
-      setError('Errore nell\'aggiunta degli articoli.')
+      setError("Errore nell'aggiunta degli articoli.")
     }
   }
 
   const handleReset = () => {
+    // Cleanup preview URLs
+    imagePreviews.forEach((p) => URL.revokeObjectURL(p.url))
+
     setReceipt(null)
     setReconciliation(null)
-    setPreviewUrl(null)
+    setImagePreviews([])
     setStep('idle')
     setError(null)
     setSelectedExtras(new Set())
@@ -224,44 +271,140 @@ export function ReceiptUpload() {
 
       {/* Upload Zone */}
       {step === 'idle' && (
-        <div
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-            isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300 bg-gray-50'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            capture="environment"
-            onChange={handleInputChange}
-            className="hidden"
-          />
-
-          <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-            />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-
-          <p className="text-gray-600 mb-4">Trascina una foto dello scontrino qui</p>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="px-6 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
+        <>
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+              isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300 bg-gray-50'
+            }`}
           >
-            Scatta Foto o Scegli File
-          </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              multiple
+              onChange={handleInputChange}
+              className="hidden"
+            />
 
-          <p className="text-xs text-gray-500 mt-4">Formati supportati: JPG, PNG, WEBP</p>
-        </div>
+            <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+
+            <p className="text-gray-600 mb-2">Trascina le foto dello scontrino qui</p>
+            <p className="text-sm text-gray-500 mb-4">
+              Per scontrini lunghi, carica più foto in ordine (dall'alto verso il basso)
+            </p>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-6 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
+            >
+              Scatta Foto o Scegli File
+            </button>
+
+            <p className="text-xs text-gray-500 mt-4">Formati supportati: JPG, PNG, WEBP</p>
+          </div>
+
+          {/* Image Previews */}
+          {imagePreviews.length > 0 && (
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900">
+                  Foto Caricate ({imagePreviews.length})
+                </h3>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  + Aggiungi altre
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-500 mb-3">
+                Ordina le foto dall'alto verso il basso dello scontrino. Usa le frecce per riordinare.
+              </p>
+
+              <div className="space-y-3">
+                {imagePreviews.map((preview, idx) => (
+                  <div
+                    key={preview.id}
+                    className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
+                  >
+                    {/* Position number */}
+                    <div className="w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center font-semibold text-sm">
+                      {idx + 1}
+                    </div>
+
+                    {/* Thumbnail */}
+                    <img
+                      src={preview.url}
+                      alt={`Foto ${idx + 1}`}
+                      className="w-16 h-16 object-cover rounded-lg"
+                    />
+
+                    {/* File name */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{preview.file.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {(preview.file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+
+                    {/* Move buttons */}
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => idx > 0 && moveImage(idx, idx - 1)}
+                        disabled={idx === 0}
+                        className={`p-1 rounded ${idx === 0 ? 'text-gray-300' : 'text-gray-500 hover:bg-gray-200'}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => idx < imagePreviews.length - 1 && moveImage(idx, idx + 1)}
+                        disabled={idx === imagePreviews.length - 1}
+                        className={`p-1 rounded ${idx === imagePreviews.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:bg-gray-200'}`}
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Remove button */}
+                    <button
+                      onClick={() => removeImage(preview.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Process button */}
+              <button
+                onClick={handleUploadAndProcess}
+                className="w-full mt-4 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
+              >
+                Elabora Scontrino ({imagePreviews.length} {imagePreviews.length === 1 ? 'foto' : 'foto'})
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {/* Processing */}
@@ -269,16 +412,27 @@ export function ReceiptUpload() {
         <div className="card p-6">
           {renderStepIndicator()}
 
-          {previewUrl && (
-            <div className="mb-4">
-              <img src={previewUrl} alt="Receipt preview" className="max-h-64 mx-auto rounded-lg shadow" />
+          {imagePreviews.length > 0 && (
+            <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
+              {imagePreviews.map((preview, idx) => (
+                <div key={preview.id} className="relative flex-shrink-0">
+                  <img
+                    src={preview.url}
+                    alt={`Foto ${idx + 1}`}
+                    className="h-32 rounded-lg shadow"
+                  />
+                  <span className="absolute top-1 left-1 w-5 h-5 bg-primary-500 text-white rounded-full text-xs flex items-center justify-center font-semibold">
+                    {idx + 1}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent mb-3" />
             <p className="text-gray-600">
-              {step === 'uploading' && 'Caricamento immagine...'}
+              {step === 'uploading' && `Caricamento ${imagePreviews.length} immagini...`}
               {step === 'processing' && 'Elaborazione OCR...'}
               {step === 'reconciling' && 'Riconciliazione con lista...'}
             </p>
@@ -312,8 +466,13 @@ export function ReceiptUpload() {
               </div>
             </div>
 
-            {receipt.store_name_detected && (
+            {receipt.images.length > 0 && (
               <p className="text-sm text-gray-600 mt-3">
+                Foto elaborate: <span className="font-medium">{receipt.images.length}</span>
+              </p>
+            )}
+            {receipt.store_name_detected && (
+              <p className="text-sm text-gray-600">
                 Negozio: <span className="font-medium">{receipt.store_name_detected}</span>
               </p>
             )}
@@ -486,7 +645,7 @@ export function ReceiptUpload() {
             />
           </svg>
           <h3 className="font-semibold text-gray-900 mb-2">Errore</h3>
-          <p className="text-gray-600 mb-4">{error || 'Si e\' verificato un errore durante l\'elaborazione.'}</p>
+          <p className="text-gray-600 mb-4">{error || "Si e' verificato un errore durante l'elaborazione."}</p>
           <button
             onClick={handleReset}
             className="px-6 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"

@@ -13,13 +13,33 @@ interface ReceiptsResponse {
 
 export const receiptsService = {
   /**
-   * Upload a receipt image for a shopping list
+   * Upload receipt images for a shopping list
+   * Supports multiple files for long receipts
    */
-  async upload(listId: string, file: File): Promise<Receipt> {
+  async upload(listId: string, files: File[]): Promise<Receipt> {
     const formData = new FormData()
-    formData.append('file', file)
+    files.forEach((file) => {
+      formData.append('files', file)
+    })
 
     const response = await api.post(`/receipts/shopping-lists/${listId}/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return response.data
+  },
+
+  /**
+   * Add more images to an existing receipt
+   */
+  async addImages(receiptId: string, files: File[]): Promise<Receipt> {
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append('files', file)
+    })
+
+    const response = await api.post(`/receipts/${receiptId}/images`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

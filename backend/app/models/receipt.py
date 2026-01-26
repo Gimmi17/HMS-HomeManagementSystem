@@ -34,12 +34,47 @@ class ReceiptItemMatchStatus(str, enum.Enum):
     IGNORED = "ignored"
 
 
+class ReceiptImage(BaseModel):
+    """
+    Receipt Image Model
+
+    Represents a single image of a receipt.
+    Multiple images can be uploaded for long receipts.
+    """
+    __tablename__ = "receipt_images"
+
+    # Parent receipt
+    receipt_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("receipts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # Image order (0 = top of receipt, 1 = next section, etc.)
+    position = Column(Integer, default=0, nullable=False)
+
+    # Image storage path (relative to data/receipts/)
+    image_path = Column(String(500), nullable=False)
+
+    # OCR results for this specific image
+    raw_ocr_text = Column(Text, nullable=True)
+    ocr_confidence = Column(Float, nullable=True)
+
+    # Relationship
+    receipt = relationship("Receipt", back_populates="images")
+
+    def __repr__(self):
+        return f"<ReceiptImage(id={self.id}, position={self.position}, receipt_id={self.receipt_id})>"
+
+
 class Receipt(BaseModel):
     """
     Receipt Model
 
-    Represents an uploaded receipt image linked to a shopping list.
-    Stores OCR results and reconciliation status.
+    Represents an uploaded receipt linked to a shopping list.
+    Supports multiple images for long receipts.
+    Stores combined OCR results and reconciliation status.
     """
     __tablename__ = "receipts"
 
@@ -57,9 +92,6 @@ class Receipt(BaseModel):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True
     )
-
-    # Image storage path (relative to data/receipts/)
-    image_path = Column(String(500), nullable=False)
 
     # Processing status
     status = Column(
@@ -88,6 +120,12 @@ class Receipt(BaseModel):
     # Relationships
     shopping_list = relationship("ShoppingList", back_populates="receipts")
     uploader = relationship("User", foreign_keys=[uploaded_by])
+    images = relationship(
+        "ReceiptImage",
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+        order_by="ReceiptImage.position"
+    )
     items = relationship(
         "ReceiptItem",
         back_populates="receipt",
