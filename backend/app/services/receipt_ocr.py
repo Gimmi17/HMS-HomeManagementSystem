@@ -14,11 +14,18 @@ import re
 import logging
 from typing import Optional
 from dataclasses import dataclass
-from PIL import Image, ImageEnhance, ImageFilter
 from pathlib import Path
+
+# Try to import PIL - required for image processing
+try:
+    from PIL import Image, ImageEnhance, ImageFilter
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 # Lazy import PaddleOCR to avoid loading at module import time
 _ocr_instance = None
+PADDLEOCR_AVAILABLE = None  # Will be set on first use
 
 logger = logging.getLogger(__name__)
 
@@ -91,27 +98,40 @@ KNOWN_STORES = [
 ]
 
 
+def is_ocr_available() -> bool:
+    """Check if PaddleOCR is available"""
+    global PADDLEOCR_AVAILABLE
+    if PADDLEOCR_AVAILABLE is None:
+        try:
+            from paddleocr import PaddleOCR
+            PADDLEOCR_AVAILABLE = True
+        except ImportError:
+            PADDLEOCR_AVAILABLE = False
+            logger.warning("PaddleOCR not installed. OCR features disabled. Install with: pip install paddleocr paddlepaddle")
+    return PADDLEOCR_AVAILABLE
+
+
 def get_ocr_instance():
     """Get or create the PaddleOCR instance (lazy loading)"""
     global _ocr_instance
     if _ocr_instance is None:
-        try:
-            from paddleocr import PaddleOCR
-            # Use Italian language, GPU disabled for compatibility
-            _ocr_instance = PaddleOCR(
-                use_angle_cls=True,
-                lang='it',
-                use_gpu=False,
-                show_log=False
+        if not is_ocr_available():
+            raise ImportError(
+                "PaddleOCR non installato. Per abilitare l'OCR, installa: pip install paddleocr paddlepaddle"
             )
-            logger.info("PaddleOCR initialized successfully")
-        except ImportError:
-            logger.error("PaddleOCR not installed. Install with: pip install paddleocr paddlepaddle")
-            raise
+        from paddleocr import PaddleOCR
+        # Use Italian language, GPU disabled for compatibility
+        _ocr_instance = PaddleOCR(
+            use_angle_cls=True,
+            lang='it',
+            use_gpu=False,
+            show_log=False
+        )
+        logger.info("PaddleOCR initialized successfully")
     return _ocr_instance
 
 
-def preprocess_image(image_path: str) -> Image.Image:
+def preprocess_image(image_path: str):
     """
     Preprocess image for better OCR results.
 
@@ -120,6 +140,9 @@ def preprocess_image(image_path: str) -> Image.Image:
     - Sharpen
     - Resize if too small
     """
+    if not PIL_AVAILABLE:
+        raise ImportError("Pillow non installato. Installa con: pip install Pillow")
+
     img = Image.open(image_path)
 
     # Convert to grayscale
