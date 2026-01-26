@@ -41,8 +41,13 @@ RUN npm run build
 # =============================================================================
 FROM nginx:alpine AS production
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configs (SSL and non-SSL)
+COPY nginx.conf /etc/nginx/nginx-ssl.conf
+COPY nginx-http-only.conf /etc/nginx/nginx-http-only.conf
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -50,4 +55,4 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Expose ports (HTTP and HTTPS)
 EXPOSE 3000 3443
 
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
