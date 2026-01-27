@@ -133,19 +133,20 @@ export function ShoppingListDetail() {
     return () => clearInterval(pollInterval)
   }, [id, isLoading, showScanner])
 
+  // Toggle check only (called from checkbox click)
   const toggleItemCheck = async (item: ShoppingListItem) => {
     if (!list) return
 
-    // If item is already checked, open modal to view/edit data instead of unchecking
-    if (item.checked) {
-      setEditingExpiryItemId(item.id)
-      setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-      setBarcodeInput(item.scanned_barcode || '')
-      setSelectedCategoryId(item.category_id)
+    // Prevent unchecking verified items
+    if (item.checked && item.verified_at) {
+      setScanResult({
+        success: false,
+        message: 'Non puoi togliere la spunta a un articolo già verificato',
+      })
+      setTimeout(() => setScanResult(null), 3000)
       return
     }
 
-    // Item is being checked
     try {
       const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
       setList((prev) =>
@@ -157,14 +158,24 @@ export function ShoppingListDetail() {
           : null
       )
 
-      // Open expiry date modal with existing data if available
-      setEditingExpiryItemId(item.id)
-      setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-      setBarcodeInput(item.scanned_barcode || '')
-      setSelectedCategoryId(item.category_id)
+      // If item was just checked, open expiry date modal
+      if (!item.checked) {
+        setEditingExpiryItemId(item.id)
+        setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+        setBarcodeInput(item.scanned_barcode || '')
+        setSelectedCategoryId(item.category_id)
+      }
     } catch (error) {
       console.error('Failed to toggle item:', error)
     }
+  }
+
+  // Open modal to view/edit item data (called from row click)
+  const openItemModal = (item: ShoppingListItem) => {
+    setEditingExpiryItemId(item.id)
+    setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+    setBarcodeInput(item.scanned_barcode || '')
+    setSelectedCategoryId(item.category_id)
   }
 
   const handleStatusChange = async (newStatus: ShoppingListStatus) => {
@@ -714,18 +725,26 @@ export function ShoppingListDetail() {
               className={`flex items-center gap-3 ${!isVerificationMode ? 'cursor-pointer' : ''}`}
               onClick={() => {
                 if (!isVerificationMode) {
-                  toggleItemCheck(item)
+                  openItemModal(item)
                 }
               }}
             >
-              {/* Checkbox */}
+              {/* Checkbox - separate click handler for toggle */}
               <div
+                onClick={(e) => {
+                  if (!isVerificationMode) {
+                    e.stopPropagation()
+                    toggleItemCheck(item)
+                  }
+                }}
                 className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                  !isVerificationMode ? 'cursor-pointer hover:scale-110' : ''
+                } ${
                   item.not_purchased
                     ? 'bg-red-500 border-red-500'
                     : item.checked
                     ? 'bg-green-500 border-green-500'
-                    : 'border-gray-300'
+                    : 'border-gray-300 hover:border-green-400'
                 }`}
               >
                 {item.not_purchased ? (
