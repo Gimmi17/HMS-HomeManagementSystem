@@ -24,6 +24,7 @@ from app.models.shopping_list import ShoppingList, ShoppingListItem, ShoppingLis
 from app.models.store import Store
 from app.models.product_catalog import ProductCatalog
 from app.models.error_log import ErrorLog
+from app.models.category import Category
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -47,4 +48,5 @@ __all__ = [
     "Store",
     "ProductCatalog",
     "ErrorLog",
+    "Category",
 ]

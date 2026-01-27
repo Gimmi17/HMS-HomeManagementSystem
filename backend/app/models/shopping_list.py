@@ -9,7 +9,7 @@ Features:
 - Barcode scanning support for load verification
 """
 
-from sqlalchemy import Column, String, ForeignKey, Integer, Boolean, Enum as SQLEnum, DateTime, Float
+from sqlalchemy import Column, String, ForeignKey, Integer, Boolean, Enum as SQLEnum, DateTime, Float, Date
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
@@ -152,8 +152,20 @@ class ShoppingListItem(BaseModel):
     not_purchased = Column(Boolean, default=False, nullable=False)
     not_purchased_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Relationship
+    # Expiry date of the purchased product
+    expiry_date = Column(Date, nullable=True)
+
+    # Product category
+    category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Relationships
     shopping_list = relationship("ShoppingList", back_populates="items")
+    category = relationship("Category")
 
     def __repr__(self):
         return f"<ShoppingListItem(id={self.id}, name='{self.name}', checked={self.checked})>"

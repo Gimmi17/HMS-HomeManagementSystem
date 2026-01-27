@@ -244,6 +244,8 @@ export interface ShoppingListItem {
   verified_unit?: string
   not_purchased: boolean
   not_purchased_at?: string
+  expiry_date?: string  // formato YYYY-MM-DD dal backend
+  category_id?: string
   created_at: string
   updated_at: string
 }
@@ -289,6 +291,7 @@ export interface ShoppingListCreate {
     quantity?: number
     unit?: string
     position?: number
+    category_id?: string
   }[]
 }
 
@@ -299,6 +302,7 @@ export interface ShoppingListItemCreate {
   quantity?: number
   unit?: string
   position?: number
+  category_id?: string
 }
 
 // BarcodeBuddy types
@@ -315,6 +319,35 @@ export interface GrocyProductSimple {
   name: string
   description?: string
   barcode?: string
+}
+
+// Category types
+export interface Category {
+  id: string
+  name: string
+  description?: string
+  icon?: string
+  color?: string  // Hex color code (e.g., #FF5733)
+  sort_order: number
+  created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CategoryCreate {
+  name: string
+  description?: string
+  icon?: string
+  color?: string
+  sort_order?: number
+}
+
+export interface CategoryUpdate {
+  name?: string
+  description?: string
+  icon?: string
+  color?: string
+  sort_order?: number
 }
 
 // API response types

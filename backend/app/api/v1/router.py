@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, categories
 
 
 # Create main v1 router
@@ -173,4 +173,15 @@ api_router.include_router(
     admin.router,
     # prefix is already defined in admin.router (/admin)
     tags=["Admin"],
+)
+
+
+# Include categories endpoints
+# Endpoints: POST/GET/PUT/DELETE /categories
+# Product category management (shared across all houses)
+# Requires authentication
+api_router.include_router(
+    categories.router,
+    # prefix is already defined in categories.router (/categories)
+    tags=["Categories"],
 )

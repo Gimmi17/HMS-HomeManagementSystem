@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -181,6 +181,16 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <Stores />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings/categories"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Categories />
             </MainLayout>
           </PrivateRoute>
         }

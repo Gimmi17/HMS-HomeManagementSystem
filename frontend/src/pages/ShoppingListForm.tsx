@@ -3,8 +3,9 @@ import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import storesService from '@/services/stores'
+import categoriesService from '@/services/categories'
 import { grocyHouseService } from '@/services/grocy'
-import type { ShoppingListItemCreate, GrocyProductSimple, Store } from '@/types'
+import type { ShoppingListItemCreate, GrocyProductSimple, Store, Category } from '@/types'
 
 interface ItemRow {
   id: string
@@ -13,6 +14,7 @@ interface ItemRow {
   grocyProductName?: string
   quantity: number
   unit: string
+  categoryId?: string
   isNew?: boolean  // Track if item needs to be saved to backend
 }
 
@@ -36,6 +38,7 @@ export function ShoppingListForm() {
   const [listName, setListName] = useState('')
   const [storeId, setStoreId] = useState<string | undefined>()
   const [stores, setStores] = useState<Store[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [newStoreName, setNewStoreName] = useState('')
   const [showNewStoreInput, setShowNewStoreInput] = useState(false)
   const [items, setItems] = useState<ItemRow[]>([
@@ -70,7 +73,7 @@ export function ShoppingListForm() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  // Load stores
+  // Load stores and categories
   useEffect(() => {
     const loadStores = async () => {
       try {
@@ -80,7 +83,16 @@ export function ShoppingListForm() {
         console.error('Failed to load stores:', error)
       }
     }
+    const loadCategories = async () => {
+      try {
+        const response = await categoriesService.getAll()
+        setCategories(response.categories)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+      }
+    }
     loadStores()
+    loadCategories()
   }, [])
 
   // Check for recoverable not-purchased items when creating new list
@@ -135,6 +147,7 @@ export function ShoppingListForm() {
                 grocyProductName: item.grocy_product_name,
                 quantity: item.quantity,
                 unit: item.unit || 'pz',
+                categoryId: item.category_id,
                 isNew: false,  // Items from backend are already saved
               }))
             )
@@ -205,7 +218,7 @@ export function ShoppingListForm() {
     }
   }, [focusItemId, items])
 
-  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number) => {
+  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | undefined) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item
@@ -256,6 +269,7 @@ export function ShoppingListForm() {
               grocy_product_name: currentItem.grocyProductName,
               quantity: currentItem.quantity,
               unit: currentItem.unit,
+              category_id: currentItem.categoryId,
             })
 
             // Create new item and update state in one operation
@@ -368,6 +382,7 @@ export function ShoppingListForm() {
         quantity: item.quantity,
         unit: item.unit,
         position: index,
+        category_id: item.categoryId,
       }))
 
       if (isEditing && id) {
@@ -402,6 +417,7 @@ export function ShoppingListForm() {
               grocy_product_name: item.grocyProductName,
               quantity: item.quantity,
               unit: item.unit,
+              category_id: item.categoryId,
             })
           } else {
             // Update existing item (preserves checked status from backend)
@@ -411,6 +427,7 @@ export function ShoppingListForm() {
               grocy_product_name: item.grocyProductName,
               quantity: item.quantity,
               unit: item.unit,
+              category_id: item.categoryId,
             })
           }
         }
@@ -600,6 +617,21 @@ export function ShoppingListForm() {
                   <option value="ml">ml</option>
                 </select>
 
+                {/* Category selector */}
+                <select
+                  value={item.categoryId || ''}
+                  onChange={(e) => handleItemChange(item.id, 'categoryId', e.target.value || undefined)}
+                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white truncate"
+                  title="Categoria"
+                >
+                  <option value="">Cat.</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                    </option>
+                  ))}
+                </select>
+
                 {/* Grocy selector button */}
                 <button
                   type="button"
@@ -639,12 +671,28 @@ export function ShoppingListForm() {
                 </button>
               </div>
 
-              {/* Grocy badge */}
-              {item.grocyProductId && (
-                <div className="ml-8">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
-                    Grocy: {item.grocyProductName}
-                  </span>
+              {/* Badges (Grocy + Category) */}
+              {(item.grocyProductId || item.categoryId) && (
+                <div className="ml-8 flex flex-wrap gap-1">
+                  {item.grocyProductId && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
+                      Grocy: {item.grocyProductName}
+                    </span>
+                  )}
+                  {item.categoryId && (() => {
+                    const cat = categories.find(c => c.id === item.categoryId)
+                    return cat ? (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium"
+                        style={{
+                          backgroundColor: cat.color ? `${cat.color}20` : '#E5E7EB',
+                          color: cat.color || '#374151'
+                        }}
+                      >
+                        {cat.icon} {cat.name}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
               )}
             </div>

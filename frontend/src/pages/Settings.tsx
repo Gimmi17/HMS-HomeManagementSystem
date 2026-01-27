@@ -15,6 +15,12 @@ const settingsLinks: SettingsLink[] = [
     icon: '🏪',
   },
   {
+    to: '/settings/categories',
+    title: 'Categorie',
+    description: 'Gestisci categorie prodotti (Food, No Food, ecc.)',
+    icon: '🏷️',
+  },
+  {
     to: '/settings/grocy',
     title: 'Grocy',
     description: 'Sincronizza la dispensa con Grocy',

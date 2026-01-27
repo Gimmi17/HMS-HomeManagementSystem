@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
+import categoriesService from '@/services/categories'
 import BarcodeScanner from '@/components/BarcodeScanner'
-import type { ShoppingList, ShoppingListItem, ShoppingListStatus } from '@/types'
+import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
+import type { ShoppingList, ShoppingListItem, ShoppingListStatus, Category } from '@/types'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
   active: 'Attiva',
@@ -24,6 +26,21 @@ export function ShoppingListDetail() {
   const [scanResult, setScanResult] = useState<{ success: boolean; message: string } | null>(null)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [modeHandled, setModeHandled] = useState(false)
+  const [editingExpiryItemId, setEditingExpiryItemId] = useState<string | null>(null)
+  const [expiryDateInput, setExpiryDateInput] = useState('')
+  const [barcodeInput, setBarcodeInput] = useState('')
+  const [showPhotoScanner, setShowPhotoScanner] = useState(false)
+  const [showBarcodeInput, setShowBarcodeInput] = useState(false)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>()
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
+
+  // New item form state
+  const [showNewItemForm, setShowNewItemForm] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+  const [newItemQuantity, setNewItemQuantity] = useState(1)
+  const [newItemUnit, setNewItemUnit] = useState('')
+  const [isSavingNewItem, setIsSavingNewItem] = useState(false)
 
   // Derived state: are we in verification mode?
   const isVerificationMode = list?.verification_status === 'in_progress'
@@ -46,6 +63,19 @@ export function ShoppingListDetail() {
 
     fetchList()
   }, [id])
+
+  // Load categories
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const response = await categoriesService.getAll()
+        setCategories(response.categories)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+      }
+    }
+    loadCategories()
+  }, [])
 
   // Handle mode parameter from URL
   useEffect(() => {
@@ -103,6 +133,19 @@ export function ShoppingListDetail() {
   const toggleItemCheck = async (item: ShoppingListItem) => {
     if (!list) return
 
+    // Prevent unchecking verified items
+    if (item.checked && item.verified_at) {
+      setScanResult({
+        success: false,
+        message: 'Non puoi togliere la spunta a un articolo già verificato',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+      return
+    }
+
+    // If item is being checked (not already checked), show expiry date modal
+    const isBeingChecked = !item.checked
+
     try {
       const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
       setList((prev) =>
@@ -113,6 +156,14 @@ export function ShoppingListDetail() {
             }
           : null
       )
+
+      // If item was checked, open expiry date modal with existing data if available
+      if (isBeingChecked) {
+        setEditingExpiryItemId(item.id)
+        setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+        setBarcodeInput(item.scanned_barcode || '')
+        setSelectedCategoryId(item.category_id)
+      }
     } catch (error) {
       console.error('Failed to toggle item:', error)
     }
@@ -154,7 +205,7 @@ export function ShoppingListDetail() {
     }
   }
 
-  const pauseVerification = async () => {
+  const _pauseVerification = async () => {
     if (!list) return
     try {
       const updated = await shoppingListsService.update(list.id, { verification_status: 'paused' })
@@ -163,6 +214,7 @@ export function ShoppingListDetail() {
       console.error('Failed to pause verification:', error)
     }
   }
+  void _pauseVerification // Suppress unused warning, may be used in future
 
   const resumeVerification = async () => {
     if (!list) return
@@ -281,6 +333,183 @@ export function ShoppingListDetail() {
     setTimeout(() => setScanResult(null), 3000)
   }
 
+  // Format date from YYYY-MM-DD to DD/MM/YYYY for display
+  const formatDateForDisplay = (dateStr: string | undefined): string => {
+    if (!dateStr) return ''
+    const [year, month, day] = dateStr.split('-')
+    return `${day}/${month}/${year}`
+  }
+
+  // Parse date from various formats to YYYY-MM-DD for API
+  // Accepts: DDMMYY, DDMMYYYY, DD/MM/YYYY, DD/MM/YY
+  const parseDateFromInput = (input: string): string | null => {
+    // Try compact format: DDMMYY (6 digits) or DDMMYYYY (8 digits)
+    const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
+    if (compactMatch) {
+      const day = compactMatch[1]
+      const month = compactMatch[2]
+      const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
+
+      const d = parseInt(day, 10)
+      const m = parseInt(month, 10)
+      const y = parseInt(year, 10)
+      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+
+      return `${year}-${month}-${day}`
+    }
+
+    // Try format with separators: DD/MM/YYYY or DD/MM/YY
+    const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
+    if (separatorMatch) {
+      const day = separatorMatch[1].padStart(2, '0')
+      const month = separatorMatch[2].padStart(2, '0')
+      const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
+
+      const d = parseInt(day, 10)
+      const m = parseInt(month, 10)
+      const y = parseInt(year, 10)
+      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+
+      return `${year}-${month}-${day}`
+    }
+
+    return null
+  }
+
+  const openExpiryEditor = (item: ShoppingListItem) => {
+    setEditingExpiryItemId(item.id)
+    setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+    setBarcodeInput(item.scanned_barcode || '')
+    setSelectedCategoryId(item.category_id)
+    setShowBarcodeInput(false)
+    setShowPhotoScanner(false)
+  }
+
+  const saveExpiryDate = async () => {
+    if (!list || !editingExpiryItemId) return
+
+    const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : null
+
+    // If input is not empty but invalid, show error
+    if (expiryDateInput.trim() && !parsedDate) {
+      setScanResult({
+        success: false,
+        message: 'Formato data non valido. Usa DDMMYY o DD/MM/YYYY',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+      return
+    }
+
+    try {
+      const updateData: Partial<ShoppingListItem> = {}
+      if (parsedDate) {
+        updateData.expiry_date = parsedDate
+      }
+      // Include barcode if provided
+      if (barcodeInput.trim()) {
+        updateData.scanned_barcode = barcodeInput.trim()
+      }
+      // Include category if selected
+      if (selectedCategoryId) {
+        updateData.category_id = selectedCategoryId
+      }
+
+      const updatedItem = await shoppingListsService.updateItem(list.id, editingExpiryItemId, updateData)
+      setList((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((i) => (i.id === editingExpiryItemId ? updatedItem : i)),
+            }
+          : null
+      )
+      setEditingExpiryItemId(null)
+      setExpiryDateInput('')
+      setBarcodeInput('')
+      setSelectedCategoryId(undefined)
+      setShowBarcodeInput(false)
+    } catch (error) {
+      console.error('Failed to save expiry date:', error)
+      setScanResult({
+        success: false,
+        message: 'Errore nel salvataggio della data',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+    }
+  }
+
+  const cancelExpiryEdit = () => {
+    setEditingExpiryItemId(null)
+    setExpiryDateInput('')
+    setBarcodeInput('')
+    setSelectedCategoryId(undefined)
+    setShowBarcodeInput(false)
+    setShowPhotoScanner(false)
+  }
+
+  const handlePhotoBarcodeScanned = (barcode: string) => {
+    setBarcodeInput(barcode)
+    setShowPhotoScanner(false)
+    setScanResult({
+      success: true,
+      message: `Barcode rilevato: ${barcode}`,
+    })
+    setTimeout(() => setScanResult(null), 3000)
+  }
+
+  // New item functions
+  const openNewItemForm = () => {
+    setShowNewItemForm(true)
+    setNewItemName('')
+    setNewItemQuantity(1)
+    setNewItemUnit('')
+  }
+
+  const cancelNewItem = () => {
+    setShowNewItemForm(false)
+    setNewItemName('')
+    setNewItemQuantity(1)
+    setNewItemUnit('')
+  }
+
+  const saveNewItem = async () => {
+    if (!list || !newItemName.trim()) return
+
+    setIsSavingNewItem(true)
+    try {
+      const newItem = await shoppingListsService.addItem(list.id, {
+        name: newItemName.trim(),
+        quantity: newItemQuantity,
+        unit: newItemUnit.trim() || undefined,
+      })
+
+      setList((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: [...prev.items, newItem],
+            }
+          : null
+      )
+
+      cancelNewItem()
+      setScanResult({
+        success: true,
+        message: `"${newItem.name}" aggiunto alla lista`,
+      })
+      setTimeout(() => setScanResult(null), 3000)
+    } catch (error) {
+      console.error('Failed to add item:', error)
+      setScanResult({
+        success: false,
+        message: 'Errore durante l\'aggiunta dell\'articolo',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+    } finally {
+      setIsSavingNewItem(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="text-center py-8">
@@ -391,6 +620,17 @@ export function ShoppingListDetail() {
                   </button>
                 </>
               )}
+              {(list.status === 'completed' || list.status === 'cancelled') && (
+                <button
+                  onClick={() => handleStatusChange('active')}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-blue-600"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Riapri lista
+                </button>
+              )}
               <Link
                 to={`/shopping-lists/${list.id}/edit`}
                 className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 block"
@@ -407,54 +647,6 @@ export function ShoppingListDetail() {
           )}
         </div>
       </div>
-
-      {/* Verification Mode Banner */}
-      {isVerificationMode && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-blue-800">Controllo Carico in corso</p>
-              <p className="text-xs text-blue-600">
-                Verificati: {verifiedCount}/{totalCount} - Tocca un articolo per scansionare
-              </p>
-            </div>
-            <button
-              onClick={pauseVerification}
-              className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
-            >
-              Pausa
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Paused Verification Banner */}
-      {list.verification_status === 'paused' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-yellow-800">Controllo Carico in pausa</p>
-              <p className="text-xs text-yellow-600">
-                Verificati: {verifiedCount}/{totalCount}
-              </p>
-            </div>
-            <button
-              onClick={resumeVerification}
-              className="px-3 py-1 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700"
-            >
-              Riprendi
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Completed Verification Banner */}
-      {list.verification_status === 'completed' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-          <p className="text-sm font-medium text-green-800">Controllo Carico completato</p>
-          <p className="text-xs text-green-600">Tutti gli articoli sono stati verificati</p>
-        </div>
-      )}
 
       {/* Scan Result Toast */}
       {scanResult && (
@@ -562,6 +754,31 @@ export function ShoppingListDetail() {
                       Verificato
                     </span>
                   )}
+                  {item.expiry_date && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openExpiryEditor(item)
+                      }}
+                      className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
+                    >
+                      Scad: {formatDateForDisplay(item.expiry_date)}
+                    </button>
+                  )}
+                  {item.category_id && (() => {
+                    const cat = categories.find(c => c.id === item.category_id)
+                    return cat ? (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-xs"
+                        style={{
+                          backgroundColor: cat.color ? `${cat.color}20` : '#E5E7EB',
+                          color: cat.color || '#374151'
+                        }}
+                      >
+                        {cat.icon} {cat.name}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
               </div>
 
@@ -599,6 +816,83 @@ export function ShoppingListDetail() {
             )}
           </div>
         ))}
+
+        {/* New Item Form or Add Button */}
+        {showNewItemForm ? (
+          <div className="card p-3 border-2 border-dashed border-green-300 bg-green-50">
+            <div className="flex items-center gap-2">
+              {/* Name input */}
+              <input
+                type="text"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="Nome articolo..."
+                className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newItemName.trim()) saveNewItem()
+                  if (e.key === 'Escape') cancelNewItem()
+                }}
+              />
+
+              {/* Quantity input */}
+              <input
+                type="number"
+                value={newItemQuantity}
+                onChange={(e) => setNewItemQuantity(parseInt(e.target.value) || 1)}
+                min="1"
+                className="w-16 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+
+              {/* Unit input */}
+              <input
+                type="text"
+                value={newItemUnit}
+                onChange={(e) => setNewItemUnit(e.target.value)}
+                placeholder="pz"
+                className="w-16 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+
+              {/* Save button */}
+              <button
+                onClick={saveNewItem}
+                disabled={!newItemName.trim() || isSavingNewItem}
+                className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSavingNewItem ? (
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+
+              {/* Cancel button */}
+              <button
+                onClick={cancelNewItem}
+                className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={openNewItemForm}
+            className="w-full card p-3 border-2 border-dashed border-gray-300 text-gray-500 hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-colors flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Aggiungi articolo
+          </button>
+        )}
       </div>
 
       {/* Barcode Scanner */}
@@ -609,6 +903,157 @@ export function ShoppingListDetail() {
             setShowScanner(false)
             setScanningItemId(null)
           }}
+        />
+      )}
+
+      {/* Expiry Date Modal */}
+      {editingExpiryItemId && !showPhotoScanner && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">
+              Data di Scadenza
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {list?.items.find(i => i.id === editingExpiryItemId)?.name}
+            </p>
+
+            {/* Expiry date input */}
+            <input
+              type="text"
+              value={expiryDateInput}
+              onChange={(e) => setExpiryDateInput(e.target.value)}
+              placeholder="DDMMYY (es: 150226)"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              autoFocus
+              inputMode="numeric"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !showBarcodeInput) saveExpiryDate()
+                if (e.key === 'Escape') cancelExpiryEdit()
+              }}
+            />
+
+            {/* Category selector */}
+            {categories.length > 0 && (
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 mb-2">Categoria (opzionale)</p>
+                <select
+                  value={selectedCategoryId || ''}
+                  onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                >
+                  <option value="">Seleziona categoria...</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Barcode section */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-sm text-gray-600 mb-3">Barcode (opzionale)</p>
+
+              {barcodeInput && !showBarcodeInput ? (
+                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="flex-1 font-mono text-sm">{barcodeInput}</span>
+                  <button
+                    onClick={() => setBarcodeInput('')}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : showBarcodeInput ? (
+                <div className="mb-3">
+                  <input
+                    ref={barcodeInputRef}
+                    type="text"
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    placeholder="Scrivi o spara barcode, poi premi Invio..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (barcodeInput.trim()) {
+                          setShowBarcodeInput(false)
+                        }
+                      }
+                      if (e.key === 'Escape') {
+                        setBarcodeInput('')
+                        setShowBarcodeInput(false)
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-gray-400 mt-2 text-center">Premi Invio per confermare</p>
+                  <button
+                    onClick={() => {
+                      setBarcodeInput('')
+                      setShowBarcodeInput(false)
+                    }}
+                    className="w-full mt-2 py-2 text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Annulla
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowPhotoScanner(true)}
+                    className="flex-1 py-2.5 bg-blue-50 text-blue-700 rounded-lg font-medium hover:bg-blue-100 flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    </svg>
+                    Foto
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowBarcodeInput(true)
+                      setTimeout(() => barcodeInputRef.current?.focus(), 100)
+                    }}
+                    className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                    Manuale
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={cancelExpiryEdit}
+                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
+              >
+                Salta
+              </button>
+              <button
+                onClick={saveExpiryDate}
+                className="flex-1 py-2.5 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
+              >
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Barcode Scanner */}
+      {showPhotoScanner && (
+        <PhotoBarcodeScanner
+          onScan={handlePhotoBarcodeScanned}
+          onClose={() => setShowPhotoScanner(false)}
         />
       )}
 

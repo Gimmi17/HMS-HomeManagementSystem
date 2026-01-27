@@ -585,6 +585,9 @@ def verify_item(
     # Set barcode and verification timestamp
     item.scanned_barcode = barcode
     item.verified_at = datetime.now(timezone.utc)
+    # Mark as checked/purchased when verified
+    item.checked = True
+    item.checked_at = datetime.now(timezone.utc)
     # Clear not_purchased if it was previously set
     item.not_purchased = False
     item.not_purchased_at = None
@@ -681,6 +684,9 @@ def verify_item_with_quantity(
         item.verified_quantity = data.quantity
         item.verified_unit = data.unit
         item.verified_at = datetime.now(timezone.utc)
+        # Mark as checked/purchased when verified
+        item.checked = True
+        item.checked_at = datetime.now(timezone.utc)
         # Clear not_purchased if it was previously set
         item.not_purchased = False
         item.not_purchased_at = None
