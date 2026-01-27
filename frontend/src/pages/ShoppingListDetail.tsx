@@ -934,36 +934,51 @@ export function ShoppingListDetail() {
         />
       )}
 
-      {/* Expiry Date Modal */}
-      {editingExpiryItemId && !showPhotoScanner && (
+      {/* Item Details Modal */}
+      {editingExpiryItemId && !showPhotoScanner && (() => {
+        const editingItem = list?.items.find(i => i.id === editingExpiryItemId)
+        return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              Data di Scadenza
+              Dettagli Articolo
             </h3>
-            <p className="text-sm text-gray-500 mb-4">
-              {list?.items.find(i => i.id === editingExpiryItemId)?.name}
-            </p>
+
+            {/* Item name and quantity */}
+            <div className="bg-gray-50 rounded-lg p-3 mb-4">
+              <p className="font-medium text-gray-900">{editingItem?.name}</p>
+              <p className="text-sm text-gray-500">
+                Quantità: {editingItem?.quantity} {editingItem?.unit || 'pz'}
+              </p>
+              {editingItem?.verified_at && (
+                <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                  Verificato
+                </span>
+              )}
+            </div>
 
             {/* Expiry date input */}
-            <input
-              type="text"
-              value={expiryDateInput}
-              onChange={(e) => setExpiryDateInput(e.target.value)}
-              placeholder="DDMMYY (es: 150226)"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              autoFocus
-              inputMode="numeric"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !showBarcodeInput) saveExpiryDate()
-                if (e.key === 'Escape') cancelExpiryEdit()
-              }}
-            />
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Data di Scadenza</p>
+              <input
+                type="text"
+                value={expiryDateInput}
+                onChange={(e) => setExpiryDateInput(e.target.value)}
+                placeholder="DDMMYY (es: 150226)"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                autoFocus
+                inputMode="numeric"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !showBarcodeInput) saveExpiryDate()
+                  if (e.key === 'Escape') cancelExpiryEdit()
+                }}
+              />
+            </div>
 
             {/* Category selector */}
             {categories.length > 0 && (
-              <div className="mt-4">
-                <p className="text-sm text-gray-600 mb-2">Categoria (opzionale)</p>
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-2">Categoria</p>
                 <select
                   value={selectedCategoryId || ''}
                   onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
@@ -1064,10 +1079,10 @@ export function ShoppingListDetail() {
                 onClick={cancelExpiryEdit}
                 className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
               >
-                Salta
+                Chiudi
               </button>
               <button
-                onClick={saveExpiryDate}
+                onClick={() => saveExpiryDate()}
                 className="flex-1 py-2.5 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
               >
                 Salva
@@ -1075,7 +1090,8 @@ export function ShoppingListDetail() {
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Photo Barcode Scanner */}
       {showPhotoScanner && (
