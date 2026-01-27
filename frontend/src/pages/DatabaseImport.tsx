@@ -18,9 +18,59 @@ export function DatabaseImport() {
   const token = localStorage.getItem('access_token')
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [exportSuccess, setExportSuccess] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    setError(null)
+    setExportSuccess(false)
+
+    try {
+      const response = await fetch('/api/v1/admin/export-database', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Errore durante l\'export')
+      }
+
+      // Get filename from Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = 'backup.sql'
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/)
+        if (match) {
+          filename = match[1]
+        }
+      }
+
+      // Download the file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      setExportSuccess(true)
+      setTimeout(() => setExportSuccess(false), 5000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -103,14 +153,66 @@ export function DatabaseImport() {
           </svg>
         </Link>
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Import Database</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Backup & Restore</h1>
           <p className="text-gray-600 text-sm mt-1">
-            Importa dati da un backup SQL
+            Esporta o importa i dati del database
           </p>
         </div>
       </div>
 
+      {/* Export Section */}
       <div className="card p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📤</span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Export Database</h2>
+            <p className="text-sm text-gray-500">Scarica un backup completo dei dati</p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleExport}
+          disabled={isExporting}
+          className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isExporting ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Esportazione in corso...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Scarica Backup
+            </span>
+          )}
+        </button>
+
+        {exportSuccess && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex gap-2">
+              <span className="text-green-600">✅</span>
+              <p className="text-sm text-green-800">Backup scaricato con successo!</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Import Section */}
+      <div className="card p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📥</span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Import Database</h2>
+            <p className="text-sm text-gray-500">Ripristina dati da un backup SQL</p>
+          </div>
+        </div>
+
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
           <div className="flex gap-2">
             <span className="text-yellow-600">⚠️</span>

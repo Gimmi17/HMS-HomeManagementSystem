@@ -5,10 +5,14 @@ One-shot import functionality for database migration.
 """
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+from datetime import datetime, date
+from uuid import UUID
 import re
 import logging
+import json
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
@@ -180,3 +184,121 @@ async def import_database(
             pass
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+def format_value(value) -> str:
+    """Format a Python value for SQL INSERT statement."""
+    if value is None:
+        return 'NULL'
+    elif isinstance(value, bool):
+        return 'TRUE' if value else 'FALSE'
+    elif isinstance(value, (int, float)):
+        return str(value)
+    elif isinstance(value, (datetime, date)):
+        return f"'{value.isoformat()}'"
+    elif isinstance(value, UUID):
+        return f"'{str(value)}'"
+    elif isinstance(value, dict):
+        # JSON fields
+        return f"'{json.dumps(value, ensure_ascii=False).replace(chr(39), chr(39)+chr(39))}'"
+    else:
+        # String - escape single quotes
+        escaped = str(value).replace("'", "''")
+        return f"'{escaped}'"
+
+
+@router.get("/export-database")
+async def export_database(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Export database to SQL dump file.
+    Generates INSERT statements for all tables, compatible with the import endpoint.
+    """
+    try:
+        inspector = inspect(db.bind)
+        table_names = inspector.get_table_names()
+
+        # Order tables by dependencies (foreign keys)
+        # Tables without foreign keys first, then tables that depend on them
+        ordered_tables = [
+            'users',
+            'houses',
+            'house_members',
+            'categories',
+            'store_chains',
+            'stores',
+            'products',
+            'recipes',
+            'recipe_ingredients',
+            'meals',
+            'shopping_lists',
+            'shopping_list_items',
+            'pantry_items',
+            'weight_entries',
+        ]
+
+        # Add any tables not in the ordered list
+        for table in table_names:
+            if table not in ordered_tables and not table.startswith('alembic'):
+                ordered_tables.append(table)
+
+        # Filter to only existing tables
+        ordered_tables = [t for t in ordered_tables if t in table_names]
+
+        sql_lines = []
+        sql_lines.append(f"-- Database Export")
+        sql_lines.append(f"-- Generated: {datetime.now().isoformat()}")
+        sql_lines.append(f"-- Tables: {len(ordered_tables)}")
+        sql_lines.append("")
+
+        total_rows = 0
+
+        for table_name in ordered_tables:
+            # Get columns
+            columns = inspector.get_columns(table_name)
+            column_names = [col['name'] for col in columns]
+
+            # Get all rows
+            result = db.execute(text(f'SELECT * FROM "{table_name}"'))
+            rows = result.fetchall()
+
+            if rows:
+                sql_lines.append(f"-- Table: {table_name} ({len(rows)} rows)")
+
+                for row in rows:
+                    values = []
+                    for i, col_name in enumerate(column_names):
+                        values.append(format_value(row[i]))
+
+                    columns_str = ', '.join(f'"{c}"' for c in column_names)
+                    values_str = ', '.join(values)
+
+                    sql_lines.append(
+                        f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({values_str}) '
+                        f'ON CONFLICT DO NOTHING;'
+                    )
+
+                sql_lines.append("")
+                total_rows += len(rows)
+
+        sql_lines.append(f"-- Export complete: {total_rows} total rows")
+
+        sql_content = '\n'.join(sql_lines)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"meal_planner_backup_{timestamp}.sql"
+
+        return Response(
+            content=sql_content,
+            media_type="application/sql",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

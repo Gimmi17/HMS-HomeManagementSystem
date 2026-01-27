@@ -40,9 +40,9 @@ const settingsLinks: SettingsLink[] = [
   },
   {
     to: '/settings/import-database',
-    title: 'Import Database',
-    description: 'Importa dati da backup SQL',
-    icon: '📥',
+    title: 'Backup & Restore',
+    description: 'Esporta o importa dati del database',
+    icon: '💾',
   },
 ]
 
