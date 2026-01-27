@@ -207,6 +207,77 @@ def format_value(value) -> str:
         return f"'{escaped}'"
 
 
+@router.post("/sql-console")
+async def sql_console(
+    query: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Execute SQL queries directly on the database.
+    Supports SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE, DROP.
+    Use with caution!
+    """
+    sql_query = query.get("query", "").strip()
+
+    if not sql_query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    try:
+        result = db.execute(text(sql_query))
+
+        # Determine query type
+        query_upper = sql_query.upper().lstrip()
+
+        if query_upper.startswith("SELECT"):
+            # Return rows for SELECT queries
+            rows = result.fetchall()
+            columns = list(result.keys()) if rows else []
+
+            # Convert rows to list of dicts, handling special types
+            data = []
+            for row in rows:
+                row_dict = {}
+                for i, col in enumerate(columns):
+                    value = row[i]
+                    # Convert special types to strings
+                    if isinstance(value, (datetime, date)):
+                        value = value.isoformat()
+                    elif isinstance(value, UUID):
+                        value = str(value)
+                    elif isinstance(value, dict):
+                        pass  # JSON is fine
+                    row_dict[col] = value
+                data.append(row_dict)
+
+            return {
+                "success": True,
+                "type": "select",
+                "columns": columns,
+                "rows": data,
+                "row_count": len(data)
+            }
+        else:
+            # For INSERT, UPDATE, DELETE, ALTER, CREATE, DROP
+            db.commit()
+            affected = result.rowcount if result.rowcount >= 0 else 0
+
+            return {
+                "success": True,
+                "type": "execute",
+                "message": f"Query executed successfully",
+                "affected_rows": affected
+            }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "type": "error",
+            "message": str(e)
+        }
+
+
 @router.get("/export-database")
 async def export_database(
     db: Session = Depends(get_db),

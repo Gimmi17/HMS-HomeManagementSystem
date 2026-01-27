@@ -44,6 +44,12 @@ const settingsLinks: SettingsLink[] = [
     description: 'Esporta o importa dati del database',
     icon: '💾',
   },
+  {
+    to: '/settings/sql-console',
+    title: 'SQL Console',
+    description: 'Esegui query SQL direttamente sul database',
+    icon: '🗄️',
+  },
 ]
 
 export function Settings() {
