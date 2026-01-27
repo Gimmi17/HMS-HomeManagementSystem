@@ -722,9 +722,11 @@ export function ShoppingListDetail() {
             }`}
           >
             <div
-              className={`flex items-center gap-3 ${!isVerificationMode ? 'cursor-pointer' : ''}`}
+              className={`flex items-center gap-3 ${(!isVerificationMode || item.verified_at) ? 'cursor-pointer' : ''}`}
               onClick={() => {
-                if (!isVerificationMode) {
+                // In view mode: always open modal on row click
+                // In verification mode: open modal for verified items
+                if (!isVerificationMode || item.verified_at) {
                   openItemModal(item)
                 }
               }}
