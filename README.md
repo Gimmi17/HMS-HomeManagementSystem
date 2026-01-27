@@ -173,6 +173,197 @@ Meal Planner e' un sistema completo per la gestione alimentare familiare:
 - Calcolo BMI
 - Obiettivi personalizzati
 
+---
+
+## Liste della Spesa
+
+Il cuore dell'applicazione è la gestione completa delle liste della spesa, dalla creazione al controllo carico.
+
+### Creazione Lista
+
+Vai su **Liste Spesa → Nuova Lista** per creare una nuova lista.
+
+| Funzione | Descrizione |
+|----------|-------------|
+| **Nome** | Personalizzato o generato automaticamente con data |
+| **Negozio** | Associa la lista a un punto vendita specifico |
+| **Articoli manuali** | Aggiungi prodotti con nome, quantità, unità e categoria |
+| **Import da Grocy** | Cerca e importa prodotti dalla dispensa Grocy |
+| **Recupero non acquistati** | Riprendi automaticamente gli articoli mancanti dalla spesa precedente |
+
+### Durante la Spesa (Visualizzazione)
+
+La schermata di visualizzazione lista permette di:
+
+- **Spuntare articoli** - tap sull'articolo per segnarlo come preso
+- **Modal post-spunta** - dopo la spunta puoi inserire:
+  - Data di scadenza (formati: `DDMMYY`, `DD/MM/YYYY`, `DD/MM/YY`)
+  - Barcode (manuale o tramite scansione foto)
+  - Categoria prodotto
+- **Aggiunta rapida** - bottone "+" in fondo alla lista per aggiungere articoli al volo
+- **Sincronizzazione live** - aggiornamento automatico ogni 3 secondi tra dispositivi
+- **Dati persistenti** - se togli e rimetti la spunta, i dati inseriti vengono mostrati di nuovo
+
+### Controllo Carico
+
+Verifica della spesa al rientro a casa. Avvia dal menu: **⋮ → Inizia Controllo Carico**
+
+**Flusso:**
+1. Clicca su un articolo in sospeso
+2. Si apre il modal di verifica con:
+   - **Quantità** - conferma o modifica
+   - **Barcode** - inserisci manualmente o scansiona
+   - **Fotocamera** - scatta foto del barcode per lettura automatica
+   - **Data scadenza** - inserisci scadenza prodotto
+   - **Categoria** - seleziona categoria
+3. **"Verifica"** per confermare o **"Non Acquistato"** se mancante
+
+**Funzionalità:**
+- Scansione barcode da foto della fotocamera del telefono
+- Lookup prodotto su Open Food Facts (mostra nome e marca)
+- Tracciamento articoli non acquistati per recupero nella prossima lista
+- Barra progresso verifica in tempo reale
+- Gli articoli verificati non possono essere de-spuntati dalla visualizzazione
+
+### Categorie Prodotti
+
+Gestisci le categorie da **Impostazioni → Categorie**.
+
+- **CRUD completo** - crea, modifica, elimina
+- **Personalizzazione** - nome, descrizione, icona emoji, colore
+- **Ordinamento** - definisci l'ordine di visualizzazione
+- **Uso** - disponibili in creazione lista, spunta e controllo carico
+
+### Negozi
+
+Gestisci i negozi da **Impostazioni → Negozi**.
+
+- **Catene** - es. Conad, Esselunga, Lidl
+- **Punti vendita** - singoli negozi con indirizzo
+- **Dimensioni** - piccolo, medio, grande, ipermercato
+
+### Flusso Completo Spesa
+
+```
+1. CREAZIONE LISTA
+   ├── Aggiungi articoli manualmente
+   ├── Importa da Grocy (opzionale)
+   ├── Recupera non acquistati dalla lista precedente
+   └── Assegna negozio (opzionale)
+
+2. DURANTE LA SPESA (sul telefono)
+   ├── Spunta articoli man mano
+   ├── Inserisci scadenza/barcode (opzionale)
+   └── Aggiungi articoli extra con "+"
+
+3. CONTROLLO CARICO (a casa)
+   ├── Avvia verifica dal menu
+   ├── Per ogni articolo:
+   │   ├── Conferma quantità
+   │   ├── Scansiona barcode (opzionale)
+   │   ├── Inserisci scadenza
+   │   └── Seleziona categoria
+   └── Segna "Non Acquistato" se mancante
+
+4. COMPLETAMENTO
+   ├── Lista completata automaticamente
+   └── Non acquistati recuperabili nella prossima lista
+```
+
+### Database Schema (Shopping)
+
+```
+shopping_lists
+├── id (UUID)
+├── house_id → houses.id
+├── store_id → stores.id (opzionale)
+├── name
+├── status (active, completed, cancelled)
+├── verification_status (not_started, in_progress, paused, completed)
+├── created_at, updated_at
+
+shopping_list_items
+├── id (UUID)
+├── shopping_list_id → shopping_lists.id
+├── name, quantity, unit
+├── checked, checked_at
+├── category_id → categories.id
+├── expiry_date
+├── scanned_barcode
+├── verified_at, verified_quantity, verified_unit
+├── not_purchased, not_purchased_at
+├── grocy_product_id, grocy_product_name
+
+categories
+├── id (UUID)
+├── name (unique)
+├── description, icon, color
+├── sort_order
+```
+
+### API Endpoints (Shopping)
+
+```
+Liste Spesa
+  GET    /api/v1/shopping-lists              # Lista tutte le liste
+  POST   /api/v1/shopping-lists              # Crea nuova lista
+  GET    /api/v1/shopping-lists/{id}         # Dettaglio con items
+  PUT    /api/v1/shopping-lists/{id}         # Modifica lista
+  DELETE /api/v1/shopping-lists/{id}         # Elimina lista
+
+Items
+  POST   /api/v1/shopping-lists/{id}/items                    # Aggiungi item
+  PUT    /api/v1/shopping-lists/{id}/items/{item_id}          # Modifica item
+  DELETE /api/v1/shopping-lists/{id}/items/{item_id}          # Elimina item
+  POST   /api/v1/shopping-lists/{id}/items/{item_id}/toggle   # Spunta/despunta
+  POST   /api/v1/shopping-lists/{id}/items/{item_id}/verify   # Verifica barcode
+  POST   /api/v1/shopping-lists/{id}/items/{item_id}/not-purchased  # Non acquistato
+
+Categorie
+  GET    /api/v1/categories          # Lista categorie
+  POST   /api/v1/categories          # Crea categoria
+  PUT    /api/v1/categories/{id}     # Modifica
+  DELETE /api/v1/categories/{id}     # Elimina
+```
+
+---
+
+## Strumenti Amministrativi
+
+### Backup & Restore
+
+Vai su **Impostazioni → Backup & Restore**.
+
+**Export:**
+- Genera file SQL con tutti i dati
+- INSERT statements ordinati per foreign keys
+- Download automatico `meal_planner_backup_YYYYMMDD_HHMMSS.sql`
+
+**Import:**
+- Carica file .sql di backup
+- Skip automatico duplicati (`ON CONFLICT DO NOTHING`)
+- Report dettagliato esecuzione
+
+### SQL Console
+
+Vai su **Impostazioni → SQL Console**.
+
+Console per eseguire query SQL direttamente sul database:
+- Query di esempio precaricate
+- Supporto SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE
+- Risultati in tabella
+- Cronologia ultime 10 query
+- Accessibile via API per debug remoto
+
+**Endpoint:** `POST /api/v1/admin/sql-console`
+```json
+{
+  "query": "SELECT * FROM shopping_lists LIMIT 10;"
+}
+```
+
+---
+
 ### Flusso Tipico
 
 1. **Setup iniziale**: Crea account → Crea/Entra in una casa → Connetti Grocy
