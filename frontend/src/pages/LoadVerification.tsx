@@ -360,7 +360,7 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
 interface EditItemModalProps {
   item: ShoppingListItem
   categories: Category[]
-  onSave: (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string }) => void
+  onSave: (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string; barcode?: string }) => void
   onCancel: () => void
 }
 
@@ -373,6 +373,7 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
   )
   const [expiryDateInput, setExpiryDateInput] = useState(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
+  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const parseQuantity = (text: string): number => {
@@ -401,6 +402,7 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
         unit: isWeight ? 'kg' : 'pz',
         expiryDate: parsedDate || undefined,
         categoryId: selectedCategoryId,
+        barcode: barcodeInput.trim() || undefined,
       })
     }
   }
@@ -410,9 +412,6 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b">
           <h3 className="font-semibold text-lg">Modifica Prodotto</h3>
-          {item.scanned_barcode && (
-            <p className="text-xs text-gray-500 mt-1">Barcode: {item.scanned_barcode}</p>
-          )}
         </div>
 
         <div className="p-4 space-y-4">
@@ -524,6 +523,21 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
               </select>
             </div>
           )}
+
+          {/* Barcode / EAN */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              EAN / Barcode
+            </label>
+            <input
+              type="text"
+              value={barcodeInput}
+              onChange={(e) => setBarcodeInput(e.target.value)}
+              placeholder="Inserisci barcode..."
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+              inputMode="numeric"
+            />
+          </div>
         </div>
 
         <div className="p-4 border-t flex gap-3">
@@ -776,7 +790,7 @@ export function LoadVerification() {
     }
   }
 
-  const handleSaveEdit = async (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string }) => {
+  const handleSaveEdit = async (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string; barcode?: string }) => {
     if (!list || !editingItem) return
 
     try {
@@ -801,6 +815,11 @@ export function LoadVerification() {
       // Add category if provided
       if (data.categoryId) {
         updateData.category_id = data.categoryId
+      }
+
+      // Add barcode if provided
+      if (data.barcode) {
+        updateData.scanned_barcode = data.barcode
       }
 
       await shoppingListsService.updateItem(list.id, editingItem.id, updateData)
@@ -919,11 +938,6 @@ export function LoadVerification() {
             style={{ width: `${totalCount > 0 ? (verifiedCount / totalCount) * 100 : 0}%` }}
           />
         </div>
-      </div>
-
-      {/* Instructions */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-        Clicca su un articolo per verificarlo. Puoi inserire quantità, data scadenza, categoria e barcode.
       </div>
 
       {/* Items */}
