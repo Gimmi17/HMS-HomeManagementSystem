@@ -42,6 +42,9 @@ export function ShoppingListDetail() {
   const [newItemUnit, setNewItemUnit] = useState('')
   const [isSavingNewItem, setIsSavingNewItem] = useState(false)
 
+  // Confirmation dialog for verified items
+  const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
+
   // Derived state: are we in verification mode?
   const isVerificationMode = list?.verification_status === 'in_progress'
 
@@ -133,19 +136,16 @@ export function ShoppingListDetail() {
   const toggleItemCheck = async (item: ShoppingListItem) => {
     if (!list) return
 
-    // Prevent unchecking verified items
-    if (item.checked && item.verified_at) {
-      setScanResult({
-        success: false,
-        message: 'Non puoi togliere la spunta a un articolo già verificato',
-      })
-      setTimeout(() => setScanResult(null), 3000)
+    // If item is already checked, open modal to view/edit data instead of unchecking
+    if (item.checked) {
+      setEditingExpiryItemId(item.id)
+      setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+      setBarcodeInput(item.scanned_barcode || '')
+      setSelectedCategoryId(item.category_id)
       return
     }
 
-    // If item is being checked (not already checked), show expiry date modal
-    const isBeingChecked = !item.checked
-
+    // Item is being checked
     try {
       const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
       setList((prev) =>
@@ -157,13 +157,11 @@ export function ShoppingListDetail() {
           : null
       )
 
-      // If item was checked, open expiry date modal with existing data if available
-      if (isBeingChecked) {
-        setEditingExpiryItemId(item.id)
-        setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-        setBarcodeInput(item.scanned_barcode || '')
-        setSelectedCategoryId(item.category_id)
-      }
+      // Open expiry date modal with existing data if available
+      setEditingExpiryItemId(item.id)
+      setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+      setBarcodeInput(item.scanned_barcode || '')
+      setSelectedCategoryId(item.category_id)
     } catch (error) {
       console.error('Failed to toggle item:', error)
     }
@@ -385,8 +383,15 @@ export function ShoppingListDetail() {
     setShowPhotoScanner(false)
   }
 
-  const saveExpiryDate = async () => {
+  const saveExpiryDate = async (forceUpdate = false) => {
     if (!list || !editingExpiryItemId) return
+
+    // Check if item is verified and confirmation not yet given
+    const editingItem = list.items.find(i => i.id === editingExpiryItemId)
+    if (editingItem?.verified_at && !forceUpdate) {
+      setShowVerifiedConfirm(true)
+      return
+    }
 
     const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : null
 
@@ -428,6 +433,7 @@ export function ShoppingListDetail() {
       setBarcodeInput('')
       setSelectedCategoryId(undefined)
       setShowBarcodeInput(false)
+      setShowVerifiedConfirm(false)
     } catch (error) {
       console.error('Failed to save expiry date:', error)
       setScanResult({
@@ -445,6 +451,7 @@ export function ShoppingListDetail() {
     setSelectedCategoryId(undefined)
     setShowBarcodeInput(false)
     setShowPhotoScanner(false)
+    setShowVerifiedConfirm(false)
   }
 
   const handlePhotoBarcodeScanned = (barcode: string) => {
@@ -1055,6 +1062,39 @@ export function ShoppingListDetail() {
           onScan={handlePhotoBarcodeScanned}
           onClose={() => setShowPhotoScanner(false)}
         />
+      )}
+
+      {/* Verified Item Confirmation Dialog */}
+      {showVerifiedConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Articolo già verificato</h3>
+                <p className="text-sm text-gray-500">Proseguire con la modifica?</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowVerifiedConfirm(false)}
+                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={() => saveExpiryDate(true)}
+                className="flex-1 py-2.5 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
+              >
+                Prosegui
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Click outside to close menu */}
