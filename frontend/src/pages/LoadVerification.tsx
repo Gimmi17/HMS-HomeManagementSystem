@@ -8,6 +8,42 @@ import type { ShoppingList, ShoppingListItem, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
 
+// Format date from YYYY-MM-DD to DD/MM/YYYY for display
+const formatDateForDisplay = (dateStr: string | undefined): string => {
+  if (!dateStr) return ''
+  const [year, month, day] = dateStr.split('-')
+  return `${day}/${month}/${year}`
+}
+
+// Parse date from various formats to YYYY-MM-DD for API
+const parseDateFromInput = (input: string): string | null => {
+  // Try compact format: DDMMYY (6 digits) or DDMMYYYY (8 digits)
+  const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
+  if (compactMatch) {
+    const day = compactMatch[1]
+    const month = compactMatch[2]
+    const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
+    const d = parseInt(day, 10)
+    const m = parseInt(month, 10)
+    const y = parseInt(year, 10)
+    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+    return `${year}-${month}-${day}`
+  }
+  // Try format with separators: DD/MM/YYYY or DD/MM/YY
+  const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
+  if (separatorMatch) {
+    const day = separatorMatch[1].padStart(2, '0')
+    const month = separatorMatch[2].padStart(2, '0')
+    const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
+    const d = parseInt(day, 10)
+    const m = parseInt(month, 10)
+    const y = parseInt(year, 10)
+    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+    return `${year}-${month}-${day}`
+  }
+  return null
+}
+
 interface VerificationModalProps {
   item: ShoppingListItem
   categories: Category[]
@@ -323,17 +359,20 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
 
 interface EditItemModalProps {
   item: ShoppingListItem
-  onSave: (name: string, quantity: number, unit: string) => void
+  categories: Category[]
+  onSave: (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string }) => void
   onCancel: () => void
 }
 
-function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
+function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProps) {
   const [name, setName] = useState(item.grocy_product_name || item.name)
   const [quantity, setQuantity] = useState(item.verified_quantity ?? item.quantity)
   const [quantityText, setQuantityText] = useState(String(item.verified_quantity ?? item.quantity).replace('.', ','))
   const [isWeight, setIsWeight] = useState(
     item.verified_unit === 'kg' || item.unit === 'kg' || item.unit === 'g'
   )
+  const [expiryDateInput, setExpiryDateInput] = useState(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const parseQuantity = (text: string): number => {
@@ -355,7 +394,14 @@ function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
 
   const handleSave = () => {
     if (name.trim()) {
-      onSave(name.trim(), quantity, isWeight ? 'kg' : 'pz')
+      const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : undefined
+      onSave({
+        name: name.trim(),
+        quantity,
+        unit: isWeight ? 'kg' : 'pz',
+        expiryDate: parsedDate || undefined,
+        categoryId: selectedCategoryId,
+      })
     }
   }
 
@@ -442,6 +488,42 @@ function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
               </button>
             </div>
           </div>
+
+          {/* Expiry Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Data di Scadenza
+            </label>
+            <input
+              type="text"
+              value={expiryDateInput}
+              onChange={(e) => setExpiryDateInput(e.target.value)}
+              placeholder="DDMMYY (es: 150226)"
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              inputMode="numeric"
+            />
+          </div>
+
+          {/* Category */}
+          {categories.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Categoria
+              </label>
+              <select
+                value={selectedCategoryId || ''}
+                onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
+                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Seleziona categoria...</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t flex gap-3">
@@ -694,16 +776,34 @@ export function LoadVerification() {
     }
   }
 
-  const handleSaveEdit = async (name: string, quantity: number, unit: string) => {
+  const handleSaveEdit = async (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string }) => {
     if (!list || !editingItem) return
 
     try {
-      await shoppingListsService.updateItem(list.id, editingItem.id, {
-        name: name,
-        grocy_product_name: name,
-        verified_quantity: quantity,
-        verified_unit: unit,
-      })
+      // Only update grocy_product_name if it was already set (from API lookup)
+      // This prevents manual edits from changing the item to "verified_with_info" (green)
+      const updateData: Partial<ShoppingListItem> = {
+        name: data.name,
+        verified_quantity: data.quantity,
+        verified_unit: data.unit,
+      }
+
+      // Only update grocy_product_name if item already had it (was found via API)
+      if (editingItem.grocy_product_name) {
+        updateData.grocy_product_name = data.name
+      }
+
+      // Add expiry date if provided
+      if (data.expiryDate) {
+        updateData.expiry_date = data.expiryDate
+      }
+
+      // Add category if provided
+      if (data.categoryId) {
+        updateData.category_id = data.categoryId
+      }
+
+      await shoppingListsService.updateItem(list.id, editingItem.id, updateData)
 
       const updatedList = await shoppingListsService.getById(list.id)
       setList(updatedList)
@@ -924,6 +1024,7 @@ export function LoadVerification() {
       {editingItem && (
         <EditItemModal
           item={editingItem}
+          categories={categories}
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
         />
