@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
-import 'react-image-crop/dist/ReactCrop.css'
+import { TouchCrop, type CropArea } from '@/components/TouchCrop'
 import receiptsService from '@/services/receipts'
 import shoppingListsService from '@/services/shoppingLists'
 import type { Receipt, ReceiptItem, ReconciliationResponse, ShoppingList } from '@/types'
@@ -26,6 +25,7 @@ export function ReceiptUpload() {
   const { listId } = useParams()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const cropImageRef = useRef<HTMLImageElement>(null)
 
   const [shoppingList, setShoppingList] = useState<ShoppingList | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -37,12 +37,10 @@ export function ReceiptUpload() {
 
   // Editing state - which image is being edited
   const [editingImage, setEditingImage] = useState<{ file: File; url: string } | null>(null)
-  const [crop, setCrop] = useState<Crop>()
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
+  const [cropArea, setCropArea] = useState<CropArea | null>(null)
   const [contrast, setContrast] = useState(120)
   const [brightness, setBrightness] = useState(100)
   const [imageLoaded, setImageLoaded] = useState(false)
-  const [imageElement, setImageElement] = useState<HTMLImageElement | null>(null)
 
   // OCR review state
   const [editableItems, setEditableItems] = useState<EditableItem[]>([])
@@ -79,8 +77,7 @@ export function ReceiptUpload() {
       file: validFile,
       url: URL.createObjectURL(validFile),
     })
-    setCrop(undefined)
-    setCompletedCrop(undefined)
+    setCropArea(null)
     setContrast(120)
     setBrightness(100)
     setImageLoaded(false)
@@ -90,13 +87,13 @@ export function ReceiptUpload() {
     e.target.value = ''
   }
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    setImageElement(e.currentTarget)
+  const handleImageLoad = () => {
     setImageLoaded(true)
   }
 
   const handleSaveEdit = async () => {
-    if (!editingImage || !imageElement) return
+    const currentImage = cropImageRef.current
+    if (!editingImage || !currentImage) return
 
     const canvas = canvasRef.current
     if (!canvas) return
@@ -108,18 +105,18 @@ export function ReceiptUpload() {
     setStep('saving')
 
     // Determine crop area (use full image if no crop selected)
-    const cropArea = completedCrop && completedCrop.width > 0 && completedCrop.height > 0
-      ? completedCrop
-      : { x: 0, y: 0, width: imageElement.width, height: imageElement.height }
+    const finalCrop = cropArea && cropArea.width > 0 && cropArea.height > 0
+      ? cropArea
+      : { x: 0, y: 0, width: currentImage.width, height: currentImage.height }
 
     // Scale from displayed size to natural size
-    const scaleX = imageElement.naturalWidth / imageElement.width
-    const scaleY = imageElement.naturalHeight / imageElement.height
+    const scaleX = currentImage.naturalWidth / currentImage.width
+    const scaleY = currentImage.naturalHeight / currentImage.height
 
-    const sourceX = cropArea.x * scaleX
-    const sourceY = cropArea.y * scaleY
-    const sourceWidth = cropArea.width * scaleX
-    const sourceHeight = cropArea.height * scaleY
+    const sourceX = finalCrop.x * scaleX
+    const sourceY = finalCrop.y * scaleY
+    const sourceWidth = finalCrop.width * scaleX
+    const sourceHeight = finalCrop.height * scaleY
 
     canvas.width = sourceWidth
     canvas.height = sourceHeight
@@ -127,7 +124,7 @@ export function ReceiptUpload() {
     // Apply filters
     ctx.filter = `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`
     ctx.drawImage(
-      imageElement,
+      currentImage,
       sourceX, sourceY, sourceWidth, sourceHeight,
       0, 0, sourceWidth, sourceHeight
     )
@@ -160,7 +157,6 @@ export function ReceiptUpload() {
         // Cleanup editing state
         URL.revokeObjectURL(urlToRevoke)
         setEditingImage(null)
-        setImageElement(null)
 
         // Set to idle first, then open file picker
         setStep('idle')
@@ -180,7 +176,6 @@ export function ReceiptUpload() {
       URL.revokeObjectURL(editingImage.url)
     }
     setEditingImage(null)
-    setImageElement(null)
     setStep('idle')
   }
 
@@ -349,23 +344,19 @@ export function ReceiptUpload() {
 
             {/* Crop Area */}
             <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ maxHeight: '50vh' }}>
-              <ReactCrop
-                crop={crop}
-                onChange={(c) => setCrop(c)}
-                onComplete={(c) => setCompletedCrop(c)}
-              >
-                <img
-                  src={editingImage.url}
-                  alt="Da modificare"
-                  onLoad={handleImageLoad}
-                  style={{
-                    maxHeight: '50vh',
-                    width: '100%',
-                    objectFit: 'contain',
-                    filter: `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`,
-                  }}
-                />
-              </ReactCrop>
+              <TouchCrop
+                src={editingImage.url}
+                onCropChange={(crop) => setCropArea(crop)}
+                onImageLoad={handleImageLoad}
+                imageRef={cropImageRef}
+                style={{ maxHeight: '50vh' }}
+                imageStyle={{
+                  maxHeight: '50vh',
+                  width: '100%',
+                  objectFit: 'contain',
+                  filter: `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`,
+                }}
+              />
             </div>
 
             {/* Enhancement Controls */}
