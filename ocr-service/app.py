@@ -1,56 +1,88 @@
 """
 OCR Microservice
-Extracts text from receipt images using PaddleOCR.
+Extracts text from receipt images using EasyOCR.
 """
 
 import io
+import os
 import re
+import json
 import logging
+from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, asdict
 
+import numpy as np
+import easyocr
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from PIL import Image, ImageEnhance, ImageFilter
-from paddleocr import PaddleOCR
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Log directory for OCR scans
+OCR_LOG_DIR = "/app/logs"
+OCR_LOG_FILE = os.path.join(OCR_LOG_DIR, "ocr_scans.jsonl")
+
+# Initialize EasyOCR reader (Italian + English)
+logger.info("Loading EasyOCR models...")
+reader = easyocr.Reader(['it', 'en'], gpu=False)
+logger.info("EasyOCR models loaded successfully")
+
+
+def ensure_log_dir():
+    """Ensure log directory exists"""
+    os.makedirs(OCR_LOG_DIR, exist_ok=True)
+
+
+def log_ocr_scan(filename: str, raw_text: str, raw_lines: list, parsed_lines: list,
+                 store_name: Optional[str], total_amount: Optional[float],
+                 avg_confidence: float, image_size: tuple):
+    """Log OCR scan results to JSONL file for future analysis"""
+    try:
+        ensure_log_dir()
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "filename": filename,
+            "image_size": {"width": image_size[0], "height": image_size[1]},
+            "raw_text": raw_text,
+            "raw_lines_count": len(raw_lines),
+            "raw_lines": raw_lines,
+            "parsed_lines_count": len(parsed_lines),
+            "parsed_lines": parsed_lines,
+            "store_detected": store_name,
+            "total_detected": total_amount,
+            "average_confidence": avg_confidence
+        }
+        with open(OCR_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        logger.info(f"Logged OCR scan: {filename}")
+    except Exception as e:
+        logger.warning(f"Failed to log OCR scan: {e}")
+
+
 app = FastAPI(
     title="OCR Service",
-    description="Receipt OCR processing with PaddleOCR",
-    version="1.0.0"
+    description="Receipt OCR processing with EasyOCR",
+    version="2.0.0"
 )
 
-# Initialize PaddleOCR (lazy loading)
-_ocr_instance = None
-
-
-def get_ocr():
-    """Get or create OCR instance"""
-    global _ocr_instance
-    if _ocr_instance is None:
-        logger.info("Initializing PaddleOCR...")
-        _ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang='it'
-        )
-        logger.info("PaddleOCR initialized")
-    return _ocr_instance
-
-
-# Italian receipt patterns
+# Italian receipt patterns - only skip obvious non-product lines
 SKIP_PATTERNS = [
-    r'^\s*TOTALE\s*', r'^\s*SUBTOTALE\s*', r'^\s*IVA\s*',
-    r'^\s*CONTANTE\s*', r'^\s*RESTO\s*', r'^\s*BANCOMAT\s*',
-    r'^\s*CARTA\s*', r'^\s*SCONTRINO\s*', r'^\s*FISCALE\s*',
-    r'^\s*CASSA\s*', r'^\s*DATA\s*', r'^\s*ORA\s*',
-    r'^\s*P\.?\s*IVA\s*', r'^\s*C\.?\s*F\.?\s*',
-    r'^\s*TEL\.?\s*', r'^\s*GRAZIE\s*', r'^\s*ARRIVEDERCI\s*',
-    r'^\s*\d{2}[/.-]\d{2}[/.-]\d{2,4}\s*',
-    r'^\s*\d{2}:\d{2}\s*',
-    r'^\s*[-=_*]+\s*$', r'^\s*$',
+    r'^\s*TOTALE\s*€?\s*\d',  # TOTALE with price
+    r'^\s*SUBTOTALE\s*€?\s*\d',
+    r'^\s*CONTANTE\s*€?\s*\d',
+    r'^\s*RESTO\s*€?\s*\d',
+    r'^\s*BANCOMAT\s*',
+    r'^\s*CARTA\s*(DI\s*)?CREDITO',
+    r'^\s*P\.?\s*IVA\s*:?\s*\d',
+    r'^\s*C\.?\s*F\.?\s*:?\s*[A-Z0-9]',
+    r'^\s*TEL\.?\s*:?\s*\d',
+    r'^\s*\d{2}[/.-]\d{2}[/.-]\d{2,4}\s*$',  # Pure dates
+    r'^\s*\d{2}:\d{2}(:\d{2})?\s*$',  # Pure times
+    r'^\s*[-=_*#]{3,}\s*$',  # Separators
+    r'^\s*$',  # Empty lines
 ]
 
 KNOWN_STORES = [
@@ -78,36 +110,63 @@ class ParsedLine:
 
 def preprocess_image(image: Image.Image) -> Image.Image:
     """Preprocess image for better OCR"""
-    # Convert to grayscale
-    if image.mode != 'L':
-        image = image.convert('L')
+    # Handle EXIF orientation (common issue with phone photos)
+    try:
+        from PIL import ExifTags
+        for orientation in ExifTags.TAGS.keys():
+            if ExifTags.TAGS[orientation] == 'Orientation':
+                break
+        exif = image._getexif()
+        if exif is not None:
+            orientation_value = exif.get(orientation)
+            if orientation_value == 3:
+                image = image.rotate(180, expand=True)
+            elif orientation_value == 6:
+                image = image.rotate(270, expand=True)
+            elif orientation_value == 8:
+                image = image.rotate(90, expand=True)
+    except (AttributeError, KeyError, IndexError):
+        pass
 
-    # Resize if too small
-    min_dim = 1000
-    if min(image.size) < min_dim:
-        scale = min_dim / min(image.size)
-        new_size = (int(image.size[0] * scale), int(image.size[1] * scale))
+    # Convert to RGB for processing
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
+    # Resize if too small or too large
+    min_dim = 800
+    max_dim = 2000
+    width, height = image.size
+
+    if min(width, height) < min_dim:
+        scale = min_dim / min(width, height)
+        new_size = (int(width * scale), int(height * scale))
         image = image.resize(new_size, Image.Resampling.LANCZOS)
-
-    # Enhance contrast
-    image = ImageEnhance.Contrast(image).enhance(1.5)
-
-    # Sharpen
-    image = image.filter(ImageFilter.SHARPEN)
+    elif max(width, height) > max_dim:
+        scale = max_dim / max(width, height)
+        new_size = (int(width * scale), int(height * scale))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
 
     return image
 
 
 def should_skip_line(text: str) -> bool:
-    """Check if line should be skipped"""
-    text_upper = text.upper().strip()
+    """Check if line should be skipped - be conservative, keep more lines"""
+    text_stripped = text.strip()
+
+    # Skip very short lines
+    if len(text_stripped) < 2:
+        return True
+
+    # Skip lines that are only numbers/punctuation (no letters at all)
+    if re.match(r'^[\d.,\s€]+$', text_stripped):
+        return True
+
+    # Skip lines matching skip patterns
+    text_upper = text_stripped.upper()
     for pattern in SKIP_PATTERNS:
         if re.match(pattern, text_upper, re.IGNORECASE):
             return True
-    if len(text.strip()) < 3:
-        return True
-    if re.match(r'^\s*[\d.,\s]+\s*$', text):
-        return True
+
     return False
 
 
@@ -153,7 +212,7 @@ def parse_quantity(text: str) -> tuple[Optional[float], Optional[str]]:
     return None, None
 
 
-def parse_line(raw_text: str, confidence: float) -> ParsedLine:
+def parse_line(raw_text: str, confidence: float = 0.8) -> ParsedLine:
     """Parse a single receipt line"""
     result = ParsedLine(
         raw_text=raw_text,
@@ -180,17 +239,30 @@ def parse_line(raw_text: str, confidence: float) -> ParsedLine:
     if quantity:
         result.parsed_quantity = quantity
 
-    # Clean product name
+    # Clean product name - be less aggressive
     name = raw_text
-    name = re.sub(r'\d+[,.]\d{2}\s*(?:EUR|€)?\s*', '', name)
+    # Remove prices at end
+    name = re.sub(r'\s*\d+[,.]\d{2}\s*€?\s*$', '', name)
+    # Remove € prices
     name = re.sub(r'€\s*\d+[,.]\d{2}', '', name)
+    # Remove quantity prefix like "2x"
     name = re.sub(r'^\d+\s*[xX]\s*', '', name)
-    name = re.sub(r'[xX]\s*\d+\s*$', '', name)
-    name = re.sub(r'(KG|GR|LT|ML|PZ|CONF|UN)\.?\s*\d+[,.]?\d*', '', name, flags=re.IGNORECASE)
+    # Remove weight/unit patterns
+    name = re.sub(r'\s*(KG|GR|LT|ML)\s*\d+[,.]?\d*\s*', ' ', name, flags=re.IGNORECASE)
+    # Clean up whitespace
     name = ' '.join(name.split()).strip(' -_*')
 
-    if name:
+    # If cleaned name is too short but raw has content, use cleaned raw
+    if len(name) < 2 and len(raw_text.strip()) >= 3:
+        # Just remove obvious non-text characters
+        name = re.sub(r'[€\d,.]+\s*$', '', raw_text).strip()
+        name = ' '.join(name.split()).strip(' -_*')
+
+    if name and len(name) >= 2:
         result.parsed_name = name
+    else:
+        # Last resort - use raw text
+        result.parsed_name = raw_text.strip()
 
     return result
 
@@ -218,7 +290,7 @@ def extract_total(lines: list[str]) -> Optional[float]:
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "ok", "service": "ocr"}
+    return {"status": "ok", "service": "ocr", "engine": "easyocr"}
 
 
 @app.post("/process")
@@ -241,18 +313,36 @@ async def process_receipt(file: UploadFile = File(...)):
         # Read and preprocess image
         contents = await file.read()
         image = Image.open(io.BytesIO(contents))
+        original_size = image.size
         processed = preprocess_image(image)
 
-        # Convert to bytes for OCR
-        img_byte_arr = io.BytesIO()
-        processed.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
+        logger.info(f"Processing image: {original_size} -> {processed.size}")
 
-        # Run OCR
-        ocr = get_ocr()
-        result = ocr.ocr(img_byte_arr, cls=True)
+        # Save preprocessed image to bytes for EasyOCR
+        img_buffer = io.BytesIO()
+        processed.save(img_buffer, format='JPEG', quality=95)
+        img_bytes = img_buffer.getvalue()
 
-        if not result or not result[0]:
+        logger.info(f"Running EasyOCR on {len(img_bytes)} bytes...")
+
+        # Run EasyOCR with raw bytes
+        # Returns list of (bbox, text, confidence)
+        try:
+            results = reader.readtext(
+                img_bytes,
+                detail=1,
+                paragraph=False,
+                min_size=10,
+                text_threshold=0.7,
+                low_text=0.4,
+            )
+            logger.info(f"EasyOCR found {len(results)} text regions")
+        except Exception as ocr_error:
+            logger.error(f"EasyOCR failed: {ocr_error}")
+            raise
+
+        if not results:
+            logger.warning("No text detected in image")
             return JSONResponse({
                 "raw_text": "",
                 "lines": [],
@@ -261,38 +351,72 @@ async def process_receipt(file: UploadFile = File(...)):
                 "average_confidence": 0.0
             })
 
-        # Extract text and confidence
+        # Sort results by vertical position (top to bottom)
+        results_sorted = sorted(results, key=lambda x: x[0][0][1])
+
+        # Group into lines based on vertical position
         raw_lines = []
         confidences = []
+        current_line = []
+        current_y = None
+        line_threshold = 20  # pixels
 
-        for line in result[0]:
-            text = line[1][0]
-            confidence = line[1][1]
-            raw_lines.append((text, confidence))
-            confidences.append(confidence)
+        for bbox, text, conf in results_sorted:
+            y = bbox[0][1]  # top-left y coordinate
+            confidences.append(conf)
+
+            if current_y is None or abs(y - current_y) < line_threshold:
+                current_line.append((bbox[0][0], text))  # (x, text)
+                current_y = y if current_y is None else (current_y + y) / 2
+            else:
+                # Sort by x position and join
+                current_line.sort(key=lambda x: x[0])
+                line_text = ' '.join([t for _, t in current_line])
+                if line_text.strip():
+                    raw_lines.append(line_text)
+                current_line = [(bbox[0][0], text)]
+                current_y = y
+
+        # Don't forget the last line
+        if current_line:
+            current_line.sort(key=lambda x: x[0])
+            line_text = ' '.join([t for _, t in current_line])
+            if line_text.strip():
+                raw_lines.append(line_text)
 
         # Build response
-        raw_text = '\n'.join([l[0] for l in raw_lines])
-        store_name = detect_store([l[0] for l in raw_lines])
-        total_amount = extract_total([l[0] for l in raw_lines])
+        raw_text = '\n'.join(raw_lines)
+        store_name = detect_store(raw_lines)
+        total_amount = extract_total(raw_lines)
 
         # Parse lines
+        avg_conf = sum(confidences) / len(confidences) if confidences else 0.8
         parsed_lines = []
-        for text, conf in raw_lines:
-            parsed = parse_line(text, conf)
+        for text in raw_lines:
+            parsed = parse_line(text, avg_conf)
             if parsed.is_product and parsed.parsed_name:
                 parsed_lines.append(asdict(parsed))
 
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        logger.info(f"Processed receipt: {len(parsed_lines)} products, store={store_name}, confidence={avg_conf:.2f}")
 
-        logger.info(f"Processed receipt: {len(parsed_lines)} products, store={store_name}")
+        # Log scan for future analysis
+        log_ocr_scan(
+            filename=file.filename or "unknown",
+            raw_text=raw_text,
+            raw_lines=raw_lines,
+            parsed_lines=parsed_lines,
+            store_name=store_name,
+            total_amount=total_amount,
+            avg_confidence=avg_conf,
+            image_size=original_size
+        )
 
         return JSONResponse({
             "raw_text": raw_text,
             "lines": parsed_lines,
             "store_name": store_name,
             "total_amount": total_amount,
-            "average_confidence": avg_confidence
+            "average_confidence": avg_conf
         })
 
     except Exception as e:
@@ -300,14 +424,57 @@ async def process_receipt(file: UploadFile = File(...)):
         raise HTTPException(500, f"OCR processing failed: {str(e)}")
 
 
+@app.get("/logs")
+async def get_logs(limit: int = 50):
+    """
+    Get recent OCR scan logs for analysis.
+
+    Returns the last N scans with all their data.
+    """
+    try:
+        if not os.path.exists(OCR_LOG_FILE):
+            return {"scans": [], "total": 0}
+
+        scans = []
+        with open(OCR_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        scans.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+        # Return last N scans
+        recent_scans = scans[-limit:] if limit > 0 else scans
+
+        # Calculate stats
+        total_scans = len(scans)
+        avg_lines = sum(s.get("parsed_lines_count", 0) for s in scans) / total_scans if total_scans > 0 else 0
+        avg_confidence = sum(s.get("average_confidence", 0) for s in scans) / total_scans if total_scans > 0 else 0
+
+        return {
+            "scans": recent_scans,
+            "total": total_scans,
+            "stats": {
+                "average_parsed_lines": round(avg_lines, 1),
+                "average_confidence": round(avg_confidence, 3)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to read logs: {e}")
+        return {"scans": [], "total": 0, "error": str(e)}
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
         "service": "OCR Service",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "engine": "EasyOCR",
         "endpoints": {
             "/health": "Health check",
-            "/process": "POST - Process receipt image"
+            "/process": "POST - Process receipt image",
+            "/logs": "GET - View OCR scan logs"
         }
     }

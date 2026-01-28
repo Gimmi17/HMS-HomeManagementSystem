@@ -36,7 +36,10 @@ from app.services.receipt_reconciliation import (
     get_unmatched_shopping_items,
     get_reconciliation_summary,
 )
+from app.services.llm_ocr import smart_match_items
 from app.services.error_logging import error_logger
+from app.integrations.llm import get_llm_manager, LLMPurpose
+from app.models.house import House
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +308,7 @@ async def reconcile_receipt(
     Reconcile receipt items with shopping list items.
 
     Matches extracted items against the shopping list using fuzzy matching.
+    When LLM is configured, uses AI to interpret abbreviated item names.
     Returns match results and summary.
     """
     receipt = db.query(Receipt).filter(Receipt.id == receipt_id).first()
@@ -319,6 +323,11 @@ async def reconcile_receipt(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Lo scontrino deve essere prima elaborato"
         )
+
+    # Get shopping list with house
+    shopping_list = db.query(ShoppingList).filter(
+        ShoppingList.id == receipt.shopping_list_id
+    ).first()
 
     # Get shopping list items
     shopping_list_items = db.query(ShoppingListItem).filter(
@@ -337,8 +346,46 @@ async def reconcile_receipt(
         )
 
     try:
-        # Run reconciliation
-        match_results = reconcile_receipt_items(receipt_items, shopping_list_items)
+        # Try to get LLM hints for better matching
+        llm_hints = {}
+        if shopping_list and shopping_list.house_id:
+            house = db.query(House).filter(House.id == shopping_list.house_id).first()
+            if house and house.settings:
+                # Load LLM connections from house settings
+                manager = get_llm_manager()
+                manager.load_from_settings(house.settings)
+
+                # Get OCR client
+                ocr_client = manager.get_client_for_purpose(LLMPurpose.OCR)
+                if ocr_client:
+                    # Prepare item names for LLM
+                    receipt_names = [
+                        item.parsed_name or item.raw_text
+                        for item in receipt_items
+                    ]
+                    shopping_names = [item.name for item in shopping_list_items]
+
+                    # Get LLM suggestions
+                    try:
+                        llm_results = await smart_match_items(
+                            receipt_names,
+                            shopping_names,
+                            ocr_client
+                        )
+                        # Build hints dict: receipt_name -> (suggested_match, confidence, interpreted_name)
+                        for r in llm_results:
+                            if r.receipt_item and r.suggested_match:
+                                llm_hints[r.receipt_item] = {
+                                    "match": r.suggested_match,
+                                    "confidence": r.confidence,
+                                    "interpreted": r.interpreted_name
+                                }
+                        logger.info(f"LLM provided {len(llm_hints)} match hints")
+                    except Exception as e:
+                        logger.warning(f"LLM matching failed, falling back to fuzzy: {e}")
+
+        # Run reconciliation with optional LLM hints
+        match_results = reconcile_receipt_items(receipt_items, shopping_list_items, llm_hints)
 
         # Update receipt items with match results
         for result in match_results:

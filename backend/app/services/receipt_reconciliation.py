@@ -206,17 +206,31 @@ def classify_match(score: float) -> ReceiptItemMatchStatus:
 
 def reconcile_receipt_items(
     receipt_items: list[ReceiptItem],
-    shopping_list_items: list[ShoppingListItem]
+    shopping_list_items: list[ShoppingListItem],
+    llm_hints: Optional[dict] = None
 ) -> list[MatchResult]:
     """
     Reconcile receipt items against shopping list items.
 
+    Args:
+        receipt_items: Items extracted from receipt OCR
+        shopping_list_items: Items from the shopping list
+        llm_hints: Optional dict from LLM with format:
+            {receipt_name: {"match": suggested_match, "confidence": 0.0-1.0, "interpreted": full_name}}
+
     Returns list of MatchResult with match status for each receipt item.
     """
     results = []
+    llm_hints = llm_hints or {}
 
     # Track which shopping list items have been matched
     matched_shopping_items = set()
+
+    # Build a lookup for shopping items by name (normalized)
+    shopping_by_name = {
+        normalize_text(item.name): item
+        for item in shopping_list_items
+    }
 
     # First pass: find all best matches
     for receipt_item in receipt_items:
@@ -228,20 +242,56 @@ def reconcile_receipt_items(
             if item.id not in matched_shopping_items
         ]
 
-        best_match, score = find_best_match(item_name, available_items)
+        # Check for LLM hint first
+        llm_hint = llm_hints.get(item_name)
+        llm_boosted_match = None
+        llm_boosted_score = 0.0
 
-        status = classify_match(score)
+        if llm_hint and llm_hint.get("match"):
+            # LLM suggested a match - find the corresponding shopping item
+            suggested_name = normalize_text(llm_hint["match"])
+            llm_boosted_match = shopping_by_name.get(suggested_name)
+
+            # If not exact match, try fuzzy on the suggestion
+            if not llm_boosted_match:
+                for item in available_items:
+                    if normalize_text(item.name) == suggested_name:
+                        llm_boosted_match = item
+                        break
+                    # Try partial match
+                    if suggested_name in normalize_text(item.name) or normalize_text(item.name) in suggested_name:
+                        llm_boosted_match = item
+                        break
+
+            if llm_boosted_match and llm_boosted_match.id not in matched_shopping_items:
+                # Use LLM confidence, scaled to our thresholds
+                llm_boosted_score = llm_hint.get("confidence", 0.7) * 100
+                logger.debug(f"LLM hint: '{item_name}' -> '{llm_hint['match']}' (conf: {llm_boosted_score:.0f}%)")
+
+        # Also run traditional fuzzy matching
+        best_match, fuzzy_score = find_best_match(item_name, available_items)
+
+        # Choose the better result between LLM and fuzzy
+        if llm_boosted_match and llm_boosted_score > fuzzy_score:
+            final_match = llm_boosted_match
+            final_score = llm_boosted_score
+            logger.info(f"Using LLM match for '{item_name}' -> '{final_match.name}' (LLM: {llm_boosted_score:.0f}% > fuzzy: {fuzzy_score:.0f}%)")
+        else:
+            final_match = best_match
+            final_score = fuzzy_score
+
+        status = classify_match(final_score)
 
         # If auto-matched, mark shopping item as used
-        if status == ReceiptItemMatchStatus.MATCHED and best_match:
-            matched_shopping_items.add(best_match.id)
+        if status == ReceiptItemMatchStatus.MATCHED and final_match:
+            matched_shopping_items.add(final_match.id)
 
         results.append(MatchResult(
             receipt_item_id=str(receipt_item.id),
-            shopping_list_item_id=str(best_match.id) if best_match and score >= SUGGEST_THRESHOLD else None,
+            shopping_list_item_id=str(final_match.id) if final_match and final_score >= SUGGEST_THRESHOLD else None,
             match_status=status,
-            confidence=score,
-            matched_name=best_match.name if best_match else None
+            confidence=final_score,
+            matched_name=final_match.name if final_match else None
         ))
 
     return results

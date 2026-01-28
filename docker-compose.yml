@@ -62,16 +62,17 @@ services:
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-  # OCR Service (PaddleOCR microservice)
+  # OCR Service (Tesseract microservice)
   ocr:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
     container_name: meal-planner-ocr
+    volumes:
+      - ocr_logs:/app/logs
     networks:
       - meal-network
     restart: unless-stopped
-    # Note: First build will take a while (~5-10 min) due to PaddlePaddle download
 
   # React Frontend
   frontend:
@@ -98,6 +99,8 @@ volumes:
     external: true
     name: meal-planner_postgres_dev_data
   backend_logs:
+    driver: local
+  ocr_logs:
     driver: local
 
 networks:

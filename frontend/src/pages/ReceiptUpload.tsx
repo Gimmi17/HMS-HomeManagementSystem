@@ -1,125 +1,222 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
+import 'react-image-crop/dist/ReactCrop.css'
 import receiptsService from '@/services/receipts'
 import shoppingListsService from '@/services/shoppingLists'
-import type { Receipt, ReceiptItem, ReconciliationResponse, ShoppingList, ReceiptItemMatchStatus } from '@/types'
+import type { Receipt, ReceiptItem, ReconciliationResponse, ShoppingList } from '@/types'
+import type { ReceiptItemMatchStatus } from '@/types'
 
-type ProcessingStep = 'idle' | 'uploading' | 'processing' | 'reconciling' | 'done' | 'error'
+type ProcessingStep = 'idle' | 'editing' | 'saving' | 'uploading' | 'processing' | 'review' | 'reconciling' | 'done' | 'error'
 
 interface ImagePreview {
   id: string
   file: File
-  url: string
+  previewUrl: string
 }
 
-const MATCH_STATUS_COLORS: Record<ReceiptItemMatchStatus, { bg: string; text: string; label: string }> = {
-  matched: { bg: 'bg-green-100', text: 'text-green-700', label: 'Corrispondente' },
-  unmatched: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Da verificare' },
-  extra: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Extra' },
-  ignored: { bg: 'bg-gray-100', text: 'text-gray-500', label: 'Ignorato' },
+interface EditableItem {
+  id: string
+  text: string
+  price: string
+  isNew?: boolean
 }
 
 export function ReceiptUpload() {
   const { listId } = useParams()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const [shoppingList, setShoppingList] = useState<ShoppingList | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
-  const [imagePreviews, setImagePreviews] = useState<ImagePreview[]>([])
+  const [images, setImages] = useState<ImagePreview[]>([])
   const [step, setStep] = useState<ProcessingStep>('idle')
   const [error, setError] = useState<string | null>(null)
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
-  const [isDragging, setIsDragging] = useState(false)
+
+  // Editing state - which image is being edited
+  const [editingImage, setEditingImage] = useState<{ file: File; url: string } | null>(null)
+  const [crop, setCrop] = useState<Crop>()
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
+  const [contrast, setContrast] = useState(120)
+  const [brightness, setBrightness] = useState(100)
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageElement, setImageElement] = useState<HTMLImageElement | null>(null)
+
+  // OCR review state
+  const [editableItems, setEditableItems] = useState<EditableItem[]>([])
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
 
   // Load shopping list
   useEffect(() => {
     if (!listId) return
-
-    const fetchList = async () => {
-      try {
-        const data = await shoppingListsService.getById(listId)
-        setShoppingList(data)
-      } catch {
-        setError('Lista della spesa non trovata')
-      }
-    }
-
-    fetchList()
+    shoppingListsService.getById(listId)
+      .then(setShoppingList)
+      .catch(() => setError('Lista della spesa non trovata'))
   }, [listId])
 
-  // Cleanup preview URLs on unmount
+  // Cleanup URLs on unmount
   useEffect(() => {
     return () => {
-      imagePreviews.forEach((p) => URL.revokeObjectURL(p.url))
+      images.forEach((img) => URL.revokeObjectURL(img.previewUrl))
+      if (editingImage) URL.revokeObjectURL(editingImage.url)
     }
   }, [])
 
-  const addFiles = (files: File[]) => {
-    const validFiles = files.filter((file) =>
-      ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)
-    )
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    const validFile = files.find((f) => ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
 
-    if (validFiles.length !== files.length) {
-      setError('Alcuni file non sono supportati. Usa JPG, PNG o WEBP.')
+    if (!validFile) {
+      // User cancelled or invalid file - go back to idle if we have images
+      setStep('idle')
+      return
     }
 
-    const newPreviews: ImagePreview[] = validFiles.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      file,
-      url: URL.createObjectURL(file),
-    }))
-
-    setImagePreviews((prev) => [...prev, ...newPreviews])
-    setError(null)
-  }
-
-  const removeImage = (id: string) => {
-    setImagePreviews((prev) => {
-      const toRemove = prev.find((p) => p.id === id)
-      if (toRemove) {
-        URL.revokeObjectURL(toRemove.url)
-      }
-      return prev.filter((p) => p.id !== id)
+    // Open editing view for this image
+    setEditingImage({
+      file: validFile,
+      url: URL.createObjectURL(validFile),
     })
+    setCrop(undefined)
+    setCompletedCrop(undefined)
+    setContrast(120)
+    setBrightness(100)
+    setImageLoaded(false)
+    setStep('editing')
+    setError(null)
+
+    e.target.value = ''
   }
 
-  const moveImage = (fromIndex: number, toIndex: number) => {
-    setImagePreviews((prev) => {
-      const newPreviews = [...prev]
-      const [moved] = newPreviews.splice(fromIndex, 1)
-      newPreviews.splice(toIndex, 0, moved)
-      return newPreviews
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    setImageElement(e.currentTarget)
+    setImageLoaded(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingImage || !imageElement) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Show saving indicator
+    setStep('saving')
+
+    // Determine crop area (use full image if no crop selected)
+    const cropArea = completedCrop && completedCrop.width > 0 && completedCrop.height > 0
+      ? completedCrop
+      : { x: 0, y: 0, width: imageElement.width, height: imageElement.height }
+
+    // Scale from displayed size to natural size
+    const scaleX = imageElement.naturalWidth / imageElement.width
+    const scaleY = imageElement.naturalHeight / imageElement.height
+
+    const sourceX = cropArea.x * scaleX
+    const sourceY = cropArea.y * scaleY
+    const sourceWidth = cropArea.width * scaleX
+    const sourceHeight = cropArea.height * scaleY
+
+    canvas.width = sourceWidth
+    canvas.height = sourceHeight
+
+    // Apply filters
+    ctx.filter = `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`
+    ctx.drawImage(
+      imageElement,
+      sourceX, sourceY, sourceWidth, sourceHeight,
+      0, 0, sourceWidth, sourceHeight
+    )
+
+    // Save reference to cleanup later
+    const urlToRevoke = editingImage.url
+
+    // Convert to blob
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setError('Errore nel salvataggio della foto')
+          setStep('editing')
+          return
+        }
+
+        const processedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' })
+        const previewUrl = URL.createObjectURL(processedFile)
+
+        // Add to images list
+        setImages((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            file: processedFile,
+            previewUrl,
+          },
+        ])
+
+        // Cleanup editing state
+        URL.revokeObjectURL(urlToRevoke)
+        setEditingImage(null)
+        setImageElement(null)
+
+        // Set to idle first, then open file picker
+        setStep('idle')
+
+        // Small delay to ensure state is updated before opening file picker
+        setTimeout(() => {
+          fileInputRef.current?.click()
+        }, 100)
+      },
+      'image/jpeg',
+      0.92
+    )
+  }
+
+  const handleCancelEdit = () => {
+    if (editingImage) {
+      URL.revokeObjectURL(editingImage.url)
+    }
+    setEditingImage(null)
+    setImageElement(null)
+    setStep('idle')
+  }
+
+  const handleRemoveImage = (id: string) => {
+    setImages((prev) => {
+      const toRemove = prev.find((img) => img.id === id)
+      if (toRemove) URL.revokeObjectURL(toRemove.previewUrl)
+      return prev.filter((img) => img.id !== id)
     })
   }
 
   const handleUploadAndProcess = async () => {
-    if (!listId || imagePreviews.length === 0) return
+    if (!listId || images.length === 0) return
 
     setError(null)
 
     try {
-      // Step 1: Upload
       setStep('uploading')
-      const files = imagePreviews.map((p) => p.file)
+      const files = images.map((img) => img.file)
       const uploaded = await receiptsService.upload(listId, files)
       setReceipt(uploaded)
 
-      // Step 2: Process OCR
       setStep('processing')
       const processed = await receiptsService.process(uploaded.id)
       setReceipt(processed)
 
-      // Step 3: Reconcile
-      setStep('reconciling')
-      const reconciled = await receiptsService.reconcile(processed.id)
-      setReconciliation(reconciled)
+      // Convert to editable items
+      setEditableItems(
+        processed.items.map((item) => ({
+          id: item.id,
+          text: item.parsed_name || item.raw_text,
+          price: item.parsed_total_price ? item.parsed_total_price.toFixed(2) : '',
+        }))
+      )
 
-      // Refresh receipt to get updated items
-      const finalReceipt = await receiptsService.getById(processed.id)
-      setReceipt(finalReceipt)
-
-      setStep('done')
+      setStep('review')
     } catch (err) {
       console.error('Processing failed:', err)
       setError("Errore durante l'elaborazione. Riprova.")
@@ -127,44 +224,50 @@ export function ReceiptUpload() {
     }
   }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
+  const handleConfirmItems = async () => {
+    if (!receipt) return
 
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      addFiles(files)
-    }
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }
-
-  const handleDragLeave = () => {
-    setIsDragging(false)
-  }
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length > 0) {
-      addFiles(files)
-    }
-    // Reset input to allow selecting same file again
-    e.target.value = ''
-  }
-
-  const toggleExtraSelection = (itemId: string) => {
-    setSelectedExtras((prev) => {
-      const next = new Set(prev)
-      if (next.has(itemId)) {
-        next.delete(itemId)
-      } else {
-        next.add(itemId)
+    try {
+      for (const item of editableItems) {
+        if (!item.isNew) {
+          await receiptsService.updateItem(item.id, { user_corrected_name: item.text })
+        }
       }
-      return next
-    })
+
+      setStep('reconciling')
+      const reconciled = await receiptsService.reconcile(receipt.id)
+      setReconciliation(reconciled)
+
+      const finalReceipt = await receiptsService.getById(receipt.id)
+      setReceipt(finalReceipt)
+
+      setStep('done')
+    } catch (err) {
+      console.error('Reconciliation failed:', err)
+      setError('Errore durante la riconciliazione.')
+      setStep('error')
+    }
+  }
+
+  const handleEditItem = (id: string, field: 'text' | 'price', value: string) => {
+    setEditableItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    )
+  }
+
+  const handleDeleteItem = (id: string) => {
+    setEditableItems((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  const handleAddItem = () => {
+    const newItem: EditableItem = {
+      id: `new-${Date.now()}`,
+      text: '',
+      price: '',
+      isNew: true,
+    }
+    setEditableItems((prev) => [...prev, newItem])
+    setEditingItemId(newItem.id)
   }
 
   const handleAddExtras = async () => {
@@ -172,30 +275,25 @@ export function ReceiptUpload() {
 
     try {
       await receiptsService.addExtraToList(receipt.id, Array.from(selectedExtras))
-
-      // Refresh receipt
       const updated = await receiptsService.getById(receipt.id)
       setReceipt(updated)
       setSelectedExtras(new Set())
-    } catch (err) {
-      console.error('Failed to add extras:', err)
+    } catch {
       setError("Errore nell'aggiunta degli articoli.")
     }
   }
 
   const handleReset = () => {
-    // Cleanup preview URLs
-    imagePreviews.forEach((p) => URL.revokeObjectURL(p.url))
-
+    images.forEach((img) => URL.revokeObjectURL(img.previewUrl))
     setReceipt(null)
     setReconciliation(null)
-    setImagePreviews([])
+    setImages([])
+    setEditableItems([])
     setStep('idle')
     setError(null)
     setSelectedExtras(new Set())
   }
 
-  // Group receipt items by match status
   const groupedItems = receipt?.items.reduce(
     (acc, item) => {
       acc[item.match_status].push(item)
@@ -204,48 +302,22 @@ export function ReceiptUpload() {
     { matched: [], unmatched: [], extra: [], ignored: [] } as Record<ReceiptItemMatchStatus, ReceiptItem[]>
   )
 
-  const renderStepIndicator = () => {
-    const steps = [
-      { key: 'uploading', label: 'Caricamento' },
-      { key: 'processing', label: 'OCR' },
-      { key: 'reconciling', label: 'Riconciliazione' },
-    ]
-
-    const currentIdx = steps.findIndex((s) => s.key === step)
-
-    return (
-      <div className="flex items-center justify-center gap-2 mb-6">
-        {steps.map((s, idx) => (
-          <div key={s.key} className="flex items-center">
-            <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                idx < currentIdx
-                  ? 'bg-green-500 text-white'
-                  : idx === currentIdx
-                  ? 'bg-primary-500 text-white animate-pulse'
-                  : 'bg-gray-200 text-gray-500'
-              }`}
-            >
-              {idx < currentIdx ? (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                idx + 1
-              )}
-            </div>
-            <span className={`ml-2 text-sm ${idx === currentIdx ? 'text-primary-600 font-medium' : 'text-gray-500'}`}>
-              {s.label}
-            </span>
-            {idx < steps.length - 1 && <div className="w-8 h-0.5 mx-2 bg-gray-200" />}
-          </div>
-        ))}
-      </div>
-    )
-  }
+  // Hidden canvas for image processing
+  const hiddenCanvas = <canvas ref={canvasRef} style={{ display: 'none' }} />
 
   return (
     <div className="space-y-4 pb-20">
+      {hiddenCanvas}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
@@ -269,387 +341,376 @@ export function ReceiptUpload() {
         </div>
       )}
 
-      {/* Upload Zone */}
-      {step === 'idle' && (
-        <>
-          <div
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-              isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300 bg-gray-50'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              capture="environment"
-              multiple
-              onChange={handleInputChange}
-              className="hidden"
-            />
+      {/* EDITING VIEW */}
+      {step === 'editing' && editingImage && (
+        <div className="space-y-4">
+          <div className="card p-4">
+            <h2 className="font-semibold text-gray-900 mb-3">Modifica Foto</h2>
 
-            <svg className="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-              />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+            {/* Crop Area */}
+            <div className="relative bg-gray-900 rounded-lg overflow-hidden" style={{ maxHeight: '50vh' }}>
+              <ReactCrop
+                crop={crop}
+                onChange={(c) => setCrop(c)}
+                onComplete={(c) => setCompletedCrop(c)}
+              >
+                <img
+                  src={editingImage.url}
+                  alt="Da modificare"
+                  onLoad={handleImageLoad}
+                  style={{
+                    maxHeight: '50vh',
+                    width: '100%',
+                    objectFit: 'contain',
+                    filter: `grayscale(100%) contrast(${contrast}%) brightness(${brightness}%)`,
+                  }}
+                />
+              </ReactCrop>
+            </div>
 
-            <p className="text-gray-600 mb-2">Trascina le foto dello scontrino qui</p>
-            <p className="text-sm text-gray-500 mb-4">
-              Per scontrini lunghi, carica più foto in ordine (dall'alto verso il basso)
-            </p>
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-6 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
-            >
-              Scatta Foto o Scegli File
-            </button>
-
-            <p className="text-xs text-gray-500 mt-4">Formati supportati: JPG, PNG, WEBP</p>
-          </div>
-
-          {/* Image Previews */}
-          {imagePreviews.length > 0 && (
-            <div className="card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">
-                  Foto Caricate ({imagePreviews.length})
-                </h3>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-sm text-primary-600 hover:text-primary-700 font-medium"
-                >
-                  + Aggiungi altre
-                </button>
+            {/* Enhancement Controls */}
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="flex items-center justify-between text-sm text-gray-600 mb-1">
+                  <span>Contrasto</span>
+                  <span>{contrast}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="50"
+                  max="200"
+                  value={contrast}
+                  onChange={(e) => setContrast(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
               </div>
 
-              <p className="text-xs text-gray-500 mb-3">
-                Ordina le foto dall'alto verso il basso dello scontrino. Usa le frecce per riordinare.
-              </p>
+              <div>
+                <label className="flex items-center justify-between text-sm text-gray-600 mb-1">
+                  <span>Luminosità</span>
+                  <span>{brightness}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="50"
+                  max="150"
+                  value={brightness}
+                  onChange={(e) => setBrightness(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+            </div>
 
-              <div className="space-y-3">
-                {imagePreviews.map((preview, idx) => (
-                  <div
-                    key={preview.id}
-                    className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
-                  >
-                    {/* Position number */}
-                    <div className="w-8 h-8 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center font-semibold text-sm">
+            {/* Actions */}
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={handleCancelEdit}
+                className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!imageLoaded}
+                className="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 disabled:bg-gray-300"
+              >
+                SALVA
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IDLE VIEW - Photo list */}
+      {step === 'idle' && (
+        <>
+          {/* Add photo button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full py-4 border-2 border-dashed border-primary-300 bg-primary-50 rounded-xl text-primary-600 font-medium hover:bg-primary-100 flex items-center justify-center gap-2"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {images.length === 0 ? 'Scatta o Seleziona Foto' : 'Aggiungi Altra Foto'}
+          </button>
+
+          {/* Images list */}
+          {images.length > 0 && (
+            <div className="card p-4">
+              <h3 className="font-semibold text-gray-900 mb-3">Foto Caricate ({images.length})</h3>
+
+              <div className="grid grid-cols-3 gap-3">
+                {images.map((img, idx) => (
+                  <div key={img.id} className="relative">
+                    <img
+                      src={img.previewUrl}
+                      alt={`Foto ${idx + 1}`}
+                      className="w-full aspect-square object-cover rounded-lg"
+                    />
+                    <div className="absolute top-1 left-1 w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
                       {idx + 1}
                     </div>
-
-                    {/* Thumbnail */}
-                    <img
-                      src={preview.url}
-                      alt={`Foto ${idx + 1}`}
-                      className="w-16 h-16 object-cover rounded-lg"
-                    />
-
-                    {/* File name */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{preview.file.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {(preview.file.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
-
-                    {/* Move buttons */}
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={() => idx > 0 && moveImage(idx, idx - 1)}
-                        disabled={idx === 0}
-                        className={`p-1 rounded ${idx === 0 ? 'text-gray-300' : 'text-gray-500 hover:bg-gray-200'}`}
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => idx < imagePreviews.length - 1 && moveImage(idx, idx + 1)}
-                        disabled={idx === imagePreviews.length - 1}
-                        className={`p-1 rounded ${idx === imagePreviews.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:bg-gray-200'}`}
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {/* Remove button */}
                     <button
-                      onClick={() => removeImage(preview.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                      onClick={() => handleRemoveImage(img.id)}
+                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center"
                     >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </div>
                 ))}
               </div>
 
-              {/* Process button */}
               <button
                 onClick={handleUploadAndProcess}
-                className="w-full mt-4 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
+                className="w-full mt-4 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
               >
-                Elabora Scontrino ({imagePreviews.length} {imagePreviews.length === 1 ? 'foto' : 'foto'})
+                Elabora Scontrino
               </button>
             </div>
+          )}
+
+          {images.length === 0 && (
+            <p className="text-center text-gray-500 text-sm">
+              Scatta una foto dello scontrino per iniziare
+            </p>
           )}
         </>
       )}
 
-      {/* Processing */}
-      {['uploading', 'processing', 'reconciling'].includes(step) && (
-        <div className="card p-6">
-          {renderStepIndicator()}
+      {/* SAVING IMAGE */}
+      {step === 'saving' && (
+        <div className="card p-6 text-center">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-green-500 border-t-transparent mb-4" />
+          <p className="text-gray-600">Salvataggio foto...</p>
+        </div>
+      )}
 
-          {imagePreviews.length > 0 && (
-            <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
-              {imagePreviews.map((preview, idx) => (
-                <div key={preview.id} className="relative flex-shrink-0">
-                  <img
-                    src={preview.url}
-                    alt={`Foto ${idx + 1}`}
-                    className="h-32 rounded-lg shadow"
-                  />
-                  <span className="absolute top-1 left-1 w-5 h-5 bg-primary-500 text-white rounded-full text-xs flex items-center justify-center font-semibold">
-                    {idx + 1}
-                  </span>
+      {/* UPLOADING / PROCESSING */}
+      {['uploading', 'processing'].includes(step) && (
+        <div className="card p-6 text-center">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-primary-500 border-t-transparent mb-4" />
+          <p className="text-gray-600">
+            {step === 'uploading' ? 'Caricamento...' : 'Elaborazione OCR...'}
+          </p>
+        </div>
+      )}
+
+      {/* REVIEW OCR RESULTS */}
+      {step === 'review' && (
+        <div className="space-y-4">
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-900">Verifica Articoli</h2>
+              <span className="text-sm text-gray-500">{editableItems.length} articoli</span>
+            </div>
+
+            <div className="space-y-2">
+              {editableItems.map((item, idx) => (
+                <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                  {editingItemId === item.id ? (
+                    <div className="p-3 bg-primary-50">
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={item.text}
+                          onChange={(e) => handleEditItem(item.id, 'text', e.target.value)}
+                          placeholder="Nome articolo"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          value={item.price}
+                          onChange={(e) => handleEditItem(item.id, 'price', e.target.value)}
+                          placeholder="Prezzo"
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-lg text-sm text-right"
+                        />
+                      </div>
+                      <button
+                        onClick={() => setEditingItemId(null)}
+                        className="w-full py-1 text-sm bg-primary-500 text-white rounded-lg"
+                      >
+                        OK
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center p-3 bg-white">
+                      <span className="w-6 h-6 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center text-xs font-medium mr-3">
+                        {idx + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-medium truncate ${item.text ? 'text-gray-900' : 'text-gray-400 italic'}`}>
+                          {item.text || 'Vuoto'}
+                        </p>
+                      </div>
+                      {item.price && <span className="text-sm text-gray-600 mx-2">{item.price}</span>}
+                      <button onClick={() => setEditingItemId(item.id)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                      <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
-          )}
 
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent mb-3" />
-            <p className="text-gray-600">
-              {step === 'uploading' && `Caricamento ${imagePreviews.length} immagini...`}
-              {step === 'processing' && 'Elaborazione OCR...'}
-              {step === 'reconciling' && 'Riconciliazione con lista...'}
-            </p>
+            <button
+              onClick={handleAddItem}
+              className="w-full mt-3 py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded-lg hover:border-primary-400 hover:text-primary-600"
+            >
+              + Aggiungi Articolo
+            </button>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={handleReset} className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium">
+              Annulla
+            </button>
+            <button
+              onClick={handleConfirmItems}
+              disabled={editableItems.filter((i) => i.text.trim()).length === 0}
+              className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium disabled:bg-gray-300"
+            >
+              Conferma
+            </button>
           </div>
         </div>
       )}
 
-      {/* Results */}
+      {/* RECONCILING */}
+      {step === 'reconciling' && (
+        <div className="card p-6 text-center">
+          <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-primary-500 border-t-transparent mb-4" />
+          <p className="text-gray-600">Riconciliazione con lista...</p>
+        </div>
+      )}
+
+      {/* DONE - Results */}
       {step === 'done' && receipt && reconciliation && (
         <div className="space-y-4">
-          {/* Summary Card */}
           <div className="card p-4">
             <h2 className="font-semibold text-gray-900 mb-3">Riepilogo</h2>
-
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="bg-green-50 rounded-lg p-3">
                 <p className="text-green-700 font-medium">{reconciliation.summary.matched_count}</p>
-                <p className="text-green-600 text-xs">Corrispondenti</p>
-              </div>
-              <div className="bg-yellow-50 rounded-lg p-3">
-                <p className="text-yellow-700 font-medium">{reconciliation.summary.suggested_count}</p>
-                <p className="text-yellow-600 text-xs">Da verificare</p>
+                <p className="text-green-600 text-xs">Trovati</p>
               </div>
               <div className="bg-blue-50 rounded-lg p-3">
                 <p className="text-blue-700 font-medium">{reconciliation.summary.extra_count}</p>
                 <p className="text-blue-600 text-xs">Extra</p>
+              </div>
+              <div className="bg-yellow-50 rounded-lg p-3">
+                <p className="text-yellow-700 font-medium">{reconciliation.summary.suggested_count}</p>
+                <p className="text-yellow-600 text-xs">Da verificare</p>
               </div>
               <div className="bg-red-50 rounded-lg p-3">
                 <p className="text-red-700 font-medium">{reconciliation.summary.missing_count}</p>
                 <p className="text-red-600 text-xs">Mancanti</p>
               </div>
             </div>
-
-            {receipt.images.length > 0 && (
-              <p className="text-sm text-gray-600 mt-3">
-                Foto elaborate: <span className="font-medium">{receipt.images.length}</span>
-              </p>
-            )}
-            {receipt.store_name_detected && (
-              <p className="text-sm text-gray-600">
-                Negozio: <span className="font-medium">{receipt.store_name_detected}</span>
-              </p>
-            )}
-            {receipt.total_amount_detected && (
-              <p className="text-sm text-gray-600">
-                Totale: <span className="font-medium">{receipt.total_amount_detected.toFixed(2)}</span>
-              </p>
-            )}
           </div>
 
-          {/* Matched Items */}
+          {/* Matched */}
           {groupedItems && groupedItems.matched.length > 0 && (
             <div className="card p-4">
-              <h3 className="font-semibold text-green-700 mb-3 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Corrispondenti ({groupedItems.matched.length})
-              </h3>
+              <h3 className="font-semibold text-green-700 mb-3">Trovati ({groupedItems.matched.length})</h3>
               <div className="space-y-2">
                 {groupedItems.matched.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                    <div>
-                      <p className="font-medium text-gray-900">{item.parsed_name || item.raw_text}</p>
-                      {item.parsed_total_price && (
-                        <p className="text-sm text-gray-500">{item.parsed_total_price.toFixed(2)}</p>
-                      )}
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs ${MATCH_STATUS_COLORS.matched.bg} ${MATCH_STATUS_COLORS.matched.text}`}>
-                      {Math.round(item.match_confidence || 0)}%
-                    </span>
+                  <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                    <span className="text-gray-900">{item.user_corrected_name || item.parsed_name || item.raw_text}</span>
+                    {item.parsed_total_price && <span className="text-gray-500">{item.parsed_total_price.toFixed(2)}</span>}
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Suggested Items (unmatched with confidence) */}
-          {groupedItems && groupedItems.unmatched.length > 0 && (
-            <div className="card p-4">
-              <h3 className="font-semibold text-yellow-700 mb-3 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                Da Verificare ({groupedItems.unmatched.length})
-              </h3>
-              <div className="space-y-2">
-                {groupedItems.unmatched.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                    <div>
-                      <p className="font-medium text-gray-900">{item.parsed_name || item.raw_text}</p>
-                      {item.parsed_total_price && (
-                        <p className="text-sm text-gray-500">{item.parsed_total_price.toFixed(2)}</p>
-                      )}
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs ${MATCH_STATUS_COLORS.unmatched.bg} ${MATCH_STATUS_COLORS.unmatched.text}`}>
-                      {item.match_confidence ? `${Math.round(item.match_confidence)}%` : 'Verifica'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Extra Items */}
+          {/* Extra */}
           {groupedItems && groupedItems.extra.length > 0 && (
             <div className="card p-4">
-              <h3 className="font-semibold text-blue-700 mb-3 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Extra - Non in Lista ({groupedItems.extra.length})
-              </h3>
+              <h3 className="font-semibold text-blue-700 mb-3">Extra ({groupedItems.extra.length})</h3>
               <div className="space-y-2">
                 {groupedItems.extra.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => toggleExtraSelection(item.id)}
-                    className={`flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer transition-colors ${
+                    onClick={() => {
+                      setSelectedExtras((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(item.id)) next.delete(item.id)
+                        else next.add(item.id)
+                        return next
+                      })
+                    }}
+                    className={`flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer ${
                       selectedExtras.has(item.id) ? 'bg-blue-100' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <div
-                      className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                        selectedExtras.has(item.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-                      }`}
-                    >
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                      selectedExtras.has(item.id) ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+                    }`}>
                       {selectedExtras.has(item.id) && (
                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{item.parsed_name || item.raw_text}</p>
-                      {item.parsed_total_price && (
-                        <p className="text-sm text-gray-500">{item.parsed_total_price.toFixed(2)}</p>
-                      )}
-                    </div>
+                    <span className="flex-1">{item.user_corrected_name || item.parsed_name || item.raw_text}</span>
                   </div>
                 ))}
               </div>
 
               {selectedExtras.size > 0 && (
-                <button
-                  onClick={handleAddExtras}
-                  className="w-full mt-4 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
-                >
-                  Aggiungi {selectedExtras.size} articoli alla lista
+                <button onClick={handleAddExtras} className="w-full mt-4 py-2 bg-blue-500 text-white rounded-lg font-medium">
+                  Aggiungi {selectedExtras.size} alla lista
                 </button>
               )}
             </div>
           )}
 
-          {/* Missing Items */}
+          {/* Missing */}
           {reconciliation.missing_items.length > 0 && (
             <div className="card p-4">
-              <h3 className="font-semibold text-red-700 mb-3 flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Mancanti dallo Scontrino ({reconciliation.missing_items.length})
-              </h3>
-              <p className="text-sm text-gray-500 mb-3">
-                Questi articoli erano nella lista ma non sono stati trovati nello scontrino.
-              </p>
+              <h3 className="font-semibold text-red-700 mb-3">Mancanti ({reconciliation.missing_items.length})</h3>
               <div className="space-y-2">
                 {reconciliation.missing_items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                    <div>
-                      <p className="font-medium text-gray-900">{item.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {item.quantity} {item.unit || 'pz'}
-                      </p>
-                    </div>
-                    <span className="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">Mancante</span>
+                  <div key={item.id} className="py-2 border-b border-gray-100 last:border-0">
+                    <span className="text-gray-900">{item.name}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex gap-3">
-            <button
-              onClick={handleReset}
-              className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
-            >
+            <button onClick={handleReset} className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium">
               Carica Altro
             </button>
-            <Link
-              to={`/shopping-lists/${listId}`}
-              className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-center"
-            >
+            <Link to={`/shopping-lists/${listId}`} className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium text-center">
               Torna alla Lista
             </Link>
           </div>
         </div>
       )}
 
-      {/* Error State */}
+      {/* ERROR */}
       {step === 'error' && (
         <div className="card p-6 text-center">
           <svg className="w-12 h-12 mx-auto text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <h3 className="font-semibold text-gray-900 mb-2">Errore</h3>
-          <p className="text-gray-600 mb-4">{error || "Si e' verificato un errore durante l'elaborazione."}</p>
-          <button
-            onClick={handleReset}
-            className="px-6 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
-          >
+          <p className="text-gray-600 mb-4">{error || "Errore durante l'elaborazione."}</p>
+          <button onClick={handleReset} className="px-6 py-2 bg-primary-500 text-white rounded-lg font-medium">
             Riprova
           </button>
         </div>
