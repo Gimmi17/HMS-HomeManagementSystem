@@ -77,7 +77,8 @@ async def process_receipt_async(image_path: str) -> ReceiptOCRResult:
         raise FileNotFoundError(f"Receipt image not found: {image_path}")
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        # 120s timeout for large images with slow CPU OCR
+        async with httpx.AsyncClient(timeout=120.0) as client:
             # Send image to OCR service
             with open(image_path, "rb") as f:
                 files = {"file": (os.path.basename(image_path), f, "image/jpeg")}
@@ -136,7 +137,8 @@ def process_receipt(image_path: str) -> ReceiptOCRResult:
         raise FileNotFoundError(f"Receipt image not found: {image_path}")
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        # 120s timeout for large images with slow CPU OCR
+        with httpx.Client(timeout=120.0) as client:
             # Send image to OCR service
             with open(image_path, "rb") as f:
                 files = {"file": (os.path.basename(image_path), f, "image/jpeg")}

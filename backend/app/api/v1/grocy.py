@@ -25,8 +25,20 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.house import House
-from app.integrations.grocy import grocy_client
-from app.schemas.grocy import GrocyStockResponse
+from app.integrations.grocy import grocy_client, GrocyAPIError
+from app.schemas.grocy import (
+    GrocyStockResponse,
+    GrocyAddStockRequest,
+    GrocyConsumeStockRequest,
+    GrocyOpenProductRequest,
+    GrocyTransferStockRequest,
+    GrocyInventoryCorrectionRequest,
+    GrocyBulkAddStockRequest,
+    GrocyWriteOperationResponse,
+    GrocyBulkAddStockResponse,
+    GrocyBulkAddResult,
+    GrocyLocation,
+)
 
 
 class GrocyTestConnectionRequest(BaseModel):

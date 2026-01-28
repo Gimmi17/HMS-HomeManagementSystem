@@ -6,8 +6,10 @@ Extracts text from receipt images using EasyOCR.
 import io
 import os
 import re
+import gc
 import json
 import logging
+import traceback
 from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, asdict
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Log directory for OCR scans
 OCR_LOG_DIR = "/app/logs"
 OCR_LOG_FILE = os.path.join(OCR_LOG_DIR, "ocr_scans.jsonl")
+ERROR_LOG_FILE = os.path.join(OCR_LOG_DIR, "ocr_errors.jsonl")
 
 # Initialize EasyOCR reader (Italian + English)
 logger.info("Loading EasyOCR models...")
@@ -60,6 +63,27 @@ def log_ocr_scan(filename: str, raw_text: str, raw_lines: list, parsed_lines: li
         logger.info(f"Logged OCR scan: {filename}")
     except Exception as e:
         logger.warning(f"Failed to log OCR scan: {e}")
+
+
+def log_ocr_error(filename: str, error: str, error_type: str,
+                  image_size: Optional[tuple] = None, stage: str = "unknown"):
+    """Log OCR errors for debugging"""
+    try:
+        ensure_log_dir()
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "filename": filename,
+            "error": error,
+            "error_type": error_type,
+            "stage": stage,
+            "image_size": {"width": image_size[0], "height": image_size[1]} if image_size else None,
+            "traceback": traceback.format_exc()
+        }
+        with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        logger.error(f"OCR Error logged: {error_type} - {error}")
+    except Exception as e:
+        logger.warning(f"Failed to log OCR error: {e}")
 
 
 app = FastAPI(
@@ -109,7 +133,7 @@ class ParsedLine:
 
 
 def preprocess_image(image: Image.Image) -> Image.Image:
-    """Preprocess image for better OCR"""
+    """Preprocess image for better OCR - optimized for memory"""
     # Handle EXIF orientation (common issue with phone photos)
     try:
         from PIL import ExifTags
@@ -132,9 +156,10 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     if image.mode != 'RGB':
         image = image.convert('RGB')
 
-    # Resize if too small or too large
-    min_dim = 800
-    max_dim = 2000
+    # Resize more aggressively to save memory
+    # Receipts don't need high resolution for text extraction
+    min_dim = 600
+    max_dim = 1200  # Reduced from 2000 to save memory
     width, height = image.size
 
     if min(width, height) < min_dim:
@@ -305,17 +330,25 @@ async def process_receipt(file: UploadFile = File(...)):
         - total_amount: Detected total (if any)
         - average_confidence: OCR confidence score
     """
+    filename = file.filename or "unknown"
+    original_size = None
+
     # Validate file type
     if file.content_type not in ['image/jpeg', 'image/png', 'image/webp']:
+        log_ocr_error(filename, "Unsupported image format", "validation_error", stage="validation")
         raise HTTPException(400, "Unsupported image format. Use JPG, PNG, or WEBP.")
 
     try:
         # Read and preprocess image
+        logger.info(f"Reading image: {filename}")
         contents = await file.read()
+        logger.info(f"Image size: {len(contents)} bytes")
+
         image = Image.open(io.BytesIO(contents))
         original_size = image.size
-        processed = preprocess_image(image)
+        logger.info(f"Image dimensions: {original_size}")
 
+        processed = preprocess_image(image)
         logger.info(f"Processing image: {original_size} -> {processed.size}")
 
         # Save preprocessed image to bytes for EasyOCR
@@ -324,6 +357,9 @@ async def process_receipt(file: UploadFile = File(...)):
         img_bytes = img_buffer.getvalue()
 
         logger.info(f"Running EasyOCR on {len(img_bytes)} bytes...")
+
+        # Force garbage collection before OCR to free memory
+        gc.collect()
 
         # Run EasyOCR with raw bytes
         # Returns list of (bbox, text, confidence)
@@ -335,10 +371,13 @@ async def process_receipt(file: UploadFile = File(...)):
                 min_size=10,
                 text_threshold=0.7,
                 low_text=0.4,
+                batch_size=1,  # Lower batch size to reduce memory
             )
             logger.info(f"EasyOCR found {len(results)} text regions")
         except Exception as ocr_error:
             logger.error(f"EasyOCR failed: {ocr_error}")
+            log_ocr_error(filename, str(ocr_error), type(ocr_error).__name__, original_size, stage="easyocr")
+            gc.collect()
             raise
 
         if not results:
@@ -411,6 +450,10 @@ async def process_receipt(file: UploadFile = File(...)):
             image_size=original_size
         )
 
+        # Free memory after processing
+        del image, processed, img_bytes, results
+        gc.collect()
+
         return JSONResponse({
             "raw_text": raw_text,
             "lines": parsed_lines,
@@ -421,6 +464,9 @@ async def process_receipt(file: UploadFile = File(...)):
 
     except Exception as e:
         logger.error(f"OCR processing failed: {e}")
+        log_ocr_error(filename, str(e), type(e).__name__, original_size, stage="processing")
+        # Force garbage collection on error
+        gc.collect()
         raise HTTPException(500, f"OCR processing failed: {str(e)}")
 
 
@@ -463,6 +509,38 @@ async def get_logs(limit: int = 50):
     except Exception as e:
         logger.error(f"Failed to read logs: {e}")
         return {"scans": [], "total": 0, "error": str(e)}
+
+
+@app.get("/errors")
+async def get_errors(limit: int = 50):
+    """
+    Get recent OCR error logs for debugging.
+
+    Returns the last N errors with full details.
+    """
+    try:
+        if not os.path.exists(ERROR_LOG_FILE):
+            return {"errors": [], "total": 0}
+
+        errors = []
+        with open(ERROR_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        errors.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+        # Return last N errors
+        recent_errors = errors[-limit:] if limit > 0 else errors
+
+        return {
+            "errors": recent_errors,
+            "total": len(errors)
+        }
+    except Exception as e:
+        logger.error(f"Failed to read error logs: {e}")
+        return {"errors": [], "total": 0, "error": str(e)}
 
 
 @app.get("/")
