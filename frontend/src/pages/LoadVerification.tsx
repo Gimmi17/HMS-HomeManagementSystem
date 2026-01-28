@@ -504,11 +504,11 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
           </div>
 
           {/* Category */}
-          {categories.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Categoria
-              </label>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Categoria
+            </label>
+            {categories.length > 0 ? (
               <select
                 value={selectedCategoryId || ''}
                 onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
@@ -521,8 +521,10 @@ function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProp
                   </option>
                 ))}
               </select>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500 italic">Nessuna categoria disponibile</p>
+            )}
+          </div>
 
           {/* Barcode / EAN */}
           <div>
