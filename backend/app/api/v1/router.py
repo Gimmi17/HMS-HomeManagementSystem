@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, receipts
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, receipts, llm
 
 
 # Create main v1 router
@@ -184,4 +184,15 @@ api_router.include_router(
     receipts.router,
     # prefix is already defined in receipts.router (/receipts)
     tags=["Receipts"],
+)
+
+
+# Include LLM configuration endpoints
+# Endpoints: GET/POST/PUT/DELETE /llm/connections, POST /llm/test
+# LLM connection management for OCR enhancement and future features
+# Requires authentication
+api_router.include_router(
+    llm.router,
+    # prefix is already defined in llm.router (/llm)
+    tags=["LLM"],
 )

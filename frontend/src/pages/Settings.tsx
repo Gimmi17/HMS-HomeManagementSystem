@@ -21,6 +21,12 @@ const settingsLinks: SettingsLink[] = [
     icon: '🥫',
   },
   {
+    to: '/settings/llm',
+    title: 'LLM / AI',
+    description: 'Configura server AI per OCR e chat',
+    icon: '🤖',
+  },
+  {
     to: '/health',
     title: 'Salute',
     description: 'Obiettivi e monitoraggio peso',
