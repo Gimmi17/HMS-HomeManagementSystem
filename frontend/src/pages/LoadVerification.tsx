@@ -9,42 +9,6 @@ import type { ShoppingList, ShoppingListItem, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
 
-// Format date from YYYY-MM-DD to DD/MM/YYYY for display
-const formatDateForDisplay = (dateStr: string | undefined): string => {
-  if (!dateStr) return ''
-  const [year, month, day] = dateStr.split('-')
-  return `${day}/${month}/${year}`
-}
-
-// Parse date from various formats to YYYY-MM-DD for API
-const parseDateFromInput = (input: string): string | null => {
-  // Try compact format: DDMMYY (6 digits) or DDMMYYYY (8 digits)
-  const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
-  if (compactMatch) {
-    const day = compactMatch[1]
-    const month = compactMatch[2]
-    const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
-    const d = parseInt(day, 10)
-    const m = parseInt(month, 10)
-    const y = parseInt(year, 10)
-    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-    return `${year}-${month}-${day}`
-  }
-  // Try format with separators: DD/MM/YYYY or DD/MM/YY
-  const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
-  if (separatorMatch) {
-    const day = separatorMatch[1].padStart(2, '0')
-    const month = separatorMatch[2].padStart(2, '0')
-    const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
-    const d = parseInt(day, 10)
-    const m = parseInt(month, 10)
-    const y = parseInt(year, 10)
-    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-    return `${year}-${month}-${day}`
-  }
-  return null
-}
-
 interface VerificationModalProps {
   item: ShoppingListItem
   categories: Category[]
