@@ -4,7 +4,7 @@ import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import type { ShoppingListSummary, ShoppingListStatus } from '@/types'
 
-type ListAction = 'view' | 'edit' | 'verify'
+type ListAction = 'view' | 'edit' | 'verify' | 'delete'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
   active: 'Attiva',
@@ -26,6 +26,8 @@ export function ShoppingLists() {
   const [statusFilter, setStatusFilter] = useState<ShoppingListStatus | 'all'>('active')
   const [selectedList, setSelectedList] = useState<ShoppingListSummary | null>(null)
   const [showActionModal, setShowActionModal] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const handleListClick = (list: ShoppingListSummary) => {
     setSelectedList(list)
@@ -34,6 +36,10 @@ export function ShoppingLists() {
 
   const handleAction = (action: ListAction) => {
     if (!selectedList) return
+    if (action === 'delete') {
+      setShowDeleteConfirm(true)
+      return
+    }
     setShowActionModal(false)
     if (action === 'verify') {
       navigate(`/shopping-lists/${selectedList.id}/verify`)
@@ -44,8 +50,26 @@ export function ShoppingLists() {
     }
   }
 
+  const handleDeleteConfirm = async () => {
+    if (!selectedList) return
+    setIsDeleting(true)
+    try {
+      await shoppingListsService.delete(selectedList.id)
+      setLists(lists.filter(l => l.id !== selectedList.id))
+      setShowDeleteConfirm(false)
+      setShowActionModal(false)
+      setSelectedList(null)
+    } catch (error) {
+      console.error('Failed to delete shopping list:', error)
+      alert('Errore durante l\'eliminazione della lista')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const closeModal = () => {
     setShowActionModal(false)
+    setShowDeleteConfirm(false)
     setSelectedList(null)
   }
 
@@ -262,6 +286,21 @@ export function ShoppingLists() {
                   <div className="text-xs text-gray-500">Verifica la merce con barcode</div>
                 </div>
               </button>
+
+              <button
+                onClick={() => handleAction('delete')}
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-red-50 hover:bg-red-100 transition-colors"
+              >
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </div>
+                <div className="text-left">
+                  <div className="font-medium text-red-700">Elimina Lista</div>
+                  <div className="text-xs text-red-500">Elimina permanentemente la lista</div>
+                </div>
+              </button>
             </div>
 
             <div className="p-4 border-t">
@@ -271,6 +310,49 @@ export function ShoppingLists() {
               >
                 Annulla
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && selectedList && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-lg">Elimina lista</h3>
+                  <p className="text-sm text-gray-500">Questa azione non può essere annullata</p>
+                </div>
+              </div>
+              <p className="text-gray-700 mb-1">
+                Vuoi eliminare definitivamente la lista <span className="font-semibold">"{selectedList.name}"</span>?
+              </p>
+              <p className="text-sm text-gray-500 mb-4">
+                {selectedList.item_count} articoli verranno eliminati.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 disabled:opacity-50"
+                >
+                  {isDeleting ? 'Eliminando...' : 'Elimina'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
