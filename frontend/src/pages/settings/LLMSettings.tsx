@@ -30,7 +30,7 @@ export function LLMSettings() {
   const [formData, setFormData] = useState<LLMConnectionCreate>({
     name: '',
     url: '',
-    model: 'default',
+    model: '',
     purpose: 'ocr',
     enabled: true,
     timeout: 30,
@@ -42,6 +42,8 @@ export function LLMSettings() {
   // Test state
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [connectionVerified, setConnectionVerified] = useState(false)
 
   // Health check state
   const [healthStatus, setHealthStatus] = useState<Record<string, 'ok' | 'offline' | 'error' | 'checking'>>({})
@@ -77,10 +79,21 @@ export function LLMSettings() {
 
     setTesting(true)
     setTestResult(null)
+    setAvailableModels([])
+    setConnectionVerified(false)
 
     try {
       const result = await llmService.testConnection(formData.url, formData.model || 'default')
       setTestResult(result)
+
+      if (result.status === 'ok' && result.models && result.models.length > 0) {
+        setAvailableModels(result.models)
+        setConnectionVerified(true)
+        // Se non c'è già un modello selezionato, seleziona il primo
+        if (!formData.model || formData.model === 'default') {
+          setFormData(prev => ({ ...prev, model: result.models![0] }))
+        }
+      }
     } catch (err) {
       setTestResult({
         status: 'error',
@@ -107,6 +120,12 @@ export function LLMSettings() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!currentHouseId) return
+
+    // Verifica che la connessione sia stata testata
+    if (!connectionVerified && mode === 'add') {
+      setError('Testa la connessione prima di salvare')
+      return
+    }
 
     try {
       if (mode === 'add') {
@@ -150,13 +169,15 @@ export function LLMSettings() {
     setEditingId(conn.id)
     setMode('edit')
     setTestResult(null)
+    setAvailableModels([])
+    setConnectionVerified(true) // In edit mode, assume verified
   }
 
   const resetForm = () => {
     setFormData({
       name: '',
       url: '',
-      model: 'default',
+      model: '',
       purpose: 'ocr',
       enabled: true,
       timeout: 30,
@@ -167,6 +188,9 @@ export function LLMSettings() {
     setMode('list')
     setEditingId(null)
     setTestResult(null)
+    setAvailableModels([])
+    setConnectionVerified(false)
+    setError(null)
   }
 
   const getPurposeLabel = (purpose: string) => {
@@ -187,6 +211,14 @@ export function LLMSettings() {
       default:
         return null
     }
+  }
+
+  // Reset verification when URL changes
+  const handleUrlChange = (url: string) => {
+    setFormData(prev => ({ ...prev, url }))
+    setConnectionVerified(false)
+    setTestResult(null)
+    setAvailableModels([])
   }
 
   if (!currentHouseId) {
@@ -268,7 +300,7 @@ export function LLMSettings() {
                             <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
                               {getPurposeLabel(conn.purpose)}
                             </span>
-                            <span className="text-xs text-gray-400">
+                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
                               {conn.model}
                             </span>
                           </div>
@@ -320,196 +352,235 @@ export function LLMSettings() {
               {mode === 'add' ? 'Nuova Connessione' : 'Modifica Connessione'}
             </h2>
 
-            {/* Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nome
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="es. MLX Locale"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                required
-              />
-            </div>
+            {/* Step 1: URL and Test */}
+            <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">1</span>
+                Connetti al Server
+              </div>
 
-            {/* URL */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                URL Server
-              </label>
-              <input
-                type="url"
-                value={formData.url}
-                onChange={e => setFormData(prev => ({ ...prev, url: e.target.value }))}
-                placeholder="http://localhost:8080"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            {/* Model */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Modello
-              </label>
-              <input
-                type="text"
-                value={formData.model}
-                onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
-                placeholder="default"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Lascia "default" per usare il modello predefinito del server
-              </p>
-            </div>
-
-            {/* Purpose */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Utilizzo
-              </label>
-              <select
-                value={formData.purpose}
-                onChange={e => setFormData(prev => ({ ...prev, purpose: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              >
-                {purposes.map(p => (
-                  <option key={p.value} value={p.value}>
-                    {p.label} - {p.description}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* API Key (optional) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                API Key (opzionale)
-              </label>
-              <input
-                type="password"
-                value={formData.api_key}
-                onChange={e => setFormData(prev => ({ ...prev, api_key: e.target.value }))}
-                placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : ''}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Advanced settings toggle */}
-            <details className="pt-2">
-              <summary className="text-sm text-primary-600 cursor-pointer hover:text-primary-700">
-                Impostazioni avanzate
-              </summary>
-              <div className="mt-3 space-y-3 pl-2 border-l-2 border-gray-200">
-                {/* Timeout */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Timeout (secondi): {formData.timeout}
-                  </label>
-                  <input
-                    type="range"
-                    min="5"
-                    max="120"
-                    value={formData.timeout}
-                    onChange={e => setFormData(prev => ({ ...prev, timeout: Number(e.target.value) }))}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Temperature */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Temperature: {formData.temperature}
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    value={formData.temperature}
-                    onChange={e => setFormData(prev => ({ ...prev, temperature: Number(e.target.value) }))}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-gray-500">0 = deterministico, 2 = creativo</p>
-                </div>
-
-                {/* Max Tokens */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Max Tokens: {formData.max_tokens}
-                  </label>
-                  <input
-                    type="range"
-                    min="100"
-                    max="4096"
-                    step="100"
-                    value={formData.max_tokens}
-                    onChange={e => setFormData(prev => ({ ...prev, max_tokens: Number(e.target.value) }))}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Enabled */}
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.enabled}
-                    onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
-                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">Connessione abilitata</span>
+              {/* URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  URL Server
                 </label>
+                <input
+                  type="text"
+                  value={formData.url}
+                  onChange={e => handleUrlChange(e.target.value)}
+                  placeholder="http://192.168.1.100:8080"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Inserisci l'IP del server MLX (es: http://192.168.1.100:8080)
+                </p>
               </div>
-            </details>
-          </div>
 
-          {/* Test button */}
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testing || !formData.url}
-            className="w-full py-2 border border-primary-500 text-primary-600 rounded-lg font-medium hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {testing ? 'Testing...' : 'Testa Connessione'}
-          </button>
-
-          {/* Test result */}
-          {testResult && (
-            <div className={`p-3 rounded-lg ${
-              testResult.status === 'ok'
-                ? 'bg-green-50 border border-green-200'
-                : 'bg-red-50 border border-red-200'
-            }`}>
-              <div className="flex items-center gap-2">
-                {testResult.status === 'ok' ? (
-                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+              {/* Test button */}
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={testing || !formData.url}
+                className="w-full py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {testing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Testing...
+                  </>
                 ) : (
-                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Testa Connessione
+                  </>
                 )}
-                <span className={testResult.status === 'ok' ? 'text-green-700' : 'text-red-700'}>
-                  {testResult.status === 'ok' ? 'Connessione OK' : testResult.message || 'Connessione fallita'}
-                </span>
-              </div>
-              {testResult.models && testResult.models.length > 0 && (
-                <p className="text-sm text-green-600 mt-1">
-                  Modelli disponibili: {testResult.models.join(', ')}
-                </p>
-              )}
-              {testResult.test_response && (
-                <p className="text-sm text-green-600 mt-1">
-                  Risposta: {testResult.test_response}
-                </p>
+              </button>
+
+              {/* Test result */}
+              {testResult && (
+                <div className={`p-3 rounded-lg ${
+                  testResult.status === 'ok'
+                    ? 'bg-green-50 border border-green-200'
+                    : 'bg-red-50 border border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {testResult.status === 'ok' ? (
+                      <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    )}
+                    <span className={`font-medium ${testResult.status === 'ok' ? 'text-green-700' : 'text-red-700'}`}>
+                      {testResult.status === 'ok' ? 'Connessione riuscita!' : testResult.message || 'Connessione fallita'}
+                    </span>
+                  </div>
+                  {testResult.test_response && (
+                    <p className="text-sm text-green-600 mt-1">
+                      Test risposta: "{testResult.test_response}"
+                    </p>
+                  )}
+                </div>
               )}
             </div>
-          )}
+
+            {/* Step 2: Select Model (only after successful test) */}
+            {connectionVerified && availableModels.length > 0 && (
+              <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">2</span>
+                  Seleziona Modello
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Modello ({availableModels.length} disponibili)
+                  </label>
+                  <select
+                    value={formData.model}
+                    onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                    required
+                  >
+                    {availableModels.map(model => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Configure (only after model selected) */}
+            {connectionVerified && (
+              <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">3</span>
+                  Configura
+                </div>
+
+                {/* Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome Connessione
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="es. MLX Mac Studio"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                {/* Purpose */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Utilizzo
+                  </label>
+                  <select
+                    value={formData.purpose}
+                    onChange={e => setFormData(prev => ({ ...prev, purpose: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                  >
+                    {purposes.map(p => (
+                      <option key={p.value} value={p.value}>
+                        {p.label} - {p.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* API Key (optional) */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    API Key (opzionale)
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.api_key}
+                    onChange={e => setFormData(prev => ({ ...prev, api_key: e.target.value }))}
+                    placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : ''}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  />
+                </div>
+
+                {/* Advanced settings toggle */}
+                <details className="pt-2">
+                  <summary className="text-sm text-primary-600 cursor-pointer hover:text-primary-700">
+                    Impostazioni avanzate
+                  </summary>
+                  <div className="mt-3 space-y-3 pl-2 border-l-2 border-gray-200">
+                    {/* Timeout */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Timeout (secondi): {formData.timeout}
+                      </label>
+                      <input
+                        type="range"
+                        min="5"
+                        max="120"
+                        value={formData.timeout}
+                        onChange={e => setFormData(prev => ({ ...prev, timeout: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* Temperature */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Temperature: {formData.temperature}
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={formData.temperature}
+                        onChange={e => setFormData(prev => ({ ...prev, temperature: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-gray-500">0 = deterministico, 2 = creativo</p>
+                    </div>
+
+                    {/* Max Tokens */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Max Tokens: {formData.max_tokens}
+                      </label>
+                      <input
+                        type="range"
+                        min="100"
+                        max="4096"
+                        step="100"
+                        value={formData.max_tokens}
+                        onChange={e => setFormData(prev => ({ ...prev, max_tokens: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* Enabled */}
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.enabled}
+                        onChange={e => setFormData(prev => ({ ...prev, enabled: e.target.checked }))}
+                        className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">Connessione abilitata</span>
+                    </label>
+                  </div>
+                </details>
+              </div>
+            )}
+          </div>
 
           {/* Form actions */}
           <div className="flex gap-3">
@@ -522,26 +593,29 @@ export function LLMSettings() {
             </button>
             <button
               type="submit"
-              className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
+              disabled={!connectionVerified || !formData.name || !formData.model}
+              className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {mode === 'add' ? 'Aggiungi' : 'Salva'}
+              {mode === 'add' ? 'Salva Connessione' : 'Aggiorna'}
             </button>
           </div>
         </form>
       )}
 
       {/* Info box */}
-      <div className="card p-4 bg-blue-50 border-blue-200">
-        <h3 className="font-medium text-blue-800 mb-2">Come funziona</h3>
-        <ul className="text-sm text-blue-700 space-y-1">
-          <li>• <strong>OCR Scontrini</strong>: Interpreta le abbreviazioni e migliora il matching</li>
-          <li>• <strong>Chat</strong>: Conversazione generale (futuro)</li>
-          <li>• <strong>Suggerimenti</strong>: Suggerisce ricette e pasti (futuro)</li>
-        </ul>
-        <p className="text-sm text-blue-600 mt-2">
-          Supporta server OpenAI-compatible: mlx-lm-server, LM Studio, Ollama, ecc.
-        </p>
-      </div>
+      {mode === 'list' && (
+        <div className="card p-4 bg-blue-50 border-blue-200">
+          <h3 className="font-medium text-blue-800 mb-2">Come funziona</h3>
+          <ul className="text-sm text-blue-700 space-y-1">
+            <li>• <strong>OCR Scontrini</strong>: Interpreta le abbreviazioni e migliora il matching</li>
+            <li>• <strong>Chat</strong>: Conversazione generale (futuro)</li>
+            <li>• <strong>Suggerimenti</strong>: Suggerisce ricette e pasti (futuro)</li>
+          </ul>
+          <p className="text-sm text-blue-600 mt-2">
+            Supporta server OpenAI-compatible: mlx-lm-server, LM Studio, Ollama, ecc.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
