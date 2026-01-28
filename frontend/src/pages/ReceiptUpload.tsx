@@ -37,6 +37,7 @@ export function ReceiptUpload() {
 
   // Editing state - which image is being edited
   const [editingImage, setEditingImage] = useState<{ file: File; url: string } | null>(null)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null) // null = new image, number = re-editing existing
   const [cropArea, setCropArea] = useState<CropArea | null>(null)
   const [contrast, setContrast] = useState(120)
   const [brightness, setBrightness] = useState(100)
@@ -72,11 +73,12 @@ export function ReceiptUpload() {
       return
     }
 
-    // Open editing view for this image
+    // Open editing view for this new image
     setEditingImage({
       file: validFile,
       url: URL.createObjectURL(validFile),
     })
+    setEditingIndex(null) // New image, not re-editing
     setCropArea(null)
     setContrast(120)
     setBrightness(100)
@@ -85,6 +87,25 @@ export function ReceiptUpload() {
     setError(null)
 
     e.target.value = ''
+  }
+
+  // Re-edit an existing image
+  const handleReEditImage = (index: number) => {
+    const img = images[index]
+    if (!img) return
+
+    // Open the already-processed image for further editing
+    setEditingImage({
+      file: img.file,
+      url: img.previewUrl, // Use the existing preview URL (already processed)
+    })
+    setEditingIndex(index)
+    setCropArea(null) // Reset crop for new edit session
+    setContrast(100) // Reset to neutral since image already has filters applied
+    setBrightness(100)
+    setImageLoaded(false)
+    setStep('editing')
+    setError(null)
   }
 
   const handleImageLoad = () => {
@@ -144,27 +165,48 @@ export function ReceiptUpload() {
         const processedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' })
         const previewUrl = URL.createObjectURL(processedFile)
 
-        // Add to images list
-        setImages((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file: processedFile,
-            previewUrl,
-          },
-        ])
+        if (editingIndex !== null) {
+          // Re-editing: replace the existing image
+          setImages((prev) => {
+            const updated = [...prev]
+            // Revoke old URL
+            URL.revokeObjectURL(updated[editingIndex].previewUrl)
+            // Replace with new processed image
+            updated[editingIndex] = {
+              ...updated[editingIndex],
+              file: processedFile,
+              previewUrl,
+            }
+            return updated
+          })
+          // Don't revoke editingImage.url since it's the same as the old previewUrl (already revoked above)
+        } else {
+          // New image: add to list
+          setImages((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              file: processedFile,
+              previewUrl,
+            },
+          ])
+          // Cleanup the original file URL
+          URL.revokeObjectURL(urlToRevoke)
+        }
 
         // Cleanup editing state
-        URL.revokeObjectURL(urlToRevoke)
         setEditingImage(null)
+        setEditingIndex(null)
 
-        // Set to idle first, then open file picker
+        // Set to idle
         setStep('idle')
 
-        // Small delay to ensure state is updated before opening file picker
-        setTimeout(() => {
-          fileInputRef.current?.click()
-        }, 100)
+        // Only open file picker for new images, not re-edits
+        if (editingIndex === null) {
+          setTimeout(() => {
+            fileInputRef.current?.click()
+          }, 100)
+        }
       },
       'image/jpeg',
       0.92
@@ -172,10 +214,12 @@ export function ReceiptUpload() {
   }
 
   const handleCancelEdit = () => {
-    if (editingImage) {
+    // Only revoke URL if it's a new image (not re-editing)
+    if (editingImage && editingIndex === null) {
       URL.revokeObjectURL(editingImage.url)
     }
     setEditingImage(null)
+    setEditingIndex(null)
     setStep('idle')
   }
 
@@ -438,19 +482,29 @@ export function ReceiptUpload() {
                     <img
                       src={img.previewUrl}
                       alt={`Foto ${idx + 1}`}
-                      className="w-full aspect-square object-cover rounded-lg"
+                      className="w-full aspect-square object-cover rounded-lg cursor-pointer active:opacity-80"
+                      onClick={() => handleReEditImage(idx)}
                     />
-                    <div className="absolute top-1 left-1 w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                    <div className="absolute top-1 left-1 w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs font-bold pointer-events-none">
                       {idx + 1}
                     </div>
                     <button
-                      onClick={() => handleRemoveImage(img.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveImage(img.id)
+                      }}
                       className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
+                    {/* Edit hint icon */}
+                    <div className="absolute bottom-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center pointer-events-none">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -127,7 +127,7 @@ Non aggiungere interpretazioni, solo il testo grezzo."""
         response = await http_client.post(
             f"{client.base_url}/v1/chat/completions",
             json=payload,
-            timeout=120.0  # Vision requests can be slow
+            timeout=300.0  # Vision requests can be very slow on local models
         )
 
         if response.status_code != 200:
