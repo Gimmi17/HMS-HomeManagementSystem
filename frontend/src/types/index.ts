@@ -175,6 +175,74 @@ export interface GrocyStockItem {
   best_before_date?: string
 }
 
+// Grocy Write Operation Types
+export interface GrocyAddStockParams {
+  amount: number
+  best_before_date?: string
+  price?: number
+  location_id?: number
+  note?: string
+}
+
+export interface GrocyConsumeStockParams {
+  amount: number
+  spoiled?: boolean
+  location_id?: number
+}
+
+export interface GrocyOpenProductParams {
+  amount?: number
+}
+
+export interface GrocyTransferStockParams {
+  amount: number
+  location_id_from: number
+  location_id_to: number
+}
+
+export interface GrocyInventoryCorrectionParams {
+  new_amount: number
+  best_before_date?: string
+  location_id?: number
+}
+
+export interface GrocyBulkAddItem {
+  product_id: number
+  amount: number
+  best_before_date?: string
+  price?: number
+  location_id?: number
+  note?: string
+}
+
+export interface GrocyWriteOperationResponse {
+  success: boolean
+  message: string
+  error?: string
+}
+
+export interface GrocyBulkAddResult {
+  product_id: number
+  success: boolean
+  message: string
+}
+
+export interface GrocyBulkAddStockResponse {
+  total: number
+  successful: number
+  failed: number
+  results: GrocyBulkAddResult[]
+}
+
+export interface GrocyLocation {
+  id: number
+  name: string
+  description?: string
+  is_freezer: boolean
+}
+
+export type GrocyStockActionType = 'consume' | 'open' | 'transfer' | 'inventory'
+
 // Auth types
 export interface AuthTokens {
   access_token: string
