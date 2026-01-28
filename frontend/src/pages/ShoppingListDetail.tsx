@@ -4,7 +4,7 @@ import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
 import categoriesService from '@/services/categories'
 import BarcodeScanner from '@/components/BarcodeScanner'
-import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
+import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import type { ShoppingList, ShoppingListItem, ShoppingListStatus, Category } from '@/types'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
@@ -26,14 +26,8 @@ export function ShoppingListDetail() {
   const [scanResult, setScanResult] = useState<{ success: boolean; message: string } | null>(null)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [modeHandled, setModeHandled] = useState(false)
-  const [editingExpiryItemId, setEditingExpiryItemId] = useState<string | null>(null)
-  const [expiryDateInput, setExpiryDateInput] = useState('')
-  const [barcodeInput, setBarcodeInput] = useState('')
-  const [showPhotoScanner, setShowPhotoScanner] = useState(false)
-  const [showBarcodeInput, setShowBarcodeInput] = useState(false)
+  const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>()
-  const barcodeInputRef = useRef<HTMLInputElement>(null)
 
   // New item form state
   const [showNewItemForm, setShowNewItemForm] = useState(false)
@@ -42,8 +36,6 @@ export function ShoppingListDetail() {
   const [newItemUnit, setNewItemUnit] = useState('')
   const [isSavingNewItem, setIsSavingNewItem] = useState(false)
 
-  // Confirmation dialog for verified items
-  const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
 
   // Derived state: are we in verification mode?
   const isVerificationMode = list?.verification_status === 'in_progress'
@@ -147,35 +139,81 @@ export function ShoppingListDetail() {
       return
     }
 
-    try {
-      const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
-      setList((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((i) => (i.id === item.id ? updatedItem : i)),
-            }
-          : null
-      )
-
-      // If item was just checked, open expiry date modal
-      if (!item.checked) {
-        setEditingExpiryItemId(item.id)
-        setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-        setBarcodeInput(item.scanned_barcode || '')
-        setSelectedCategoryId(item.category_id)
+    // If unchecking, just toggle
+    if (item.checked) {
+      try {
+        const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
+        setList((prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((i) => (i.id === item.id ? updatedItem : i)),
+              }
+            : null
+        )
+      } catch (error) {
+        console.error('Failed to toggle item:', error)
       }
-    } catch (error) {
-      console.error('Failed to toggle item:', error)
+      return
     }
+
+    // If checking, open modal to enter details
+    setEditingItem(item)
   }
 
   // Open modal to view/edit item data (called from row click)
   const openItemModal = (item: ShoppingListItem) => {
-    setEditingExpiryItemId(item.id)
-    setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-    setBarcodeInput(item.scanned_barcode || '')
-    setSelectedCategoryId(item.category_id)
+    setEditingItem(item)
+  }
+
+  // Handle save from modal - saves data and checks the item
+  const handleModalSave = async (data: ItemDetailModalData) => {
+    if (!list || !editingItem) return
+
+    try {
+      // Update item data
+      const updateData: Partial<ShoppingListItem> = {
+        name: data.name,
+        quantity: data.quantity,
+        unit: data.unit,
+      }
+
+      if (data.expiryDate) {
+        updateData.expiry_date = data.expiryDate
+      }
+      if (data.categoryId) {
+        updateData.category_id = data.categoryId
+      }
+      if (data.barcode) {
+        updateData.scanned_barcode = data.barcode
+      }
+
+      // Save the data
+      await shoppingListsService.updateItem(list.id, editingItem.id, updateData)
+
+      // If item is not checked, also check it
+      if (!editingItem.checked) {
+        await shoppingListsService.toggleItemCheck(list.id, editingItem.id)
+      }
+
+      // Refresh list
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
+      setEditingItem(null)
+
+      setScanResult({
+        success: true,
+        message: 'Articolo salvato e spuntato',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+    } catch (error) {
+      console.error('Failed to save item:', error)
+      setScanResult({
+        success: false,
+        message: 'Errore nel salvataggio',
+      })
+      setTimeout(() => setScanResult(null), 3000)
+    }
   }
 
   const handleStatusChange = async (newStatus: ShoppingListStatus) => {
@@ -349,131 +387,6 @@ export function ShoppingListDetail() {
     return `${day}/${month}/${year}`
   }
 
-  // Parse date from various formats to YYYY-MM-DD for API
-  // Accepts: DDMMYY, DDMMYYYY, DD/MM/YYYY, DD/MM/YY
-  const parseDateFromInput = (input: string): string | null => {
-    // Try compact format: DDMMYY (6 digits) or DDMMYYYY (8 digits)
-    const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
-    if (compactMatch) {
-      const day = compactMatch[1]
-      const month = compactMatch[2]
-      const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
-
-      const d = parseInt(day, 10)
-      const m = parseInt(month, 10)
-      const y = parseInt(year, 10)
-      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-
-      return `${year}-${month}-${day}`
-    }
-
-    // Try format with separators: DD/MM/YYYY or DD/MM/YY
-    const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
-    if (separatorMatch) {
-      const day = separatorMatch[1].padStart(2, '0')
-      const month = separatorMatch[2].padStart(2, '0')
-      const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
-
-      const d = parseInt(day, 10)
-      const m = parseInt(month, 10)
-      const y = parseInt(year, 10)
-      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-
-      return `${year}-${month}-${day}`
-    }
-
-    return null
-  }
-
-  const openExpiryEditor = (item: ShoppingListItem) => {
-    setEditingExpiryItemId(item.id)
-    setExpiryDateInput(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-    setBarcodeInput(item.scanned_barcode || '')
-    setSelectedCategoryId(item.category_id)
-    setShowBarcodeInput(false)
-    setShowPhotoScanner(false)
-  }
-
-  const saveExpiryDate = async (forceUpdate = false) => {
-    if (!list || !editingExpiryItemId) return
-
-    // Check if item is verified and confirmation not yet given
-    const editingItem = list.items.find(i => i.id === editingExpiryItemId)
-    if (editingItem?.verified_at && !forceUpdate) {
-      setShowVerifiedConfirm(true)
-      return
-    }
-
-    const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : null
-
-    // If input is not empty but invalid, show error
-    if (expiryDateInput.trim() && !parsedDate) {
-      setScanResult({
-        success: false,
-        message: 'Formato data non valido. Usa DDMMYY o DD/MM/YYYY',
-      })
-      setTimeout(() => setScanResult(null), 3000)
-      return
-    }
-
-    try {
-      const updateData: Partial<ShoppingListItem> = {}
-      if (parsedDate) {
-        updateData.expiry_date = parsedDate
-      }
-      // Include barcode if provided
-      if (barcodeInput.trim()) {
-        updateData.scanned_barcode = barcodeInput.trim()
-      }
-      // Include category if selected
-      if (selectedCategoryId) {
-        updateData.category_id = selectedCategoryId
-      }
-
-      const updatedItem = await shoppingListsService.updateItem(list.id, editingExpiryItemId, updateData)
-      setList((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((i) => (i.id === editingExpiryItemId ? updatedItem : i)),
-            }
-          : null
-      )
-      setEditingExpiryItemId(null)
-      setExpiryDateInput('')
-      setBarcodeInput('')
-      setSelectedCategoryId(undefined)
-      setShowBarcodeInput(false)
-      setShowVerifiedConfirm(false)
-    } catch (error) {
-      console.error('Failed to save expiry date:', error)
-      setScanResult({
-        success: false,
-        message: 'Errore nel salvataggio della data',
-      })
-      setTimeout(() => setScanResult(null), 3000)
-    }
-  }
-
-  const cancelExpiryEdit = () => {
-    setEditingExpiryItemId(null)
-    setExpiryDateInput('')
-    setBarcodeInput('')
-    setSelectedCategoryId(undefined)
-    setShowBarcodeInput(false)
-    setShowPhotoScanner(false)
-    setShowVerifiedConfirm(false)
-  }
-
-  const handlePhotoBarcodeScanned = (barcode: string) => {
-    setBarcodeInput(barcode)
-    setShowPhotoScanner(false)
-    setScanResult({
-      success: true,
-      message: `Barcode rilevato: ${barcode}`,
-    })
-    setTimeout(() => setScanResult(null), 3000)
-  }
 
   // New item functions
   const openNewItemForm = () => {
@@ -786,7 +699,7 @@ export function ShoppingListDetail() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        openExpiryEditor(item)
+                        openItemModal(item)
                       }}
                       className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
                     >
@@ -935,203 +848,14 @@ export function ShoppingListDetail() {
       )}
 
       {/* Item Details Modal */}
-      {editingExpiryItemId && !showPhotoScanner && (() => {
-        const editingItem = list?.items.find(i => i.id === editingExpiryItemId)
-        return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              Dettagli Articolo
-            </h3>
-
-            {/* Item name and quantity */}
-            <div className="bg-gray-50 rounded-lg p-3 mb-4">
-              <p className="font-medium text-gray-900">{editingItem?.name}</p>
-              <p className="text-sm text-gray-500">
-                Quantità: {editingItem?.quantity} {editingItem?.unit || 'pz'}
-              </p>
-              {editingItem?.verified_at && (
-                <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                  Verificato
-                </span>
-              )}
-            </div>
-
-            {/* Expiry date input */}
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">Data di Scadenza</p>
-              <input
-                type="text"
-                value={expiryDateInput}
-                onChange={(e) => setExpiryDateInput(e.target.value)}
-                placeholder="DDMMYY (es: 150226)"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg text-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                autoFocus
-                inputMode="numeric"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !showBarcodeInput) saveExpiryDate()
-                  if (e.key === 'Escape') cancelExpiryEdit()
-                }}
-              />
-            </div>
-
-            {/* Category selector */}
-            {categories.length > 0 && (
-              <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-2">Categoria</p>
-                <select
-                  value={selectedCategoryId || ''}
-                  onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">Seleziona categoria...</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.icon ? `${cat.icon} ` : ''}{cat.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Barcode section */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="text-sm text-gray-600 mb-3">Barcode (opzionale)</p>
-
-              {barcodeInput && !showBarcodeInput ? (
-                <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
-                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="flex-1 font-mono text-sm">{barcodeInput}</span>
-                  <button
-                    onClick={() => setBarcodeInput('')}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ) : showBarcodeInput ? (
-                <div className="mb-3">
-                  <input
-                    ref={barcodeInputRef}
-                    type="text"
-                    value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value)}
-                    placeholder="Scrivi o spara barcode, poi premi Invio..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        if (barcodeInput.trim()) {
-                          setShowBarcodeInput(false)
-                        }
-                      }
-                      if (e.key === 'Escape') {
-                        setBarcodeInput('')
-                        setShowBarcodeInput(false)
-                      }
-                    }}
-                  />
-                  <p className="text-xs text-gray-400 mt-2 text-center">Premi Invio per confermare</p>
-                  <button
-                    onClick={() => {
-                      setBarcodeInput('')
-                      setShowBarcodeInput(false)
-                    }}
-                    className="w-full mt-2 py-2 text-sm text-gray-500 hover:text-gray-700"
-                  >
-                    Annulla
-                  </button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowPhotoScanner(true)}
-                    className="flex-1 py-2.5 bg-blue-50 text-blue-700 rounded-lg font-medium hover:bg-blue-100 flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    </svg>
-                    Foto
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowBarcodeInput(true)
-                      setTimeout(() => barcodeInputRef.current?.focus(), 100)
-                    }}
-                    className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                    </svg>
-                    Manuale
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={cancelExpiryEdit}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
-              >
-                Chiudi
-              </button>
-              <button
-                onClick={() => saveExpiryDate()}
-                className="flex-1 py-2.5 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
-              >
-                Salva
-              </button>
-            </div>
-          </div>
-        </div>
-        )
-      })()}
-
-      {/* Photo Barcode Scanner */}
-      {showPhotoScanner && (
-        <PhotoBarcodeScanner
-          onScan={handlePhotoBarcodeScanned}
-          onClose={() => setShowPhotoScanner(false)}
+      {editingItem && (
+        <ItemDetailModal
+          item={editingItem}
+          categories={categories}
+          mode="view"
+          onSave={handleModalSave}
+          onCancel={() => setEditingItem(null)}
         />
-      )}
-
-      {/* Verified Item Confirmation Dialog */}
-      {showVerifiedConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">Articolo già verificato</h3>
-                <p className="text-sm text-gray-500">Proseguire con la modifica?</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowVerifiedConfirm(false)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={() => saveExpiryDate(true)}
-                className="flex-1 py-2.5 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
-              >
-                Prosegui
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Click outside to close menu */}

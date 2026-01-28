@@ -4,6 +4,7 @@ import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
 import categoriesService from '@/services/categories'
 import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
+import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import type { ShoppingList, ShoppingListItem, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
@@ -357,215 +358,6 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   )
 }
 
-interface EditItemModalProps {
-  item: ShoppingListItem
-  categories: Category[]
-  onSave: (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string; barcode?: string }) => void
-  onCancel: () => void
-}
-
-function EditItemModal({ item, categories, onSave, onCancel }: EditItemModalProps) {
-  const [name, setName] = useState(item.grocy_product_name || item.name)
-  const [quantity, setQuantity] = useState(item.verified_quantity ?? item.quantity)
-  const [quantityText, setQuantityText] = useState(String(item.verified_quantity ?? item.quantity).replace('.', ','))
-  const [isWeight, setIsWeight] = useState(
-    item.verified_unit === 'kg' || item.unit === 'kg' || item.unit === 'g'
-  )
-  const [expiryDateInput, setExpiryDateInput] = useState(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
-  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
-  const inputRef = React.useRef<HTMLInputElement>(null)
-
-  const parseQuantity = (text: string): number => {
-    const normalized = text.replace(',', '.')
-    const parsed = parseFloat(normalized)
-    return isNaN(parsed) ? 0 : parsed
-  }
-
-  const handleQuantityChange = (text: string) => {
-    const filtered = text.replace(/[^0-9.,]/g, '')
-    setQuantityText(filtered)
-    setQuantity(parseQuantity(filtered))
-  }
-
-  useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
-  }, [])
-
-  const handleSave = () => {
-    if (name.trim()) {
-      const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : undefined
-      onSave({
-        name: name.trim(),
-        quantity,
-        unit: isWeight ? 'kg' : 'pz',
-        expiryDate: parsedDate || undefined,
-        categoryId: selectedCategoryId,
-        barcode: barcodeInput.trim() || undefined,
-      })
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b">
-          <h3 className="font-semibold text-lg">Modifica Prodotto</h3>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nome prodotto
-            </label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Inserisci nome prodotto..."
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tipo di misura
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsWeight(false)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Pezzi (n°)
-              </button>
-              <button
-                onClick={() => setIsWeight(true)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Peso (kg)
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Quantità {isWeight ? '(kg)' : '(pezzi)'}
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  const newQty = Math.max(isWeight ? 0.1 : 1, quantity - (isWeight ? 0.1 : 1))
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
-              >
-                -
-              </button>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={quantityText}
-                onChange={(e) => handleQuantityChange(e.target.value)}
-                className="flex-1 text-center text-2xl font-bold py-2 border rounded-lg"
-              />
-              <button
-                onClick={() => {
-                  const newQty = quantity + (isWeight ? 0.1 : 1)
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          {/* Expiry Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Data di Scadenza
-            </label>
-            <input
-              type="text"
-              value={expiryDateInput}
-              onChange={(e) => setExpiryDateInput(e.target.value)}
-              placeholder="DDMMYY (es: 150226)"
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              inputMode="numeric"
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Categoria
-            </label>
-            {categories.length > 0 ? (
-              <select
-                value={selectedCategoryId || ''}
-                onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Seleziona categoria...</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.icon ? `${cat.icon} ` : ''}{cat.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-sm text-gray-500 italic">Nessuna categoria disponibile</p>
-            )}
-          </div>
-
-          {/* Barcode / EAN */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              EAN / Barcode
-            </label>
-            <input
-              type="text"
-              value={barcodeInput}
-              onChange={(e) => setBarcodeInput(e.target.value)}
-              placeholder="Inserisci barcode..."
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
-              inputMode="numeric"
-            />
-          </div>
-        </div>
-
-        <div className="p-4 border-t flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim()}
-            className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-              name.trim()
-                ? 'bg-blue-500 text-white hover:bg-blue-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            Salva
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function getItemState(item: ShoppingListItem): VerificationState {
   if (item.not_purchased) return 'not_purchased'
   if (!item.verified_at) return 'pending'
@@ -792,7 +584,7 @@ export function LoadVerification() {
     }
   }
 
-  const handleSaveEdit = async (data: { name: string; quantity: number; unit: string; expiryDate?: string; categoryId?: string; barcode?: string }) => {
+  const handleSaveEdit = async (data: ItemDetailModalData) => {
     if (!list || !editingItem) return
 
     try {
@@ -1038,9 +830,10 @@ export function LoadVerification() {
 
       {/* Edit Modal */}
       {editingItem && (
-        <EditItemModal
+        <ItemDetailModal
           item={editingItem}
           categories={categories}
+          mode="verify"
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
         />
