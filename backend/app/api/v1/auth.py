@@ -28,9 +28,17 @@ from app.schemas.user import (
     LoginRequest,
     Token,
     RefreshTokenRequest,
-    UserResponse
+    UserResponse,
+    RecoverySetupRequest,
+    RecoveryUpdateRequest,
+    RecoveryCheckRequest,
+    RecoveryCheckResponse,
+    PasswordResetRequest,
+    RecoveryStatusResponse
 )
 from app.services import auth_service
+from app.api.v1.deps import get_current_user
+from app.models.user import User
 
 
 # Create router for authentication endpoints
@@ -386,3 +394,221 @@ async def refresh_token(
         refresh_token=new_refresh_token,
         token_type="bearer"
     )
+
+
+# ============================================================================
+# Password Recovery Endpoints
+# ============================================================================
+
+@router.post(
+    "/setup-recovery",
+    response_model=RecoveryStatusResponse,
+    summary="Setup password recovery",
+    description="Configure recovery PIN for password recovery",
+    responses={
+        200: {
+            "description": "Recovery setup successful"
+        },
+        400: {
+            "description": "Invalid input (PINs don't match, etc.)"
+        }
+    }
+)
+async def setup_recovery(
+    data: RecoverySetupRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> RecoveryStatusResponse:
+    """
+    Set up password recovery PIN for the current user.
+
+    Requires:
+    - 6-digit numeric recovery PIN (+ confirmation)
+
+    The PIN is hashed before storage (never stored in plain text).
+    """
+    # Verify PINs match
+    if data.recovery_pin != data.recovery_pin_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="I PIN di recupero non coincidono"
+        )
+
+    # Set up recovery
+    success = auth_service.setup_recovery(
+        db,
+        current_user.id,
+        data.recovery_pin
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Errore durante la configurazione del recupero"
+        )
+
+    auth_logger.info(
+        f"RECOVERY_SETUP | user_id={current_user.id} | email={current_user.email}"
+    )
+
+    return RecoveryStatusResponse(has_recovery_setup=True)
+
+
+@router.get(
+    "/recovery-status",
+    response_model=RecoveryStatusResponse,
+    summary="Get recovery status",
+    description="Check if current user has recovery configured"
+)
+async def get_recovery_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> RecoveryStatusResponse:
+    """
+    Get recovery configuration status for the current user.
+    """
+    status_data = auth_service.get_recovery_status(db, current_user.id)
+    return RecoveryStatusResponse(**status_data)
+
+
+@router.post(
+    "/check-recovery",
+    response_model=RecoveryCheckResponse,
+    summary="Check if user has recovery configured",
+    description="Check if a user has recovery PIN configured (public endpoint)"
+)
+async def check_recovery(
+    data: RecoveryCheckRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+) -> RecoveryCheckResponse:
+    """
+    Check if user has recovery configured for an email address.
+
+    Used during password recovery flow to verify recovery is available.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check if user has recovery configured
+    has_recovery = auth_service.has_recovery_configured(db, data.email)
+
+    auth_logger.info(
+        f"RECOVERY_CHECK | email={data.email} | ip={client_ip} | has_recovery={has_recovery}"
+    )
+
+    return RecoveryCheckResponse(has_recovery=has_recovery)
+
+
+@router.post(
+    "/reset-password",
+    summary="Reset password with recovery PIN",
+    description="Reset password using recovery PIN",
+    responses={
+        200: {
+            "description": "Password reset successful"
+        },
+        400: {
+            "description": "Invalid PIN or passwords don't match"
+        }
+    }
+)
+async def reset_password(
+    data: PasswordResetRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Reset password using recovery PIN.
+
+    Requires:
+    - Email address
+    - 6-digit recovery PIN
+    - New password (+ confirmation)
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Verify passwords match
+    if data.new_password != data.new_password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le password non coincidono"
+        )
+
+    # Attempt password reset
+    success = auth_service.reset_password_with_recovery(
+        db,
+        data.email,
+        data.recovery_pin,
+        data.new_password
+    )
+
+    if not success:
+        auth_logger.warning(
+            f"PASSWORD_RESET_FAILED | email={data.email} | ip={client_ip} | "
+            f"reason=invalid_recovery_pin"
+        )
+        error_logger.log_error(
+            Exception(f"Failed password reset attempt for email: {data.email}"),
+            request=request,
+            severity="warning",
+            context={
+                "email": data.email,
+                "reason": "invalid_recovery_pin",
+                "client_ip": client_ip
+            },
+            save_to_db=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PIN di recupero non valido"
+        )
+
+    auth_logger.info(
+        f"PASSWORD_RESET_SUCCESS | email={data.email} | ip={client_ip}"
+    )
+
+    return {"message": "Password aggiornata con successo"}
+
+
+@router.put(
+    "/update-recovery",
+    response_model=RecoveryStatusResponse,
+    summary="Update recovery PIN",
+    description="Update recovery PIN (requires current password)"
+)
+async def update_recovery(
+    data: RecoveryUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> RecoveryStatusResponse:
+    """
+    Update password recovery PIN.
+
+    Requires current password for verification.
+    """
+    # Verify PINs match
+    if data.recovery_pin != data.recovery_pin_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="I PIN di recupero non coincidono"
+        )
+
+    # Update recovery settings
+    success = auth_service.update_recovery(
+        db,
+        current_user.id,
+        data.current_password,
+        data.recovery_pin
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password attuale non valida"
+        )
+
+    auth_logger.info(
+        f"RECOVERY_UPDATE | user_id={current_user.id} | email={current_user.email}"
+    )
+
+    return RecoveryStatusResponse(has_recovery_setup=True)

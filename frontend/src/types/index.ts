@@ -193,6 +193,33 @@ export interface RegisterRequest {
   full_name: string
 }
 
+// Password Recovery types
+export interface RecoverySetupRequest {
+  recovery_pin: string
+  recovery_pin_confirm: string
+}
+
+export interface RecoveryUpdateRequest {
+  current_password: string
+  recovery_pin: string
+  recovery_pin_confirm: string
+}
+
+export interface RecoveryCheckResponse {
+  has_recovery: boolean
+}
+
+export interface RecoveryStatusResponse {
+  has_recovery_setup: boolean
+}
+
+export interface PasswordResetRequest {
+  email: string
+  recovery_pin: string
+  new_password: string
+  new_password_confirm: string
+}
+
 // Store types
 export type StoreSize = 'S' | 'M' | 'L' | 'XL' | 'XXL'
 
