@@ -476,3 +476,161 @@ Rispondi SOLO con il testo corretto, nient'altro."""
     )
 
     return response.strip() if response else raw_text
+
+
+@dataclass
+class ParsedProduct:
+    """Structured product from receipt"""
+    raw_text: str
+    parsed_name: str
+    parsed_quantity: float
+    parsed_unit_price: Optional[float]
+    parsed_total_price: Optional[float]
+    confidence: float = 0.9
+
+
+async def parse_receipt_with_llm(
+    raw_ocr_text: str,
+    client: Optional[LLMClient] = None
+) -> list[ParsedProduct]:
+    """
+    Use LLM to parse raw OCR text into structured product list.
+
+    Takes the raw text from EasyOCR and uses the LLM to:
+    - Identify product lines vs non-product lines (totals, dates, etc.)
+    - Interpret abbreviated product names
+    - Extract quantity, unit price, and total price
+
+    Args:
+        raw_ocr_text: Raw text from EasyOCR
+        client: Optional LLM client
+
+    Returns:
+        List of ParsedProduct with structured data
+    """
+    if not raw_ocr_text or len(raw_ocr_text.strip()) < 5:
+        return []
+
+    if client is None:
+        client = await get_ocr_client()
+
+    if client is None:
+        logger.warning("No LLM client available for receipt parsing")
+        return []
+
+    system_prompt = """Sei un esperto di scontrini italiani dei supermercati.
+Analizza il testo OCR di uno scontrino e estrai SOLO i prodotti acquistati.
+
+IGNORA completamente:
+- Intestazione negozio, indirizzo, P.IVA
+- Data, ora, numero scontrino
+- TOTALE, SUBTOTALE, CONTANTE, RESTO, BANCOMAT
+- Righe vuote o separatori
+
+Per ogni prodotto estrai:
+- name: nome completo del prodotto (interpreta le abbreviazioni italiane)
+- quantity: quantità (default 1 se non specificata)
+- unit_price: prezzo unitario (se presente, altrimenti null)
+- total_price: prezzo totale della riga
+
+Abbreviazioni comuni da interpretare:
+- "LAT PS" = "Latte Parzialmente Scremato"
+- "MOZZ BUF" = "Mozzarella di Bufala"
+- "POM PACH" = "Pomodori Pachino"
+- "PROSC COT" = "Prosciutto Cotto"
+- "FORM GR" = "Formaggio Grattugiato"
+- "PAST SFOG" = "Pasta Sfoglia"
+- "YOG GR" = "Yogurt Greco"
+- "BIS FROL" = "Biscotti Frollini"
+- "ACQ NAT" = "Acqua Naturale"
+- "ACQ FRI" = "Acqua Frizzante"
+
+Rispondi SOLO con un JSON array valido. Esempio:
+[
+  {"name": "Latte Parzialmente Scremato", "quantity": 2, "unit_price": 1.29, "total_price": 2.58},
+  {"name": "Mozzarella di Bufala", "quantity": 1, "unit_price": null, "total_price": 2.99}
+]
+
+Se non riesci a interpretare un'abbreviazione, usa il testo originale."""
+
+    user_prompt = f"""Analizza questo scontrino ed estrai i prodotti:
+
+{raw_ocr_text}
+
+Rispondi SOLO con il JSON array dei prodotti."""
+
+    try:
+        response = await client.chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2000
+        )
+
+        if not response:
+            logger.warning("LLM returned empty response for receipt parsing")
+            return []
+
+        # Parse JSON response
+        cleaned = response.strip()
+
+        # Remove markdown code blocks if present
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            # Find the JSON content between ``` markers
+            json_lines = []
+            in_json = False
+            for line in lines:
+                if line.startswith("```") and not in_json:
+                    in_json = True
+                    continue
+                elif line.startswith("```") and in_json:
+                    break
+                elif in_json:
+                    json_lines.append(line)
+            cleaned = "\n".join(json_lines)
+
+        # Try to find JSON array in response
+        if not cleaned.startswith("["):
+            # Try to find array in the response
+            start = cleaned.find("[")
+            end = cleaned.rfind("]")
+            if start != -1 and end != -1:
+                cleaned = cleaned[start:end+1]
+
+        data = json.loads(cleaned)
+
+        if not isinstance(data, list):
+            logger.warning("LLM response is not a list")
+            return []
+
+        products = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            name = item.get("name", "").strip()
+            if not name:
+                continue
+
+            products.append(ParsedProduct(
+                raw_text=name,  # Use interpreted name as raw_text too
+                parsed_name=name,
+                parsed_quantity=float(item.get("quantity", 1) or 1),
+                parsed_unit_price=float(item["unit_price"]) if item.get("unit_price") else None,
+                parsed_total_price=float(item["total_price"]) if item.get("total_price") else None,
+                confidence=0.9
+            ))
+
+        logger.info(f"LLM parsed {len(products)} products from receipt")
+        return products
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse LLM receipt response as JSON: {e}")
+        logger.debug(f"Response was: {response[:500] if response else 'None'}")
+        return []
+    except Exception as e:
+        logger.error(f"LLM receipt parsing failed: {e}")
+        return []

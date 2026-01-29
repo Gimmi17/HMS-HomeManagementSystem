@@ -36,7 +36,7 @@ from app.services.receipt_reconciliation import (
     get_unmatched_shopping_items,
     get_reconciliation_summary,
 )
-from app.services.llm_ocr import smart_match_items, ocr_with_vision_llm
+from app.services.llm_ocr import smart_match_items, parse_receipt_with_llm
 from app.services.error_logging import error_logger
 from app.integrations.llm import get_llm_manager, LLMPurpose
 from app.models.house import House
@@ -186,7 +186,7 @@ async def process_receipt_ocr(
     """
     Process receipt images with OCR.
 
-    Uses vision LLM (OlmOCR) if configured, falls back to EasyOCR service.
+    Uses EasyOCR for text extraction, then LLM to interpret and structure products.
     Processes all images in order and concatenates the text.
     Updates receipt status to 'processed' or 'error'.
     """
@@ -212,8 +212,8 @@ async def process_receipt_ocr(
     receipt.status = ReceiptStatus.PROCESSING
     db.commit()
 
-    # Try to get vision LLM client for OCR
-    vision_client = None
+    # Try to get LLM client for product parsing
+    llm_client = None
     shopping_list = db.query(ShoppingList).filter(
         ShoppingList.id == receipt.shopping_list_id
     ).first()
@@ -223,14 +223,13 @@ async def process_receipt_ocr(
         if house and house.settings:
             manager = get_llm_manager()
             manager.load_from_settings(house.settings)
-            vision_client = manager.get_client_for_purpose(LLMPurpose.OCR)
-            if vision_client:
-                logger.info(f"Using vision LLM for OCR: {vision_client.connection.name}")
+            llm_client = manager.get_client_for_purpose(LLMPurpose.OCR)
+            if llm_client:
+                logger.info(f"Using LLM for product parsing: {llm_client.connection.name}")
 
     try:
-        # Process all images and combine results
+        # Step 1: Use EasyOCR for raw text extraction
         all_raw_text = []
-        all_product_lines = []
         all_confidences = []
         store_name = None
         total_amount = None
@@ -238,59 +237,59 @@ async def process_receipt_ocr(
         for receipt_image in sorted(receipt.images, key=lambda x: x.position):
             image_path = os.path.join(RECEIPTS_DIR, receipt_image.image_path)
 
-            # Try vision LLM first, fall back to EasyOCR service
-            if vision_client:
-                try:
-                    logger.info(f"Processing with vision LLM: {image_path}")
-                    ocr_result = await ocr_with_vision_llm(image_path, vision_client)
+            # Use EasyOCR service for text extraction
+            ocr_result = process_receipt(image_path)
 
-                    # Store per-image results
-                    receipt_image.raw_ocr_text = ocr_result.raw_text
-                    receipt_image.ocr_confidence = ocr_result.confidence
+            receipt_image.raw_ocr_text = ocr_result.raw_text
+            receipt_image.ocr_confidence = ocr_result.average_confidence
 
-                    all_raw_text.append(ocr_result.raw_text)
-                    all_confidences.append(ocr_result.confidence)
+            all_raw_text.append(ocr_result.raw_text)
+            all_confidences.append(ocr_result.average_confidence)
 
-                    # Product lines from vision OCR
-                    for line in ocr_result.lines:
-                        all_product_lines.append(type('Line', (), line)())
+            if not store_name and ocr_result.store_name:
+                store_name = ocr_result.store_name
+            if ocr_result.total_amount:
+                total_amount = ocr_result.total_amount
 
-                    if not store_name and ocr_result.store_name:
-                        store_name = ocr_result.store_name
-                    if ocr_result.total_amount:
-                        total_amount = ocr_result.total_amount
+        # Combine all OCR text
+        combined_raw_text = "\n".join(all_raw_text)
 
-                except Exception as e:
-                    logger.warning(f"Vision LLM failed, falling back to EasyOCR: {e}")
-                    vision_client = None  # Disable for remaining images
-
-            # Fallback to EasyOCR service
-            if not vision_client:
-                ocr_result = process_receipt(image_path)
-
-                receipt_image.raw_ocr_text = ocr_result.raw_text
-                receipt_image.ocr_confidence = ocr_result.average_confidence
-
-                all_raw_text.append(ocr_result.raw_text)
-                all_confidences.append(ocr_result.average_confidence)
-
-                product_lines = get_product_lines(ocr_result)
-                all_product_lines.extend(product_lines)
-
-                if not store_name and ocr_result.store_name:
-                    store_name = ocr_result.store_name
-                if ocr_result.total_amount:
-                    total_amount = ocr_result.total_amount
-
-        # Save combined OCR results
-        receipt.raw_ocr_text = "\n---\n".join(all_raw_text)
+        # Save OCR results
+        receipt.raw_ocr_text = combined_raw_text
         receipt.ocr_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
         receipt.store_name_detected = store_name
         receipt.total_amount_detected = total_amount
         receipt.processed_at = datetime.now(timezone.utc)
+
+        # Step 2: Use LLM to parse products from raw text
+        all_product_lines = []
+
+        if llm_client and combined_raw_text.strip():
+            try:
+                logger.info("Sending OCR text to LLM for product parsing...")
+                llm_products = await parse_receipt_with_llm(combined_raw_text, llm_client)
+
+                if llm_products:
+                    logger.info(f"LLM parsed {len(llm_products)} products")
+                    all_product_lines = llm_products
+                else:
+                    logger.warning("LLM returned no products, using EasyOCR fallback")
+
+            except Exception as e:
+                logger.warning(f"LLM parsing failed: {e}, using EasyOCR fallback")
+
+        # Fallback: use EasyOCR's product parsing if LLM didn't work
+        if not all_product_lines:
+            logger.info("Using EasyOCR product parsing as fallback")
+            for receipt_image in sorted(receipt.images, key=lambda x: x.position):
+                image_path = os.path.join(RECEIPTS_DIR, receipt_image.image_path)
+                ocr_result = process_receipt(image_path)
+                product_lines = get_product_lines(ocr_result)
+                all_product_lines.extend(product_lines)
+
         receipt.status = ReceiptStatus.PROCESSED
 
-        # Create receipt items from all product lines
+        # Create receipt items from product lines
         for idx, line in enumerate(all_product_lines):
             item = ReceiptItem(
                 receipt_id=receipt.id,
