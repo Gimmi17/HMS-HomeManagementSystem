@@ -339,3 +339,182 @@ def change_password(db: Session, user_id: UUID, current_password: str, new_passw
     db.commit()
 
     return True
+
+
+# ============================================================================
+# Password Recovery Functions
+# ============================================================================
+
+def setup_recovery(
+    db: Session,
+    user_id: UUID,
+    recovery_pin: str
+) -> bool:
+    """
+    Set up password recovery PIN for a user.
+
+    Args:
+        db: Database session
+        user_id: UUID of the user
+        recovery_pin: 6-digit numeric PIN
+
+    Returns:
+        True if setup successful, False if user not found
+
+    Example:
+        success = setup_recovery(db, user_id, "123456")
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+
+    # Hash the PIN
+    user.recovery_pin_hash = hash_password(recovery_pin)
+
+    # Mark recovery as configured
+    user.has_recovery_setup = True
+
+    db.commit()
+    return True
+
+
+def has_recovery_configured(db: Session, email: str) -> bool:
+    """
+    Check if user has recovery configured.
+
+    Args:
+        db: Database session
+        email: User's email address
+
+    Returns:
+        True if user has recovery configured, False otherwise
+    """
+    user = get_user_by_email(db, email)
+    if not user:
+        return False
+
+    return user.has_recovery_setup
+
+
+def verify_recovery_pin(
+    db: Session,
+    email: str,
+    recovery_pin: str
+) -> Optional[User]:
+    """
+    Verify recovery PIN for a user.
+
+    Args:
+        db: Database session
+        email: User's email address
+        recovery_pin: 6-digit recovery PIN
+
+    Returns:
+        User object if PIN valid, None otherwise
+
+    Example:
+        user = verify_recovery_pin(db, "user@example.com", "123456")
+        if user:
+            # Proceed with password reset
+    """
+    user = get_user_by_email(db, email)
+    if not user or not user.has_recovery_setup:
+        return None
+
+    # Verify PIN
+    if not user.recovery_pin_hash or not verify_password(recovery_pin, user.recovery_pin_hash):
+        return None
+
+    return user
+
+
+def reset_password_with_recovery(
+    db: Session,
+    email: str,
+    recovery_pin: str,
+    new_password: str
+) -> bool:
+    """
+    Reset password using recovery PIN.
+
+    Args:
+        db: Database session
+        email: User's email address
+        recovery_pin: 6-digit recovery PIN
+        new_password: New password to set
+
+    Returns:
+        True if password reset successful, False if verification failed
+
+    Example:
+        success = reset_password_with_recovery(
+            db, "user@example.com", "123456", "NewPassword123"
+        )
+    """
+    # Verify recovery PIN
+    user = verify_recovery_pin(db, email, recovery_pin)
+    if not user:
+        return False
+
+    # Update password
+    user.password_hash = hash_password(new_password)
+    db.commit()
+
+    return True
+
+
+def update_recovery(
+    db: Session,
+    user_id: UUID,
+    current_password: str,
+    new_pin: str
+) -> bool:
+    """
+    Update recovery PIN (requires current password verification).
+
+    Args:
+        db: Database session
+        user_id: UUID of the user
+        current_password: Current password for verification
+        new_pin: New 6-digit recovery PIN
+
+    Returns:
+        True if update successful, False if password verification failed
+
+    Example:
+        success = update_recovery(db, user_id, "CurrentPass123", "654321")
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return False
+
+    # Verify current password
+    if not verify_password(current_password, user.password_hash):
+        return False
+
+    # Update recovery PIN
+    user.recovery_pin_hash = hash_password(new_pin)
+    user.has_recovery_setup = True
+    db.commit()
+
+    return True
+
+
+def get_recovery_status(db: Session, user_id: UUID) -> dict:
+    """
+    Get recovery status for a user.
+
+    Args:
+        db: Database session
+        user_id: UUID of the user
+
+    Returns:
+        Dict with has_recovery_setup flag
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return {"has_recovery_setup": False}
+
+    return {
+        "has_recovery_setup": user.has_recovery_setup
+    }

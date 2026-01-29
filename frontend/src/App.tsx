@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
-import { LoginForm, RegisterForm } from './components/Auth'
+import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
 import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
@@ -50,6 +50,14 @@ function App() {
         element={
           <PublicRoute>
             <RegisterForm />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute>
+            <ForgotPasswordForm />
           </PublicRoute>
         }
       />

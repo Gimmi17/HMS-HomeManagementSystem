@@ -6,10 +6,12 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
+  hasRecoverySetup: boolean
   login: (data: LoginRequest) => Promise<void>
   register: (data: RegisterRequest) => Promise<void>
   logout: () => void
   updateUser: (data: Partial<User>) => Promise<void>
+  refreshRecoveryStatus: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -17,6 +19,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [hasRecoverySetup, setHasRecoverySetup] = useState(false)
+
+  const checkRecoveryStatus = async () => {
+    try {
+      const status = await authService.getRecoveryStatus()
+      setHasRecoverySetup(status.has_recovery_setup)
+    } catch {
+      setHasRecoverySetup(false)
+    }
+  }
 
   useEffect(() => {
     const initAuth = async () => {
@@ -31,6 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const userData = await authService.getMe()
         setUser(userData)
+        // Check recovery status after user is loaded
+        await checkRecoveryStatus()
       } catch {
         // Token invalid/expired - clear local storage
         // The API interceptor will handle redirect if needed
@@ -50,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fetch user data after storing tokens
     const userData = await authService.getMe()
     setUser(userData)
+    // Check recovery status
+    await checkRecoveryStatus()
   }
 
   const register = async (data: RegisterRequest) => {
@@ -59,11 +75,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fetch user data after storing tokens
     const userData = await authService.getMe()
     setUser(userData)
+    // New users don't have recovery setup
+    setHasRecoverySetup(false)
   }
 
   const logout = () => {
     authService.logout()
     setUser(null)
+    setHasRecoverySetup(false)
+  }
+
+  const refreshRecoveryStatus = async () => {
+    await checkRecoveryStatus()
   }
 
   const updateUser = async (data: Partial<User>) => {
@@ -77,10 +100,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        hasRecoverySetup,
         login,
         register,
         logout,
         updateUser,
+        refreshRecoveryStatus,
       }}
     >
       {children}
