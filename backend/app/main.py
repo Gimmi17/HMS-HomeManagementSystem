@@ -88,15 +88,35 @@ async def startup_event():
             for column in table.columns:
                 if column.name not in existing_columns:
                     col_type = column.type.compile(engine.dialect)
-                    nullable = "NULL" if column.nullable else "NOT NULL"
-                    default = ""
+                    # Determine default value
+                    default_val = None
                     if column.server_default is not None:
-                        default = f" DEFAULT {column.server_default.arg}"
-                    elif column.nullable:
-                        default = " DEFAULT NULL"
-                    stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} {nullable}{default}'
-                    with engine.begin() as conn:
-                        conn.execute(text(stmt))
+                        default_val = column.server_default.arg
+                    elif column.default is not None and column.default.is_scalar:
+                        # Use Python-level default
+                        val = column.default.arg
+                        if isinstance(val, bool):
+                            default_val = "TRUE" if val else "FALSE"
+                        elif isinstance(val, (int, float)):
+                            default_val = str(val)
+                        elif isinstance(val, str):
+                            default_val = f"'{val}'"
+                    # For NOT NULL columns, always add as NULL first then alter
+                    if not column.nullable and default_val is not None:
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL DEFAULT {default_val}'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
+                            conn.execute(text(f'UPDATE "{table.name}" SET "{column.name}" = {default_val} WHERE "{column.name}" IS NULL'))
+                            conn.execute(text(f'ALTER TABLE "{table.name}" ALTER COLUMN "{column.name}" SET NOT NULL'))
+                    elif not column.nullable:
+                        # NOT NULL without any default - add as NULL to avoid crash
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
+                    else:
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
                     print(f"  + Added column {table.name}.{column.name}")
                     migration_count += 1
     if migration_count:
