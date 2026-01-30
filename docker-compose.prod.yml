@@ -18,7 +18,9 @@ services:
     restart: unless-stopped
 
   backend:
-    image: gimmi17/hms-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: hms-backend
     environment:
       DATABASE_URL: postgresql://meal_planner:HmsSecurePass2024!@postgres:5432/meal_planner_db
@@ -36,7 +38,10 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: gimmi17/hms-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
     container_name: hms-frontend
     ports:
       - "5052:3000"
