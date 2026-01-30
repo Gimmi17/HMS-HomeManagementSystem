@@ -238,35 +238,35 @@ async def login(
 
     # Log login attempt
     auth_logger.info(
-        f"LOGIN_ATTEMPT | email={credentials.email} | ip={client_ip} | user_agent={user_agent}"
+        f"LOGIN_ATTEMPT | identifier={credentials.identifier} | ip={client_ip} | user_agent={user_agent}"
     )
 
-    # Authenticate user (returns None if email/password wrong)
-    user = auth_service.authenticate_user(db, credentials.email, credentials.password)
+    # Authenticate user (returns None if identifier/password wrong)
+    user = auth_service.authenticate_user(db, credentials.identifier, credentials.password)
 
     if not user:
         # Log failed attempt
         auth_logger.warning(
-            f"LOGIN_FAILED | email={credentials.email} | ip={client_ip} | "
+            f"LOGIN_FAILED | identifier={credentials.identifier} | ip={client_ip} | "
             f"user_agent={user_agent} | reason=invalid_credentials"
         )
         # Log to error buffer for detailed tracking
         error_logger.log_error(
-            LoginFailedError(f"Failed login attempt for email: {credentials.email}"),
+            LoginFailedError(f"Failed login attempt for: {credentials.identifier}"),
             request=request,
             severity="warning",
             context={
-                "email": credentials.email,
+                "identifier": credentials.identifier,
                 "reason": "invalid_credentials",
                 "client_ip": client_ip,
                 "user_agent": user_agent
             },
             save_to_db=True
         )
-        # Don't reveal if email exists or password wrong (security best practice)
+        # Don't reveal if user exists or password wrong (security best practice)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect email/username or password",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
@@ -276,7 +276,7 @@ async def login(
 
     # Log successful login
     auth_logger.info(
-        f"LOGIN_SUCCESS | email={credentials.email} | user_id={user.id} | ip={client_ip} | "
+        f"LOGIN_SUCCESS | identifier={credentials.identifier} | user_id={user.id} | ip={client_ip} | "
         f"user_agent={user_agent}"
     )
 

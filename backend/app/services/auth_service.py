@@ -148,15 +148,15 @@ def verify_token(token: str, expected_type: str = "access") -> Optional[TokenPay
 # User Authentication Functions
 # ============================================================================
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
+def authenticate_user(db: Session, identifier: str, password: str) -> Optional[User]:
     """
-    Authenticate a user by email and password.
+    Authenticate a user by email or username (full_name) and password.
 
-    Verifies user credentials and returns the user object if valid.
+    Tries email first, then falls back to case-insensitive full_name match.
 
     Args:
         db: Database session
-        email: User's email address
+        identifier: User's email address or username (full_name)
         password: Plain text password to verify
 
     Returns:
@@ -164,11 +164,16 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
 
     Example:
         user = authenticate_user(db, "user@example.com", "password123")
-        if user:
-            token = create_access_token(user.id)
+        user = authenticate_user(db, "Gimmi", "password123")
     """
-    # Find user by email
-    user = db.query(User).filter(User.email == email).first()
+    from sqlalchemy import func
+
+    # Try email first (exact match)
+    user = db.query(User).filter(User.email == identifier).first()
+
+    # If not found by email, try case-insensitive full_name
+    if not user:
+        user = db.query(User).filter(func.lower(User.full_name) == identifier.lower()).first()
 
     # If user not found or password incorrect, return None
     if not user:

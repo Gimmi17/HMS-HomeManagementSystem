@@ -55,17 +55,18 @@ class LoginRequest(BaseModel):
     Schema for user login request.
 
     Used in POST /api/v1/auth/login endpoint.
+    Accepts either email or username (full_name) as identifier.
 
     Example:
         {
-            "email": "user@example.com",
+            "identifier": "user@example.com",
             "password": "SecurePass123!"
         }
     """
-    email: EmailStr = Field(
+    identifier: str = Field(
         ...,
-        description="User's email address",
-        examples=["user@example.com"]
+        description="User's email address or username",
+        examples=["user@example.com", "Gimmi"]
     )
     password: str = Field(
         ...,
