@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.middleware.cors import setup_cors
 from app.middleware.error_handler import ErrorHandlerMiddleware
+from sqlalchemy import inspect, text
 from app.db.session import engine, SessionLocal
 from app.models import Base
 from app.services.error_logging import configure_error_logging, error_logger
@@ -77,6 +78,31 @@ async def startup_event():
     # Only creates tables that don't already exist (safe to run multiple times)
     Base.metadata.create_all(bind=engine)
     print(f"✓ Database tables created/verified")
+
+    # Auto-migrate: add missing columns to existing tables
+    inspector = inspect(engine)
+    migration_count = 0
+    for table in Base.metadata.tables.values():
+        if inspector.has_table(table.name):
+            existing_columns = {col['name'] for col in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name not in existing_columns:
+                    col_type = column.type.compile(engine.dialect)
+                    nullable = "NULL" if column.nullable else "NOT NULL"
+                    default = ""
+                    if column.server_default is not None:
+                        default = f" DEFAULT {column.server_default.arg}"
+                    elif column.nullable:
+                        default = " DEFAULT NULL"
+                    stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} {nullable}{default}'
+                    with engine.begin() as conn:
+                        conn.execute(text(stmt))
+                    print(f"  + Added column {table.name}.{column.name}")
+                    migration_count += 1
+    if migration_count:
+        print(f"✓ Auto-migration: {migration_count} columns added")
+    else:
+        print(f"✓ Database schema up to date")
 
     # Configure error logging system
     configure_error_logging(SessionLocal)
