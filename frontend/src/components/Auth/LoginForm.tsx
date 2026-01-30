@@ -41,7 +41,7 @@ export function LoginForm() {
 
         <div>
           <label htmlFor="identifier" className="block text-sm font-medium text-gray-700 mb-1.5">
-            Email o Nome Utente
+            Email o nome utente
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
