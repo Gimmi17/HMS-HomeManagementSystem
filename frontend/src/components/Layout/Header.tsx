@@ -9,8 +9,8 @@ export function Header() {
     <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-40">
       <div className="flex items-center justify-between gap-2">
         {/* Logo - hidden on mobile, shown on desktop */}
-        <h1 className="text-lg font-bold text-primary-600 hidden sm:block">
-          Meal Planner
+        <h1 className="text-xl font-brand font-bold text-primary-600 hidden sm:block tracking-wide">
+          HMS
         </h1>
 
         {/* House selector - takes full width on mobile */}

@@ -1,6 +1,6 @@
 """
 Main FastAPI Application
-Entry point for the Meal Planner API.
+Entry point for the HMS API.
 
 This module creates and configures the FastAPI application instance,
 sets up middleware, and defines the health check endpoint.
@@ -33,7 +33,7 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI at http://localhost:8000/docs
     redoc_url="/redoc",  # ReDoc at http://localhost:8000/redoc
     description="""
-    Meal Planner API - REST API for meal planning and nutritional tracking.
+    HMS API - Home Management System REST API.
 
     Features:
     - Multi-user authentication with JWT
@@ -163,7 +163,7 @@ async def health_check():
         {
             "status": "ok",
             "version": "1.0.0",
-            "api": "Meal Planner API"
+            "api": "HMS API"
         }
     """
     return JSONResponse(
@@ -192,7 +192,7 @@ async def root():
         JSON response with API information and documentation links
     """
     return {
-        "message": "Welcome to Meal Planner API",
+        "message": "Welcome to HMS API",
         "version": "1.0.0",
         "docs": "/docs",
         "redoc": "/redoc",

@@ -41,7 +41,7 @@ export function RegisterForm() {
   }
 
   return (
-    <AuthCard title="Meal Planner" subtitle="Crea il tuo account">
+    <AuthCard title="HMS" subtitle="Crea il tuo account">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
