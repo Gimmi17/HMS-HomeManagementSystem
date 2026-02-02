@@ -41,7 +41,8 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.prod
+      dockerfile: Dockerfile
+      target: production
     container_name: hms-frontend
     ports:
       - "5052:3000"
