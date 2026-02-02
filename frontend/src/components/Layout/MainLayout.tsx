@@ -1,16 +1,16 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import Header from './Header'
-import Sidebar from './Sidebar'
-import BottomNav from './BottomNav'
+import DrawerMenu from './DrawerMenu'
 
 interface MainLayoutProps {
   children: ReactNode
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  const { isAuthenticated, isLoading } = useAuth()
+  const { user, isAuthenticated, isLoading, logout } = useAuth()
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   if (isLoading) {
     return (
@@ -26,16 +26,19 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header />
-      <div className="flex">
-        <Sidebar />
-        {/* Main content - add bottom padding on mobile for BottomNav */}
-        <main className="flex-1 p-4 sm:p-6 pb-20 sm:pb-6 min-h-[calc(100vh-57px)]">
-          {children}
-        </main>
-      </div>
-      {/* Bottom navigation for mobile */}
-      <BottomNav />
+      <Header
+        onMenuToggle={() => setIsMenuOpen((prev) => !prev)}
+        isMenuOpen={isMenuOpen}
+      />
+      <main className="p-4 sm:p-6 min-h-[calc(100vh-57px)]">
+        {children}
+      </main>
+      <DrawerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        userName={user?.full_name || user?.email || null}
+        onLogout={logout}
+      />
     </div>
   )
 }
