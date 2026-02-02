@@ -15,6 +15,7 @@ interface ItemRow {
   quantity: number
   unit: string
   categoryId?: string
+  urgent?: boolean
   isNew?: boolean  // Track if item needs to be saved to backend
 }
 
@@ -148,6 +149,7 @@ export function ShoppingListForm() {
                 quantity: item.quantity,
                 unit: item.unit || 'pz',
                 categoryId: item.category_id,
+                urgent: item.urgent,
                 isNew: false,  // Items from backend are already saved
               }))
             )
@@ -218,7 +220,7 @@ export function ShoppingListForm() {
     }
   }, [focusItemId, items])
 
-  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | undefined) => {
+  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | boolean | undefined) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item
@@ -270,6 +272,7 @@ export function ShoppingListForm() {
               quantity: currentItem.quantity,
               unit: currentItem.unit,
               category_id: currentItem.categoryId,
+              urgent: currentItem.urgent,
             })
 
             // Create new item and update state in one operation
@@ -383,6 +386,7 @@ export function ShoppingListForm() {
         unit: item.unit,
         position: index,
         category_id: item.categoryId,
+        urgent: item.urgent,
       }))
 
       if (isEditing && id) {
@@ -418,6 +422,7 @@ export function ShoppingListForm() {
               quantity: item.quantity,
               unit: item.unit,
               category_id: item.categoryId,
+              urgent: item.urgent,
             })
           } else {
             // Update existing item (preserves checked status from backend)
@@ -428,6 +433,7 @@ export function ShoppingListForm() {
               quantity: item.quantity,
               unit: item.unit,
               category_id: item.categoryId,
+              urgent: item.urgent,
             })
           }
         }
@@ -645,6 +651,22 @@ export function ShoppingListForm() {
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </button>
+
+                {/* Urgent toggle */}
+                <button
+                  type="button"
+                  onClick={() => handleItemChange(item.id, 'urgent', !item.urgent)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    item.urgent
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                  title={item.urgent ? 'Rimuovi urgente' : 'Segna come urgente'}
+                >
+                  <svg className="w-5 h-5" fill={item.urgent ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </button>
 

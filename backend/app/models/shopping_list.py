@@ -152,6 +152,9 @@ class ShoppingListItem(BaseModel):
     not_purchased = Column(Boolean, default=False, nullable=False)
     not_purchased_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Urgent flag
+    urgent = Column(Boolean, default=False, nullable=False)
+
     # Expiry date of the purchased product
     expiry_date = Column(Date, nullable=True)
 

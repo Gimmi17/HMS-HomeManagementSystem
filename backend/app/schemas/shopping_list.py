@@ -41,6 +41,7 @@ class ShoppingListItemCreate(ShoppingListItemBase):
     """Schema for creating a shopping list item"""
     position: Optional[int] = Field(None, description="Position in list")
     category_id: Optional[UUID] = Field(None, description="Category ID")
+    urgent: bool = False
 
 
 class ShoppingListItemUpdate(BaseModel):
@@ -56,6 +57,7 @@ class ShoppingListItemUpdate(BaseModel):
     verified_unit: Optional[str] = Field(None, max_length=50)
     expiry_date: Optional[date] = Field(None, description="Expiry date of the purchased product")
     category_id: Optional[UUID] = Field(None, description="Category ID")
+    urgent: Optional[bool] = None
 
 
 class ShoppingListItemResponse(ShoppingListItemBase):
@@ -70,6 +72,7 @@ class ShoppingListItemResponse(ShoppingListItemBase):
     verified_unit: Optional[str] = None
     not_purchased: bool = False
     not_purchased_at: Optional[datetime] = None
+    urgent: bool = False
     expiry_date: Optional[date] = None
     category_id: Optional[UUID] = None
     created_at: datetime

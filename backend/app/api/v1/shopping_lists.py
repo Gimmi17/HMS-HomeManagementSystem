@@ -124,7 +124,8 @@ def create_shopping_list(
             grocy_product_id=item_data.grocy_product_id,
             grocy_product_name=item_data.grocy_product_name,
             quantity=item_data.quantity,
-            unit=item_data.unit
+            unit=item_data.unit,
+            urgent=item_data.urgent
         )
         db.add(item)
 
@@ -392,7 +393,8 @@ def add_item_to_list(
         grocy_product_id=data.grocy_product_id,
         grocy_product_name=data.grocy_product_name,
         quantity=data.quantity,
-        unit=data.unit
+        unit=data.unit,
+        urgent=data.urgent
     )
     db.add(item)
     db.commit()

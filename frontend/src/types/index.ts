@@ -279,6 +279,7 @@ export interface ShoppingListItem {
   verified_unit?: string
   not_purchased: boolean
   not_purchased_at?: string
+  urgent: boolean
   expiry_date?: string  // formato YYYY-MM-DD dal backend
   category_id?: string
   created_at: string
@@ -327,6 +328,7 @@ export interface ShoppingListCreate {
     unit?: string
     position?: number
     category_id?: string
+    urgent?: boolean
   }[]
 }
 
@@ -338,6 +340,7 @@ export interface ShoppingListItemCreate {
   unit?: string
   position?: number
   category_id?: string
+  urgent?: boolean
 }
 
 // BarcodeBuddy types
