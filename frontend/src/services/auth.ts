@@ -8,7 +8,8 @@ import type {
   RecoveryUpdateRequest,
   RecoveryCheckResponse,
   RecoveryStatusResponse,
-  PasswordResetRequest
+  PasswordResetRequest,
+  FirstTimeResetRequest
 } from '@/types'
 
 export const authService = {
@@ -73,6 +74,10 @@ export const authService = {
 
   async resetPassword(data: PasswordResetRequest): Promise<void> {
     await api.post('/auth/reset-password', data)
+  },
+
+  async firstTimeReset(data: FirstTimeResetRequest): Promise<void> {
+    await api.post('/auth/first-time-reset', data)
   },
 }
 

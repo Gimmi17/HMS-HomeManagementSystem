@@ -377,6 +377,43 @@ class PasswordResetRequest(BaseModel):
     )
 
 
+class FirstTimeResetRequest(BaseModel):
+    """
+    Schema for first-time password reset (users without recovery configured).
+
+    Sets up recovery PIN and changes password in one step.
+    Only works for users who have NOT configured recovery yet.
+    """
+    email: EmailStr = Field(
+        ...,
+        description="User's email address"
+    )
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="New 6-digit recovery PIN to configure"
+    )
+    recovery_pin_confirm: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Confirm recovery PIN"
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        description="New password (minimum 8 characters)"
+    )
+    new_password_confirm: str = Field(
+        ...,
+        min_length=8,
+        description="Confirm new password"
+    )
+
+
 class RecoveryStatusResponse(BaseModel):
     """
     Schema for recovery status response.

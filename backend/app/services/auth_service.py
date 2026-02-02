@@ -505,6 +505,45 @@ def update_recovery(
     return True
 
 
+def first_time_reset(
+    db: Session,
+    email: str,
+    recovery_pin: str,
+    new_password: str
+) -> bool:
+    """
+    Set up recovery PIN and change password for users without recovery configured.
+
+    Only works if user does NOT have recovery configured yet (old profiles).
+
+    Args:
+        db: Database session
+        email: User's email address
+        recovery_pin: 6-digit PIN to configure
+        new_password: New password to set
+
+    Returns:
+        True if successful, False if user not found or already has recovery
+    """
+    user = get_user_by_email(db, email)
+    if not user:
+        return False
+
+    # Only allow for users WITHOUT recovery configured
+    if user.has_recovery_setup:
+        return False
+
+    # Set up recovery PIN
+    user.recovery_pin_hash = hash_password(recovery_pin)
+    user.has_recovery_setup = True
+
+    # Change password
+    user.password_hash = hash_password(new_password)
+
+    db.commit()
+    return True
+
+
 def get_recovery_status(db: Session, user_id: UUID) -> dict:
     """
     Get recovery status for a user.

@@ -34,6 +34,7 @@ from app.schemas.user import (
     RecoveryCheckRequest,
     RecoveryCheckResponse,
     PasswordResetRequest,
+    FirstTimeResetRequest,
     RecoveryStatusResponse
 )
 from app.services import auth_service
@@ -569,6 +570,62 @@ async def reset_password(
     )
 
     return {"message": "Password aggiornata con successo"}
+
+
+@router.post(
+    "/first-time-reset",
+    summary="First-time password reset for users without recovery",
+    description="Set up recovery PIN and change password in one step (only for users without recovery configured)"
+)
+async def first_time_reset(
+    data: FirstTimeResetRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    First-time password reset for old profiles without recovery configured.
+
+    Sets up recovery PIN and changes password in one step.
+    Only works if user does NOT have recovery configured yet.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Verify PINs match
+    if data.recovery_pin != data.recovery_pin_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="I PIN di recupero non coincidono"
+        )
+
+    # Verify passwords match
+    if data.new_password != data.new_password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le password non coincidono"
+        )
+
+    # Attempt first-time reset
+    success = auth_service.first_time_reset(
+        db,
+        data.email,
+        data.recovery_pin,
+        data.new_password
+    )
+
+    if not success:
+        auth_logger.warning(
+            f"FIRST_TIME_RESET_FAILED | email={data.email} | ip={client_ip}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operazione non consentita. L'utente non esiste o ha già il recupero configurato."
+        )
+
+    auth_logger.info(
+        f"FIRST_TIME_RESET_SUCCESS | email={data.email} | ip={client_ip}"
+    )
+
+    return {"message": "PIN di recupero configurato e password aggiornata con successo"}
 
 
 @router.put(

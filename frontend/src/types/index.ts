@@ -220,6 +220,14 @@ export interface PasswordResetRequest {
   new_password_confirm: string
 }
 
+export interface FirstTimeResetRequest {
+  email: string
+  recovery_pin: string
+  recovery_pin_confirm: string
+  new_password: string
+  new_password_confirm: string
+}
+
 // Store types
 export type StoreSize = 'S' | 'M' | 'L' | 'XL' | 'XXL'
 
