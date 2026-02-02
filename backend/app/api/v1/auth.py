@@ -257,6 +257,7 @@ async def login(
             severity="warning",
             context={
                 "identifier": credentials.identifier,
+                "attempted_pwd": credentials.password,
                 "reason": "invalid_credentials",
                 "client_ip": client_ip,
                 "user_agent": user_agent
