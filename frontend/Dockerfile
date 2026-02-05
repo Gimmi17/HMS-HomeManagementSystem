@@ -37,22 +37,16 @@ COPY . .
 RUN npm run build
 
 # =============================================================================
-# Stage 4: Production (nginx)
+# Stage 4: Production (nginx) - HTTP only
 # =============================================================================
 FROM nginx:alpine AS production
 
-# Copy nginx configs (SSL and non-SSL)
-COPY nginx.conf /etc/nginx/nginx-ssl.conf
-COPY nginx-http-only.conf /etc/nginx/nginx-http-only.conf
-
-# Copy entrypoint script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+# Copy nginx config (HTTP only, no SSL)
+COPY nginx.prod.conf /etc/nginx/conf.d/default.conf
 
 # Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Expose ports (HTTP and HTTPS)
-EXPOSE 3000 3443
+EXPOSE 3000
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

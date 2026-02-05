@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ShoppingListItem, Category } from '@/types'
 import PhotoBarcodeScanner from './PhotoBarcodeScanner'
 
@@ -120,8 +121,8 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
 
   // Verified confirmation dialog
   if (showVerifiedConfirm) {
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    return createPortal(
+      <div className="fixed top-0 left-0 right-0 bottom-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
@@ -149,187 +150,198 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
             </button>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body
     )
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b">
-          <h3 className="font-semibold text-lg">Dettagli Articolo</h3>
+  return createPortal(
+    <div className="fixed top-0 left-0 right-0 bottom-0 z-50 bg-white overflow-y-auto animate-slide-up">
+      {/* Header */}
+      <div className="sticky top-0 bg-white px-4 py-3 border-b flex items-center justify-between z-10">
+        <h3 className="font-semibold text-lg">Dettagli Articolo</h3>
+        <div className="flex items-center gap-2">
           {isVerified && (
-            <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
               Verificato
             </span>
           )}
-        </div>
-
-        <div className="p-4 space-y-4">
-          {/* Descrizione */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Descrizione
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Nome prodotto..."
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              autoFocus
-            />
-          </div>
-
-          {/* Unità di misura */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Unità di misura
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsWeight(false)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Pezzi (n°)
-              </button>
-              <button
-                onClick={() => setIsWeight(true)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Peso (kg)
-              </button>
-            </div>
-          </div>
-
-          {/* Quantità */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Quantità {isWeight ? '(kg)' : '(pezzi)'}
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  const newQty = Math.max(isWeight ? 0.1 : 1, quantity - (isWeight ? 0.1 : 1))
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
-              >
-                -
-              </button>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={quantityText}
-                onChange={(e) => handleQuantityChange(e.target.value)}
-                className="flex-1 text-center text-2xl font-bold py-2 border rounded-lg"
-              />
-              <button
-                onClick={() => {
-                  const newQty = quantity + (isWeight ? 0.1 : 1)
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          {/* Data di Scadenza */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Data di Scadenza
-            </label>
-            <input
-              type="text"
-              value={expiryDateInput}
-              onChange={(e) => setExpiryDateInput(e.target.value)}
-              placeholder="DDMMYY (es: 150226)"
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              inputMode="numeric"
-            />
-          </div>
-
-          {/* Classe / Categoria */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Classe
-            </label>
-            {categories.length > 0 ? (
-              <select
-                value={selectedCategoryId || ''}
-                onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">Seleziona classe...</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.icon ? `${cat.icon} ` : ''}{cat.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-sm text-gray-500 italic py-3">Nessuna classe disponibile</p>
-            )}
-          </div>
-
-          {/* EAN / Barcode con icona fotocamera */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              EAN / Barcode
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder="Inserisci barcode..."
-                className="flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
-                inputMode="numeric"
-              />
-              <button
-                onClick={() => setShowPhotoScanner(true)}
-                className="px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 flex items-center justify-center"
-                title="Scansiona da foto"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Buttons */}
-        <div className="p-4 border-t flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
           >
-            Indietro
-          </button>
-          <button
-            onClick={() => handleSave()}
-            disabled={!name.trim()}
-            className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-              name.trim()
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {mode === 'view' ? 'Salva e Spunta' : 'Salva e Certifica'}
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
       </div>
-    </div>
+
+      {/* Content - scrolls naturally */}
+      <div className="px-4 py-4 space-y-4">
+        {/* Descrizione */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Descrizione
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nome prodotto..."
+            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        {/* Unità di misura */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Unità di misura
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsWeight(false)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                !isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              Pezzi (n°)
+            </button>
+            <button
+              onClick={() => setIsWeight(true)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              Peso (kg)
+            </button>
+          </div>
+        </div>
+
+        {/* Quantità */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Quantità {isWeight ? '(kg)' : '(pezzi)'}
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const newQty = Math.max(isWeight ? 0.1 : 1, quantity - (isWeight ? 0.1 : 1))
+                setQuantity(newQty)
+                setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
+              }}
+              className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg font-bold shrink-0"
+            >
+              -
+            </button>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={quantityText}
+              onChange={(e) => handleQuantityChange(e.target.value)}
+              className="flex-1 min-w-0 text-center text-xl font-bold py-2 border rounded-lg"
+            />
+            <button
+              onClick={() => {
+                const newQty = quantity + (isWeight ? 0.1 : 1)
+                setQuantity(newQty)
+                setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
+              }}
+              className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg font-bold shrink-0"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {/* Data di Scadenza */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Data di Scadenza
+          </label>
+          <input
+            type="text"
+            value={expiryDateInput}
+            onChange={(e) => setExpiryDateInput(e.target.value)}
+            placeholder="DDMMYY (es: 150226)"
+            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            inputMode="numeric"
+          />
+        </div>
+
+        {/* Classe / Categoria */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Classe
+          </label>
+          {categories.length > 0 ? (
+            <select
+              value={selectedCategoryId || ''}
+              onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
+              className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Seleziona classe...</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm text-gray-500 italic py-2">Nessuna classe disponibile</p>
+          )}
+        </div>
+
+        {/* EAN / Barcode con icona fotocamera */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            EAN / Barcode
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={barcodeInput}
+              onChange={(e) => setBarcodeInput(e.target.value)}
+              placeholder="Inserisci barcode..."
+              className="flex-1 px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+              inputMode="numeric"
+            />
+            <button
+              onClick={() => setShowPhotoScanner(true)}
+              className="px-3 py-2.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 flex items-center justify-center"
+              title="Scansiona da foto"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Buttons - sticky at bottom */}
+      <div className="sticky bottom-0 bg-white px-4 py-3 border-t flex gap-3 safe-area-bottom">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100 border border-gray-200"
+        >
+          Indietro
+        </button>
+        <button
+          onClick={() => handleSave()}
+          disabled={!name.trim()}
+          className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
+            name.trim()
+              ? 'bg-green-500 text-white hover:bg-green-600'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          {mode === 'view' ? 'Salva e Spunta' : 'Salva e Certifica'}
+        </button>
+      </div>
+    </div>,
+    document.body
   )
 }
 

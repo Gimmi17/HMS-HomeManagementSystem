@@ -247,7 +247,7 @@ export function Stores() {
                     value={formData.chain}
                     onChange={(e) => setFormData({ ...formData, chain: e.target.value })}
                     placeholder="es. Esselunga, Lidl, Conad..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Nome della catena di supermercati
@@ -262,7 +262,7 @@ export function Stores() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="es. Via Roma, Centro Commerciale..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -278,7 +278,7 @@ export function Stores() {
                     value={formData.country}
                     onChange={(e) => setFormData({ ...formData, country: e.target.value })}
                     placeholder="es. Italia, Svizzera..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                 </div>
 
@@ -288,7 +288,7 @@ export function Stores() {
                   <select
                     value={formData.size}
                     onChange={(e) => setFormData({ ...formData, size: e.target.value as StoreSize | '' })}
-                    className="input w-full text-sm"
+                    className="input w-full"
                   >
                     <option value="">Seleziona dimensione</option>
                     {SIZE_OPTIONS.map((opt) => (
@@ -307,7 +307,7 @@ export function Stores() {
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     placeholder="Via, numero civico, città..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                 </div>
               </div>

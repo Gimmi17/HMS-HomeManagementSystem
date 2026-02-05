@@ -1,19 +1,28 @@
-import { useAuth } from '@/context/AuthContext'
 import { useHouse } from '@/context/HouseContext'
 
-export function Header() {
-  const { user, logout } = useAuth()
+interface HeaderProps {
+  onMenuToggle: () => void
+  isMenuOpen: boolean
+}
+
+export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
   const { currentHouse, houses, setCurrentHouse } = useHouse()
 
   return (
     <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-40">
-      <div className="flex items-center justify-between gap-2">
-        {/* Logo - hidden on mobile, shown on desktop */}
-        <h1 className="text-lg font-bold text-primary-600 hidden sm:block">
-          Meal Planner
-        </h1>
+      <div className="flex items-center gap-3">
+        {/* Hamburger button */}
+        <button
+          onClick={onMenuToggle}
+          className="p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          aria-label={isMenuOpen ? 'Chiudi menu' : 'Apri menu'}
+        >
+          <svg className="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
 
-        {/* House selector - takes full width on mobile */}
+        {/* House selector */}
         {houses.length > 0 && (
           <select
             value={currentHouse?.id || ''}
@@ -21,7 +30,7 @@ export function Header() {
               const house = houses.find((h) => h.id === e.target.value)
               setCurrentHouse(house || null)
             }}
-            className="input text-sm flex-1 sm:flex-none sm:max-w-[180px]"
+            className="input flex-1 sm:flex-none sm:max-w-[180px]"
           >
             {houses.map((house) => (
               <option key={house.id} value={house.id}>
@@ -30,24 +39,6 @@ export function Header() {
             ))}
           </select>
         )}
-
-        {/* User info and logout */}
-        <div className="flex items-center gap-2">
-          {user && (
-            <>
-              {/* User name - hidden on small mobile */}
-              <span className="text-sm text-gray-600 hidden xs:inline truncate max-w-[100px]">
-                {user.full_name || user.email}
-              </span>
-              <button
-                onClick={logout}
-                className="btn btn-secondary text-xs px-3 py-1.5"
-              >
-                Esci
-              </button>
-            </>
-          )}
-        </div>
       </div>
     </header>
   )

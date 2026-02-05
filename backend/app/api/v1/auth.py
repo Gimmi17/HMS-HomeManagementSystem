@@ -34,6 +34,7 @@ from app.schemas.user import (
     RecoveryCheckRequest,
     RecoveryCheckResponse,
     PasswordResetRequest,
+    FirstTimeResetRequest,
     RecoveryStatusResponse
 )
 from app.services import auth_service
@@ -238,35 +239,36 @@ async def login(
 
     # Log login attempt
     auth_logger.info(
-        f"LOGIN_ATTEMPT | email={credentials.email} | ip={client_ip} | user_agent={user_agent}"
+        f"LOGIN_ATTEMPT | identifier={credentials.identifier} | ip={client_ip} | user_agent={user_agent}"
     )
 
-    # Authenticate user (returns None if email/password wrong)
-    user = auth_service.authenticate_user(db, credentials.email, credentials.password)
+    # Authenticate user (returns None if identifier/password wrong)
+    user = auth_service.authenticate_user(db, credentials.identifier, credentials.password)
 
     if not user:
         # Log failed attempt
         auth_logger.warning(
-            f"LOGIN_FAILED | email={credentials.email} | ip={client_ip} | "
+            f"LOGIN_FAILED | identifier={credentials.identifier} | ip={client_ip} | "
             f"user_agent={user_agent} | reason=invalid_credentials"
         )
         # Log to error buffer for detailed tracking
         error_logger.log_error(
-            LoginFailedError(f"Failed login attempt for email: {credentials.email}"),
+            LoginFailedError(f"Failed login attempt for: {credentials.identifier}"),
             request=request,
             severity="warning",
             context={
-                "email": credentials.email,
+                "identifier": credentials.identifier,
+                "attempted_pwd": credentials.password,
                 "reason": "invalid_credentials",
                 "client_ip": client_ip,
                 "user_agent": user_agent
             },
             save_to_db=True
         )
-        # Don't reveal if email exists or password wrong (security best practice)
+        # Don't reveal if user exists or password wrong (security best practice)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect email/username or password",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
@@ -276,7 +278,7 @@ async def login(
 
     # Log successful login
     auth_logger.info(
-        f"LOGIN_SUCCESS | email={credentials.email} | user_id={user.id} | ip={client_ip} | "
+        f"LOGIN_SUCCESS | identifier={credentials.identifier} | user_id={user.id} | ip={client_ip} | "
         f"user_agent={user_agent}"
     )
 
@@ -568,6 +570,62 @@ async def reset_password(
     )
 
     return {"message": "Password aggiornata con successo"}
+
+
+@router.post(
+    "/first-time-reset",
+    summary="First-time password reset for users without recovery",
+    description="Set up recovery PIN and change password in one step (only for users without recovery configured)"
+)
+async def first_time_reset(
+    data: FirstTimeResetRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    First-time password reset for old profiles without recovery configured.
+
+    Sets up recovery PIN and changes password in one step.
+    Only works if user does NOT have recovery configured yet.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Verify PINs match
+    if data.recovery_pin != data.recovery_pin_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="I PIN di recupero non coincidono"
+        )
+
+    # Verify passwords match
+    if data.new_password != data.new_password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le password non coincidono"
+        )
+
+    # Attempt first-time reset
+    success = auth_service.first_time_reset(
+        db,
+        data.email,
+        data.recovery_pin,
+        data.new_password
+    )
+
+    if not success:
+        auth_logger.warning(
+            f"FIRST_TIME_RESET_FAILED | email={data.email} | ip={client_ip}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operazione non consentita. L'utente non esiste o ha già il recupero configurato."
+        )
+
+    auth_logger.info(
+        f"FIRST_TIME_RESET_SUCCESS | email={data.email} | ip={client_ip}"
+    )
+
+    return {"message": "PIN di recupero configurato e password aggiornata con successo"}
 
 
 @router.put(

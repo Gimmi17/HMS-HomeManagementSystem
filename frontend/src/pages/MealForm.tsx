@@ -338,7 +338,7 @@ export function MealForm() {
               value={consumedAt}
               onChange={(e) => setConsumedAt(e.target.value)}
               required
-              className="input w-full text-sm"
+              className="input w-full"
             />
           </div>
 
@@ -352,7 +352,7 @@ export function MealForm() {
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
               placeholder="Aggiungi note..."
-              className="input w-full resize-none text-sm"
+              className="input w-full resize-none"
             />
           </div>
         </div>

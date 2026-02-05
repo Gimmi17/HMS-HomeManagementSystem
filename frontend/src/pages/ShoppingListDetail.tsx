@@ -725,6 +725,11 @@ export function ShoppingListDetail() {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                   <span>{item.quantity} {item.unit}</span>
+                  {item.urgent && (
+                    <span className="px-1.5 py-0.5 bg-red-600 text-white font-bold uppercase text-[10px] rounded">
+                      URGENTE
+                    </span>
+                  )}
                   {item.grocy_product_name && (
                     <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
                       Grocy

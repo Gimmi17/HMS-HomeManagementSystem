@@ -148,15 +148,15 @@ def verify_token(token: str, expected_type: str = "access") -> Optional[TokenPay
 # User Authentication Functions
 # ============================================================================
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
+def authenticate_user(db: Session, identifier: str, password: str) -> Optional[User]:
     """
-    Authenticate a user by email and password.
+    Authenticate a user by email or username (full_name) and password.
 
-    Verifies user credentials and returns the user object if valid.
+    Tries email first, then falls back to case-insensitive full_name match.
 
     Args:
         db: Database session
-        email: User's email address
+        identifier: User's email address or username (full_name)
         password: Plain text password to verify
 
     Returns:
@@ -164,11 +164,16 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
 
     Example:
         user = authenticate_user(db, "user@example.com", "password123")
-        if user:
-            token = create_access_token(user.id)
+        user = authenticate_user(db, "Gimmi", "password123")
     """
-    # Find user by email
-    user = db.query(User).filter(User.email == email).first()
+    from sqlalchemy import func
+
+    # Try email first (exact match)
+    user = db.query(User).filter(User.email == identifier).first()
+
+    # If not found by email, try case-insensitive full_name
+    if not user:
+        user = db.query(User).filter(func.lower(User.full_name) == identifier.lower()).first()
 
     # If user not found or password incorrect, return None
     if not user:
@@ -497,6 +502,45 @@ def update_recovery(
     user.has_recovery_setup = True
     db.commit()
 
+    return True
+
+
+def first_time_reset(
+    db: Session,
+    email: str,
+    recovery_pin: str,
+    new_password: str
+) -> bool:
+    """
+    Set up recovery PIN and change password for users without recovery configured.
+
+    Only works if user does NOT have recovery configured yet (old profiles).
+
+    Args:
+        db: Database session
+        email: User's email address
+        recovery_pin: 6-digit PIN to configure
+        new_password: New password to set
+
+    Returns:
+        True if successful, False if user not found or already has recovery
+    """
+    user = get_user_by_email(db, email)
+    if not user:
+        return False
+
+    # Only allow for users WITHOUT recovery configured
+    if user.has_recovery_setup:
+        return False
+
+    # Set up recovery PIN
+    user.recovery_pin_hash = hash_password(recovery_pin)
+    user.has_recovery_setup = True
+
+    # Change password
+    user.password_hash = hash_password(new_password)
+
+    db.commit()
     return True
 
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import categoriesService from '@/services/categories'
 import type { Category } from '@/types'
@@ -230,120 +231,130 @@ export function Categories() {
       )}
 
       {/* Create/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg w-full max-w-md">
-            <form onSubmit={handleSubmit}>
-              <div className="p-4 border-b">
-                <h3 className="text-lg font-semibold">
-                  {editingCategory ? 'Modifica Categoria' : 'Nuova Categoria'}
-                </h3>
+      {showModal && createPortal(
+        <div className="fixed top-0 left-0 right-0 bottom-0 z-50 bg-white overflow-y-auto animate-slide-up">
+          <form onSubmit={handleSubmit}>
+            {/* Header - sticky */}
+            <div className="sticky top-0 bg-white px-4 py-3 border-b flex items-center justify-between z-10">
+              <h3 className="text-lg font-semibold">
+                {editingCategory ? 'Modifica Categoria' : 'Nuova Categoria'}
+              </h3>
+              <button
+                type="button"
+                onClick={closeModal}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content - scrolls naturally */}
+            <div className="px-4 py-4 space-y-4">
+              {/* Name */}
+              <div>
+                <label className="label text-xs">Nome Categoria *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="es. Food, No Food, Chemicals..."
+                  className="input w-full"
+                  required
+                />
               </div>
 
-              <div className="p-4 space-y-4">
-                {/* Name */}
-                <div>
-                  <label className="label text-xs">Nome Categoria *</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="es. Food, No Food, Chemicals..."
-                    className="input w-full text-sm"
-                    required
-                    autoFocus
-                  />
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="label text-xs">Descrizione</label>
-                  <input
-                    type="text"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Descrizione opzionale..."
-                    className="input w-full text-sm"
-                  />
-                </div>
-
-                {/* Icon */}
-                <div>
-                  <label className="label text-xs">Icona (emoji)</label>
-                  <input
-                    type="text"
-                    value={formData.icon}
-                    onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                    placeholder="es. 🍎, 🧹, 🐕..."
-                    className="input w-full text-sm"
-                    maxLength={10}
-                  />
-                </div>
-
-                {/* Color */}
-                <div>
-                  <label className="label text-xs">Colore</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {PRESET_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, color })}
-                        className={`w-8 h-8 rounded-full border-2 transition-transform ${
-                          formData.color === color ? 'border-gray-800 scale-110' : 'border-transparent'
-                        }`}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                  <input
-                    type="color"
-                    value={formData.color}
-                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                    className="mt-2 w-full h-8 cursor-pointer"
-                  />
-                </div>
-
-                {/* Sort Order */}
-                <div>
-                  <label className="label text-xs">Ordine di visualizzazione</label>
-                  <input
-                    type="number"
-                    value={formData.sort_order}
-                    onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
-                    className="input w-full text-sm"
-                    min="0"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Numeri più bassi vengono mostrati prima
-                  </p>
-                </div>
+              {/* Description */}
+              <div>
+                <label className="label text-xs">Descrizione</label>
+                <input
+                  type="text"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Descrizione opzionale..."
+                  className="input w-full"
+                />
               </div>
 
-              <div className="p-4 border-t flex gap-2">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="btn btn-secondary flex-1 text-sm"
-                >
-                  Annulla
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="btn btn-primary flex-1 text-sm"
-                >
-                  {isSaving ? 'Salvataggio...' : 'Salva'}
-                </button>
+              {/* Icon */}
+              <div>
+                <label className="label text-xs">Icona (emoji)</label>
+                <input
+                  type="text"
+                  value={formData.icon}
+                  onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
+                  placeholder="es. 🍎, 🧹, 🐕..."
+                  className="input w-full"
+                  maxLength={10}
+                />
               </div>
-            </form>
-          </div>
-        </div>
+
+              {/* Color */}
+              <div>
+                <label className="label text-xs">Colore</label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {PRESET_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, color })}
+                      className={`w-8 h-8 rounded-full border-2 transition-transform ${
+                        formData.color === color ? 'border-gray-800 scale-110' : 'border-transparent'
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+                <input
+                  type="color"
+                  value={formData.color}
+                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                  className="mt-2 w-full h-8 cursor-pointer"
+                />
+              </div>
+
+              {/* Sort Order */}
+              <div>
+                <label className="label text-xs">Ordine di visualizzazione</label>
+                <input
+                  type="number"
+                  value={formData.sort_order}
+                  onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
+                  className="input w-full"
+                  min="0"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Numeri più bassi vengono mostrati prima
+                </p>
+              </div>
+            </div>
+
+            {/* Buttons - sticky at bottom */}
+            <div className="sticky bottom-0 bg-white px-4 py-3 border-t flex gap-2 safe-area-bottom">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="btn btn-secondary flex-1 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="btn btn-primary flex-1 text-sm"
+              >
+                {isSaving ? 'Salvataggio...' : 'Salva'}
+              </button>
+            </div>
+          </form>
+        </div>,
+        document.body
       )}
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      {showDeleteConfirm && createPortal(
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg w-full max-w-sm p-4 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
@@ -378,7 +389,8 @@ export function Categories() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

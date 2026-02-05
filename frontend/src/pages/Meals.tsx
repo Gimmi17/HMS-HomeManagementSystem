@@ -73,7 +73,7 @@ export function Meals() {
             type="date"
             value={dateRange.from}
             onChange={(e) => setDateRange((prev) => ({ ...prev, from: e.target.value }))}
-            className="input w-full text-sm"
+            className="input w-full"
           />
         </div>
         <div className="flex-1">
@@ -82,7 +82,7 @@ export function Meals() {
             type="date"
             value={dateRange.to}
             onChange={(e) => setDateRange((prev) => ({ ...prev, to: e.target.value }))}
-            className="input w-full text-sm"
+            className="input w-full"
           />
         </div>
       </div>

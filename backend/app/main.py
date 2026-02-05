@@ -1,6 +1,6 @@
 """
 Main FastAPI Application
-Entry point for the Meal Planner API.
+Entry point for the HMS API.
 
 This module creates and configures the FastAPI application instance,
 sets up middleware, and defines the health check endpoint.
@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.middleware.cors import setup_cors
 from app.middleware.error_handler import ErrorHandlerMiddleware
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from app.db.session import engine, SessionLocal
 from app.models import Base
 from app.services.error_logging import configure_error_logging, error_logger
@@ -33,7 +33,7 @@ app = FastAPI(
     docs_url="/docs",  # Swagger UI at http://localhost:8000/docs
     redoc_url="/redoc",  # ReDoc at http://localhost:8000/redoc
     description="""
-    Meal Planner API - REST API for meal planning and nutritional tracking.
+    HMS API - Home Management System REST API.
 
     Features:
     - Multi-user authentication with JWT
@@ -79,18 +79,50 @@ async def startup_event():
     Base.metadata.create_all(bind=engine)
     print(f"✓ Database tables created/verified")
 
-    # Add source_item_id column to dispensa_items if missing (create_all doesn't add columns to existing tables)
-    with engine.connect() as conn:
-        conn.execute(text("""
-            ALTER TABLE dispensa_items
-            ADD COLUMN IF NOT EXISTS source_item_id UUID REFERENCES shopping_list_items(id) ON DELETE SET NULL
-        """))
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS ix_dispensa_items_source_item_id
-            ON dispensa_items(source_item_id)
-        """))
-        conn.commit()
-    print(f"✓ Dispensa source_item_id column verified")
+    # Auto-migrate: add missing columns to existing tables
+    inspector = inspect(engine)
+    migration_count = 0
+    for table in Base.metadata.tables.values():
+        if inspector.has_table(table.name):
+            existing_columns = {col['name'] for col in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name not in existing_columns:
+                    col_type = column.type.compile(engine.dialect)
+                    # Determine default value
+                    default_val = None
+                    if column.server_default is not None:
+                        default_val = column.server_default.arg
+                    elif column.default is not None and column.default.is_scalar:
+                        # Use Python-level default
+                        val = column.default.arg
+                        if isinstance(val, bool):
+                            default_val = "TRUE" if val else "FALSE"
+                        elif isinstance(val, (int, float)):
+                            default_val = str(val)
+                        elif isinstance(val, str):
+                            default_val = f"'{val}'"
+                    # For NOT NULL columns, always add as NULL first then alter
+                    if not column.nullable and default_val is not None:
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL DEFAULT {default_val}'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
+                            conn.execute(text(f'UPDATE "{table.name}" SET "{column.name}" = {default_val} WHERE "{column.name}" IS NULL'))
+                            conn.execute(text(f'ALTER TABLE "{table.name}" ALTER COLUMN "{column.name}" SET NOT NULL'))
+                    elif not column.nullable:
+                        # NOT NULL without any default - add as NULL to avoid crash
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
+                    else:
+                        stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NULL'
+                        with engine.begin() as conn:
+                            conn.execute(text(stmt))
+                    print(f"  + Added column {table.name}.{column.name}")
+                    migration_count += 1
+    if migration_count:
+        print(f"✓ Auto-migration: {migration_count} columns added")
+    else:
+        print(f"✓ Database schema up to date")
 
     # Configure error logging system
     configure_error_logging(SessionLocal)
@@ -131,7 +163,7 @@ async def health_check():
         {
             "status": "ok",
             "version": "1.0.0",
-            "api": "Meal Planner API"
+            "api": "HMS API"
         }
     """
     return JSONResponse(
@@ -160,7 +192,7 @@ async def root():
         JSON response with API information and documentation links
     """
     return {
-        "message": "Welcome to Meal Planner API",
+        "message": "Welcome to HMS API",
         "version": "1.0.0",
         "docs": "/docs",
         "redoc": "/redoc",

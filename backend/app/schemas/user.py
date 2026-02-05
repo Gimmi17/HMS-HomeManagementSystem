@@ -55,17 +55,18 @@ class LoginRequest(BaseModel):
     Schema for user login request.
 
     Used in POST /api/v1/auth/login endpoint.
+    Accepts either email or username (full_name) as identifier.
 
     Example:
         {
-            "email": "user@example.com",
+            "identifier": "user@example.com",
             "password": "SecurePass123!"
         }
     """
-    email: EmailStr = Field(
+    identifier: str = Field(
         ...,
-        description="User's email address",
-        examples=["user@example.com"]
+        description="User's email address or username",
+        examples=["user@example.com", "Gimmi"]
     )
     password: str = Field(
         ...,
@@ -363,6 +364,43 @@ class PasswordResetRequest(BaseModel):
         max_length=6,
         pattern=r"^\d{6}$",
         description="6-digit recovery PIN"
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        description="New password (minimum 8 characters)"
+    )
+    new_password_confirm: str = Field(
+        ...,
+        min_length=8,
+        description="Confirm new password"
+    )
+
+
+class FirstTimeResetRequest(BaseModel):
+    """
+    Schema for first-time password reset (users without recovery configured).
+
+    Sets up recovery PIN and changes password in one step.
+    Only works for users who have NOT configured recovery yet.
+    """
+    email: EmailStr = Field(
+        ...,
+        description="User's email address"
+    )
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="New 6-digit recovery PIN to configure"
+    )
+    recovery_pin_confirm: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Confirm recovery PIN"
     )
     new_password: str = Field(
         ...,

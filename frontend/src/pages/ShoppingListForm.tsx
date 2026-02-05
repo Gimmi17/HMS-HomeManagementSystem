@@ -15,6 +15,7 @@ interface ItemRow {
   quantity: number
   unit: string
   categoryId?: string
+  urgent?: boolean
   isNew?: boolean  // Track if item needs to be saved to backend
 }
 
@@ -148,6 +149,7 @@ export function ShoppingListForm() {
                 quantity: item.quantity,
                 unit: item.unit || 'pz',
                 categoryId: item.category_id,
+                urgent: item.urgent,
                 isNew: false,  // Items from backend are already saved
               }))
             )
@@ -218,7 +220,7 @@ export function ShoppingListForm() {
     }
   }, [focusItemId, items])
 
-  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | undefined) => {
+  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | boolean | undefined) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item
@@ -267,9 +269,10 @@ export function ShoppingListForm() {
               name: currentItem.name.trim(),
               grocy_product_id: currentItem.grocyProductId,
               grocy_product_name: currentItem.grocyProductName,
-              quantity: currentItem.quantity,
+              quantity: currentItem.quantity || 1,
               unit: currentItem.unit,
               category_id: currentItem.categoryId,
+              urgent: currentItem.urgent,
             })
 
             // Create new item and update state in one operation
@@ -379,10 +382,11 @@ export function ShoppingListForm() {
         name: item.name.trim(),
         grocy_product_id: item.grocyProductId,
         grocy_product_name: item.grocyProductName,
-        quantity: item.quantity,
+        quantity: item.quantity || 1,
         unit: item.unit,
         position: index,
         category_id: item.categoryId,
+        urgent: item.urgent,
       }))
 
       if (isEditing && id) {
@@ -415,9 +419,10 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
               category_id: item.categoryId,
+              urgent: item.urgent,
             })
           } else {
             // Update existing item (preserves checked status from backend)
@@ -425,9 +430,10 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
               category_id: item.categoryId,
+              urgent: item.urgent,
             })
           }
         }
@@ -515,7 +521,7 @@ export function ShoppingListForm() {
                 value={newStoreName}
                 onChange={(e) => setNewStoreName(e.target.value)}
                 placeholder="Nome negozio..."
-                className="input flex-1 text-sm"
+                className="input flex-1"
                 autoFocus
               />
               <button
@@ -553,7 +559,7 @@ export function ShoppingListForm() {
               <select
                 value={storeId || ''}
                 onChange={(e) => setStoreId(e.target.value || undefined)}
-                className="input flex-1 text-sm"
+                className="input flex-1"
               >
                 <option value="">Nessun negozio</option>
                 {stores.map((store) => (
@@ -600,15 +606,15 @@ export function ShoppingListForm() {
               <div className="flex items-center gap-2 ml-8">
                 <input
                   type="number"
-                  value={item.quantity}
-                  onChange={(e) => handleItemChange(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                  value={item.quantity || ''}
+                  onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value))}
                   min={1}
-                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-sm text-center"
+                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-base text-center"
                 />
                 <select
                   value={item.unit}
                   onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white"
                 >
                   <option value="pz">pz</option>
                   <option value="kg">kg</option>
@@ -621,7 +627,7 @@ export function ShoppingListForm() {
                 <select
                   value={item.categoryId || ''}
                   onChange={(e) => handleItemChange(item.id, 'categoryId', e.target.value || undefined)}
-                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white truncate"
+                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white truncate"
                   title="Categoria"
                 >
                   <option value="">Cat.</option>
@@ -645,6 +651,22 @@ export function ShoppingListForm() {
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </button>
+
+                {/* Urgent toggle */}
+                <button
+                  type="button"
+                  onClick={() => handleItemChange(item.id, 'urgent', !item.urgent)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    item.urgent
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                  title={item.urgent ? 'Rimuovi urgente' : 'Segna come urgente'}
+                >
+                  <svg className="w-5 h-5" fill={item.urgent ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </button>
 
@@ -736,7 +758,7 @@ export function ShoppingListForm() {
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}
                 placeholder={getPlaceholderName()}
-                className="input w-full text-sm"
+                className="input w-full"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Lascia vuoto per generare automaticamente
@@ -752,7 +774,7 @@ export function ShoppingListForm() {
                     value={newStoreName}
                     onChange={(e) => setNewStoreName(e.target.value)}
                     placeholder="Nome negozio..."
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                     autoFocus
                   />
                   <button
@@ -790,7 +812,7 @@ export function ShoppingListForm() {
                   <select
                     value={storeId || ''}
                     onChange={(e) => setStoreId(e.target.value || undefined)}
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                   >
                     <option value="">Nessun negozio</option>
                     {stores.map((store) => (
@@ -915,7 +937,7 @@ export function ShoppingListForm() {
                 value={grocySearch}
                 onChange={(e) => setGrocySearch(e.target.value)}
                 placeholder="Cerca prodotto..."
-                className="input w-full text-sm"
+                className="input w-full"
                 autoFocus
               />
             </div>

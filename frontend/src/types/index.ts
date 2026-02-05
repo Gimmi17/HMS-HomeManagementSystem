@@ -183,7 +183,7 @@ export interface AuthTokens {
 }
 
 export interface LoginRequest {
-  email: string
+  identifier: string
   password: string
 }
 
@@ -216,6 +216,14 @@ export interface RecoveryStatusResponse {
 export interface PasswordResetRequest {
   email: string
   recovery_pin: string
+  new_password: string
+  new_password_confirm: string
+}
+
+export interface FirstTimeResetRequest {
+  email: string
+  recovery_pin: string
+  recovery_pin_confirm: string
   new_password: string
   new_password_confirm: string
 }
@@ -271,6 +279,7 @@ export interface ShoppingListItem {
   verified_unit?: string
   not_purchased: boolean
   not_purchased_at?: string
+  urgent: boolean
   expiry_date?: string  // formato YYYY-MM-DD dal backend
   category_id?: string
   created_at: string
@@ -319,6 +328,7 @@ export interface ShoppingListCreate {
     unit?: string
     position?: number
     category_id?: string
+    urgent?: boolean
   }[]
 }
 
@@ -330,6 +340,7 @@ export interface ShoppingListItemCreate {
   unit?: string
   position?: number
   category_id?: string
+  urgent?: boolean
 }
 
 // BarcodeBuddy types

@@ -132,7 +132,7 @@ export function GrocySettings() {
               value={grocyUrl}
               onChange={(e) => setGrocyUrl(e.target.value)}
               placeholder="http://192.168.1.100:9283"
-              className="input w-full text-sm"
+              className="input w-full"
             />
             <p className="text-[10px] text-gray-500 mt-1">
               Es: http://192.168.1.100:9283
@@ -150,7 +150,7 @@ export function GrocySettings() {
               value={grocyApiKey}
               onChange={(e) => setGrocyApiKey(e.target.value)}
               placeholder="La tua API key"
-              className="input w-full text-sm"
+              className="input w-full"
             />
           </div>
 

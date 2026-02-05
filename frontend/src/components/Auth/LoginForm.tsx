@@ -7,7 +7,7 @@ import { PasswordInput } from './PasswordInput'
 export function LoginForm() {
   const navigate = useNavigate()
   const { login } = useAuth()
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [errorDetail, setErrorDetail] = useState('')
@@ -22,7 +22,7 @@ export function LoginForm() {
     setIsLoading(true)
 
     try {
-      await login({ email, password })
+      await login({ identifier, password })
       navigate('/')
     } catch (err: unknown) {
       setError('Errore durante il login')
@@ -50,7 +50,7 @@ export function LoginForm() {
   }
 
   return (
-    <AuthCard title="Meal Planner" subtitle="Accedi al tuo account">
+    <AuthCard title="HMS" subtitle="Accedi al tuo account">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl text-sm overflow-hidden">
@@ -86,24 +86,24 @@ export function LoginForm() {
         )}
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
-            Email
+          <label htmlFor="identifier" className="block text-sm font-medium text-gray-700 mb-1.5">
+            Email o nome utente
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="identifier"
+              type="text"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-              placeholder="nome@esempio.com"
+              placeholder="nome@esempio.com o nome utente"
               required
-              autoComplete="email"
+              autoComplete="username"
             />
           </div>
         </div>
