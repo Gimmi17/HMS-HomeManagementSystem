@@ -609,7 +609,7 @@ export function ShoppingListForm() {
                   value={item.quantity || ''}
                   onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value))}
                   min={1}
-                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-sm text-center"
+                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-base text-center"
                 />
                 <select
                   value={item.unit}
