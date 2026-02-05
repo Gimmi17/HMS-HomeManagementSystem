@@ -269,7 +269,7 @@ export function ShoppingListForm() {
               name: currentItem.name.trim(),
               grocy_product_id: currentItem.grocyProductId,
               grocy_product_name: currentItem.grocyProductName,
-              quantity: currentItem.quantity,
+              quantity: currentItem.quantity || 1,
               unit: currentItem.unit,
               category_id: currentItem.categoryId,
               urgent: currentItem.urgent,
@@ -382,7 +382,7 @@ export function ShoppingListForm() {
         name: item.name.trim(),
         grocy_product_id: item.grocyProductId,
         grocy_product_name: item.grocyProductName,
-        quantity: item.quantity,
+        quantity: item.quantity || 1,
         unit: item.unit,
         position: index,
         category_id: item.categoryId,
@@ -419,7 +419,7 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
               category_id: item.categoryId,
               urgent: item.urgent,
@@ -430,7 +430,7 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
               category_id: item.categoryId,
               urgent: item.urgent,
@@ -606,8 +606,8 @@ export function ShoppingListForm() {
               <div className="flex items-center gap-2 ml-8">
                 <input
                   type="number"
-                  value={item.quantity}
-                  onChange={(e) => handleItemChange(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                  value={item.quantity || ''}
+                  onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value))}
                   min={1}
                   className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-sm text-center"
                 />
