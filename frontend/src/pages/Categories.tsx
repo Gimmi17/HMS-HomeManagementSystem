@@ -260,7 +260,7 @@ export function Categories() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="es. Food, No Food, Chemicals..."
-                  className="input w-full text-sm"
+                  className="input w-full"
                   required
                 />
               </div>
@@ -273,7 +273,7 @@ export function Categories() {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Descrizione opzionale..."
-                  className="input w-full text-sm"
+                  className="input w-full"
                 />
               </div>
 
@@ -285,7 +285,7 @@ export function Categories() {
                   value={formData.icon}
                   onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
                   placeholder="es. 🍎, 🧹, 🐕..."
-                  className="input w-full text-sm"
+                  className="input w-full"
                   maxLength={10}
                 />
               </div>
@@ -321,7 +321,7 @@ export function Categories() {
                   type="number"
                   value={formData.sort_order}
                   onChange={(e) => setFormData({ ...formData, sort_order: parseInt(e.target.value) || 0 })}
-                  className="input w-full text-sm"
+                  className="input w-full"
                   min="0"
                 />
                 <p className="text-xs text-gray-500 mt-1">

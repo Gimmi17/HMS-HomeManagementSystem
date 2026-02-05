@@ -30,7 +30,7 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
               const house = houses.find((h) => h.id === e.target.value)
               setCurrentHouse(house || null)
             }}
-            className="input text-sm flex-1 sm:flex-none sm:max-w-[180px]"
+            className="input flex-1 sm:flex-none sm:max-w-[180px]"
           >
             {houses.map((house) => (
               <option key={house.id} value={house.id}>

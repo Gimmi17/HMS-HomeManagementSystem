@@ -78,7 +78,7 @@ export function IngredientList({ ingredients, onUpdate, disabled = false }: Ingr
                   value={ingredient.quantity_g}
                   onChange={(e) => handleQuantityChange(index, parseFloat(e.target.value) || 0)}
                   disabled={disabled}
-                  className="input w-20 sm:w-24 text-right text-sm"
+                  className="input w-20 sm:w-24 text-right"
                 />
                 <span className="text-sm text-gray-500 whitespace-nowrap">g</span>
               </div>

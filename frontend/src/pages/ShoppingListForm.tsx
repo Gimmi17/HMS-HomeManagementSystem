@@ -521,7 +521,7 @@ export function ShoppingListForm() {
                 value={newStoreName}
                 onChange={(e) => setNewStoreName(e.target.value)}
                 placeholder="Nome negozio..."
-                className="input flex-1 text-sm"
+                className="input flex-1"
                 autoFocus
               />
               <button
@@ -559,7 +559,7 @@ export function ShoppingListForm() {
               <select
                 value={storeId || ''}
                 onChange={(e) => setStoreId(e.target.value || undefined)}
-                className="input flex-1 text-sm"
+                className="input flex-1"
               >
                 <option value="">Nessun negozio</option>
                 {stores.map((store) => (
@@ -614,7 +614,7 @@ export function ShoppingListForm() {
                 <select
                   value={item.unit}
                   onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white"
                 >
                   <option value="pz">pz</option>
                   <option value="kg">kg</option>
@@ -627,7 +627,7 @@ export function ShoppingListForm() {
                 <select
                   value={item.categoryId || ''}
                   onChange={(e) => handleItemChange(item.id, 'categoryId', e.target.value || undefined)}
-                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white truncate"
+                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white truncate"
                   title="Categoria"
                 >
                   <option value="">Cat.</option>
@@ -758,7 +758,7 @@ export function ShoppingListForm() {
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}
                 placeholder={getPlaceholderName()}
-                className="input w-full text-sm"
+                className="input w-full"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Lascia vuoto per generare automaticamente
@@ -774,7 +774,7 @@ export function ShoppingListForm() {
                     value={newStoreName}
                     onChange={(e) => setNewStoreName(e.target.value)}
                     placeholder="Nome negozio..."
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                     autoFocus
                   />
                   <button
@@ -812,7 +812,7 @@ export function ShoppingListForm() {
                   <select
                     value={storeId || ''}
                     onChange={(e) => setStoreId(e.target.value || undefined)}
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                   >
                     <option value="">Nessun negozio</option>
                     {stores.map((store) => (
@@ -937,7 +937,7 @@ export function ShoppingListForm() {
                 value={grocySearch}
                 onChange={(e) => setGrocySearch(e.target.value)}
                 placeholder="Cerca prodotto..."
-                className="input w-full text-sm"
+                className="input w-full"
                 autoFocus
               />
             </div>
