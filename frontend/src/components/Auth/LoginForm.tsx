@@ -10,18 +10,40 @@ export function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [errorDetail, setErrorDetail] = useState('')
+  const [errorDetailOpen, setErrorDetailOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    setErrorDetail('')
+    setErrorDetailOpen(false)
     setIsLoading(true)
 
     try {
       await login({ email, password })
       navigate('/')
-    } catch (err) {
-      setError('Credenziali non valide')
+    } catch (err: unknown) {
+      setError('Errore durante il login')
+      let detail = 'Errore sconosciuto'
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosErr = err as { response?: { data?: { detail?: string | unknown[] }; status?: number } }
+        const data = axiosErr.response?.data
+        const status = axiosErr.response?.status
+        if (data?.detail) {
+          if (typeof data.detail === 'string') {
+            detail = `${status ?? ''} - ${data.detail}`
+          } else {
+            detail = `${status ?? ''} - ${JSON.stringify(data.detail)}`
+          }
+        } else {
+          detail = `HTTP ${status ?? '?'} - ${JSON.stringify(data)}`
+        }
+      } else if (err instanceof Error) {
+        detail = err.message
+      }
+      setErrorDetail(detail)
     } finally {
       setIsLoading(false)
     }
@@ -31,11 +53,35 @@ export function LoginForm() {
     <AuthCard title="Meal Planner" subtitle="Accedi al tuo account">
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>{error}</span>
+          <div className="bg-red-50 border border-red-200 rounded-xl text-sm overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 text-red-700">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{error}</span>
+            </div>
+            {errorDetail && (
+              <div className="border-t border-red-200">
+                <button
+                  type="button"
+                  onClick={() => setErrorDetailOpen(!errorDetailOpen)}
+                  className="w-full flex items-center justify-between px-4 py-2 text-xs text-red-500 hover:bg-red-100/50 transition-colors"
+                >
+                  <span>Dettaglio errore</span>
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform ${errorDetailOpen ? 'rotate-180' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                  </svg>
+                </button>
+                {errorDetailOpen && (
+                  <div className="px-4 pb-3 text-xs text-red-600 font-mono break-all whitespace-pre-wrap">
+                    {errorDetail}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, categories
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, categories, dispensa
 
 
 # Create main v1 router
@@ -184,4 +184,16 @@ api_router.include_router(
     categories.router,
     # prefix is already defined in categories.router (/categories)
     tags=["Categories"],
+)
+
+
+# Include dispensa endpoints
+# Endpoints: GET/POST /dispensa, GET /dispensa/stats, POST /dispensa/from-shopping-list
+# GET/PUT/DELETE /dispensa/{id}, POST /dispensa/{id}/consume, POST /dispensa/{id}/unconsume
+# Pantry management with consumption tracking and shopping list integration
+# Requires authentication
+api_router.include_router(
+    dispensa.router,
+    # prefix is already defined in dispensa.router (/dispensa)
+    tags=["Dispensa"],
 )

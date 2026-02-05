@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
 import categoriesService from '@/services/categories'
+import dispensaService from '@/services/dispensa'
 import BarcodeScanner from '@/components/BarcodeScanner'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import type { ShoppingList, ShoppingListItem, ShoppingListStatus, Category } from '@/types'
@@ -28,6 +29,9 @@ export function ShoppingListDetail() {
   const [modeHandled, setModeHandled] = useState(false)
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+
+  // Dispensa
+  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
 
   // New item form state
   const [showNewItemForm, setShowNewItemForm] = useState(false)
@@ -288,6 +292,33 @@ export function ShoppingListDetail() {
     setScanningItemId(itemId)
     setShowScanner(true)
     setScanResult(null)
+  }
+
+  const handleSendToDispensa = async () => {
+    if (!list) return
+    const houseId = localStorage.getItem('current_house_id') || ''
+    if (!houseId) return
+
+    if (!confirm('Mandare gli articoli verificati alla Dispensa?')) return
+
+    setIsSendingToDispensa(true)
+    setShowActionsMenu(false)
+    try {
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id)
+      setScanResult({
+        success: true,
+        message: `${result.count} articoli inviati alla Dispensa!`,
+      })
+    } catch (error) {
+      console.error('Failed to send to dispensa:', error)
+      setScanResult({
+        success: false,
+        message: 'Errore nell\'invio alla Dispensa',
+      })
+    } finally {
+      setIsSendingToDispensa(false)
+      setTimeout(() => setScanResult(null), 3000)
+    }
   }
 
   const handleMarkNotPurchased = async (itemId: string) => {
@@ -552,15 +583,29 @@ export function ShoppingListDetail() {
                 </>
               )}
               {(list.status === 'completed' || list.status === 'cancelled') && (
-                <button
-                  onClick={() => handleStatusChange('active')}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-blue-600"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Riapri lista
-                </button>
+                <>
+                  <button
+                    onClick={() => handleStatusChange('active')}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-blue-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Riapri lista
+                  </button>
+                  {list.status === 'completed' && list.items.some(i => i.verified_at && !i.not_purchased) && (
+                    <button
+                      onClick={handleSendToDispensa}
+                      disabled={isSendingToDispensa}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-primary-600"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                      </svg>
+                      {isSendingToDispensa ? 'Invio...' : 'Manda a Dispensa'}
+                    </button>
+                  )}
+                </>
               )}
               <Link
                 to={`/shopping-lists/${list.id}/edit`}

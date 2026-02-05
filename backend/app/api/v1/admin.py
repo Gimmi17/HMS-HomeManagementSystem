@@ -24,6 +24,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin")
 
 
+# Default values for NOT NULL columns missing from old backups.
+# Maps table_name -> {column_name: default_sql_value}
+COLUMN_DEFAULTS = {
+    "users": {
+        "has_recovery_setup": "FALSE",
+        "recovery_pin_hash": "NULL",
+    },
+}
+
+
+def patch_insert_defaults(stmt: str, db_inspector) -> str:
+    """
+    Patch INSERT statements to add missing NOT NULL columns with defaults.
+
+    If the INSERT targets a table in COLUMN_DEFAULTS and is missing columns
+    that are NOT NULL, inject the column + default value.
+    """
+    # Match: INSERT INTO "table" (cols) VALUES (vals) ...
+    match = re.match(
+        r'^INSERT\s+INTO\s+"(\w+)"\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*(ON\s+CONFLICT.*)?;?\s*$',
+        stmt,
+        re.IGNORECASE | re.DOTALL
+    )
+    if not match:
+        return stmt
+
+    table_name = match.group(1)
+    if table_name not in COLUMN_DEFAULTS:
+        return stmt
+
+    existing_cols_raw = match.group(2)
+    values_raw = match.group(3)
+    on_conflict = match.group(4) or ""
+
+    existing_cols = [c.strip().strip('"') for c in existing_cols_raw.split(',')]
+
+    added_cols = []
+    added_vals = []
+    for col, default_val in COLUMN_DEFAULTS[table_name].items():
+        if col not in existing_cols:
+            # Verify the column actually exists in the DB table
+            try:
+                db_columns = {c['name'] for c in db_inspector.get_columns(table_name)}
+                if col in db_columns:
+                    added_cols.append(col)
+                    added_vals.append(default_val)
+            except Exception:
+                pass
+
+    if not added_cols:
+        return stmt
+
+    new_cols = existing_cols_raw + ', ' + ', '.join(f'"{c}"' for c in added_cols)
+    new_vals = values_raw + ', ' + ', '.join(added_vals)
+    suffix = f" {on_conflict}" if on_conflict else ""
+
+    return f'INSERT INTO "{table_name}" ({new_cols}) VALUES ({new_vals}){suffix};'
+
+
 def parse_sql_statements(sql_content: str) -> list[str]:
     """
     Parse SQL content into individual statements.
@@ -121,6 +180,9 @@ async def import_database(
             r'^\\',  # Skip psql commands like \restrict, \copy, etc.
         ]
 
+        # Get DB inspector for column patching
+        db_inspector = inspect(db.bind)
+
         # Disable foreign key checks during import
         try:
             db.execute(text("SET session_replication_role = replica;"))
@@ -142,7 +204,10 @@ async def import_database(
                 if should_skip:
                     continue
 
-                db.execute(text(stmt))
+                # Patch INSERT statements with missing NOT NULL columns
+                patched_stmt = patch_insert_defaults(stmt, db_inspector)
+
+                db.execute(text(patched_stmt))
                 db.commit()  # Commit each statement individually
                 executed += 1
 

@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
 import categoriesService from '@/services/categories'
+import dispensaService from '@/services/dispensa'
 import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import type { ShoppingList, ShoppingListItem, Category } from '@/types'
@@ -516,6 +517,10 @@ export function LoadVerification() {
     }
   }
 
+  // Dispensa dialog state
+  const [showDispensaDialog, setShowDispensaDialog] = useState(false)
+  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
+
   const handleCompleteVerification = async () => {
     if (!list) return
 
@@ -533,12 +538,40 @@ export function LoadVerification() {
         verification_status: 'completed',
         status: 'completed'
       })
-      alert('Controllo carico completato! Lista conclusa.')
-      navigate('/shopping-lists')
+      // Show dispensa dialog instead of alert
+      setShowDispensaDialog(true)
     } catch (error) {
       console.error('Failed to complete verification:', error)
-      alert('Errore durante il completamento')
+      showToast('Errore durante il completamento', 'error')
     }
+  }
+
+  const handleSendToDispensa = async () => {
+    if (!list) return
+    const houseId = localStorage.getItem('current_house_id') || ''
+    if (!houseId) {
+      navigate('/shopping-lists')
+      return
+    }
+
+    setIsSendingToDispensa(true)
+    try {
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id)
+      showToast(`${result.count} articoli inviati alla Dispensa!`, 'success')
+      setTimeout(() => navigate('/shopping-lists'), 1500)
+    } catch (error) {
+      console.error('Failed to send to dispensa:', error)
+      showToast('Errore nell\'invio alla Dispensa', 'error')
+      setTimeout(() => navigate('/shopping-lists'), 1500)
+    } finally {
+      setIsSendingToDispensa(false)
+      setShowDispensaDialog(false)
+    }
+  }
+
+  const handleSkipDispensa = () => {
+    setShowDispensaDialog(false)
+    navigate('/shopping-lists')
   }
 
   const handleEditItem = (item: ShoppingListItem) => {
@@ -801,6 +834,40 @@ export function LoadVerification() {
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
         />
+      )}
+
+      {/* Dispensa Dialog */}
+      {showDispensaDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Controllo carico completato!</h3>
+              <p className="text-sm text-gray-500 mt-2">
+                Vuoi mandare gli articoli verificati alla Dispensa?
+              </p>
+            </div>
+            <div className="p-4 border-t space-y-2">
+              <button
+                onClick={handleSendToDispensa}
+                disabled={isSendingToDispensa}
+                className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+              >
+                {isSendingToDispensa ? 'Invio in corso...' : 'Si, manda a Dispensa'}
+              </button>
+              <button
+                onClick={handleSkipDispensa}
+                className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+              >
+                No, grazie
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

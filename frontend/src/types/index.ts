@@ -377,6 +377,34 @@ export interface CategoryUpdate {
   sort_order?: number
 }
 
+// Dispensa types
+export interface DispensaItem {
+  id: string
+  house_id: string
+  name: string
+  quantity: number
+  unit: string | null
+  category_id: string | null
+  expiry_date: string | null
+  barcode: string | null
+  grocy_product_id: number | null
+  grocy_product_name: string | null
+  source_list_id: string | null
+  source_item_id: string | null
+  added_by: string | null
+  is_consumed: boolean
+  consumed_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DispensaStats {
+  total: number
+  expiring_soon: number
+  expired: number
+}
+
 // API response types
 export interface ApiError {
   detail: string

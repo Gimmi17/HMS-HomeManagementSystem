@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.middleware.cors import setup_cors
 from app.middleware.error_handler import ErrorHandlerMiddleware
+from sqlalchemy import text
 from app.db.session import engine, SessionLocal
 from app.models import Base
 from app.services.error_logging import configure_error_logging, error_logger
@@ -77,6 +78,19 @@ async def startup_event():
     # Only creates tables that don't already exist (safe to run multiple times)
     Base.metadata.create_all(bind=engine)
     print(f"✓ Database tables created/verified")
+
+    # Add source_item_id column to dispensa_items if missing (create_all doesn't add columns to existing tables)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            ALTER TABLE dispensa_items
+            ADD COLUMN IF NOT EXISTS source_item_id UUID REFERENCES shopping_list_items(id) ON DELETE SET NULL
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_dispensa_items_source_item_id
+            ON dispensa_items(source_item_id)
+        """))
+        conn.commit()
+    print(f"✓ Dispensa source_item_id column verified")
 
     # Configure error logging system
     configure_error_logging(SessionLocal)

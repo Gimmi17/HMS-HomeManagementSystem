@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
+import dispensaService from '@/services/dispensa'
 import type { ShoppingListSummary, ShoppingListStatus } from '@/types'
 
 type ListAction = 'view' | 'edit' | 'verify' | 'delete' | 'cancel' | 'reactivate'
@@ -30,6 +31,8 @@ export function ShoppingLists() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
+  const [dispensaToast, setDispensaToast] = useState<string | null>(null)
 
   const handleListClick = (list: ShoppingListSummary) => {
     setSelectedList(list)
@@ -110,6 +113,28 @@ export function ShoppingLists() {
     }
   }
 
+  const handleSendToDispensa = async () => {
+    if (!selectedList || !currentHouse) return
+    setIsSendingToDispensa(true)
+    try {
+      const result = await dispensaService.sendFromShoppingList(currentHouse.id, selectedList.id)
+      setShowActionModal(false)
+      setSelectedList(null)
+      if (result.count > 0) {
+        setDispensaToast(`${result.count} articoli inviati alla Dispensa!`)
+      } else {
+        setDispensaToast('Nessun articolo da inviare (nessun articolo spuntato o verificato)')
+      }
+      setTimeout(() => setDispensaToast(null), 4000)
+    } catch (error) {
+      console.error('Failed to send to dispensa:', error)
+      setDispensaToast('Errore nell\'invio alla Dispensa')
+      setTimeout(() => setDispensaToast(null), 3000)
+    } finally {
+      setIsSendingToDispensa(false)
+    }
+  }
+
   const closeModal = () => {
     setShowActionModal(false)
     setShowDeleteConfirm(false)
@@ -149,6 +174,13 @@ export function ShoppingLists() {
 
   return (
     <div className="space-y-4">
+      {/* Toast */}
+      {dispensaToast && (
+        <div className="fixed top-4 left-4 right-4 p-3 rounded-lg shadow-lg z-[70] bg-green-500 text-white text-sm font-medium text-center">
+          {dispensaToast}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Lista della Spesa</h1>
@@ -334,6 +366,25 @@ export function ShoppingLists() {
                       <div className="text-xs text-gray-500">Verifica la merce con barcode</div>
                     </div>
                   </button>
+
+                  {/* Send to Dispensa - only for completed lists */}
+                  {selectedList.status === 'completed' && (
+                    <button
+                      onClick={handleSendToDispensa}
+                      disabled={isSendingToDispensa}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg bg-purple-50 hover:bg-purple-100 transition-colors disabled:opacity-50"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="font-medium text-purple-700">{isSendingToDispensa ? 'Invio in corso...' : 'Invia a Dispensa'}</div>
+                        <div className="text-xs text-purple-500">Manda gli articoli verificati alla dispensa</div>
+                      </div>
+                    </button>
+                  )}
 
                   {/* Cancel - only for non-cancelled lists */}
                   <button

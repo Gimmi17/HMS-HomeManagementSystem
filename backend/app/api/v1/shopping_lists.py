@@ -16,6 +16,7 @@ import logging
 
 from app.db.session import get_db, SessionLocal
 from app.services.error_logging import error_logger
+from app.services.dispensa_service import DispensaService
 
 # Logger for load verification operations
 verification_logger = logging.getLogger("load_verification")
@@ -438,6 +439,13 @@ def update_item(
         db.commit()
         db.refresh(item)
 
+        # Sync changes to dispensa if linked
+        try:
+            DispensaService.sync_from_source_item(db, item_id)
+            db.commit()
+        except Exception:
+            pass  # Non-critical: don't fail the update if sync fails
+
         verification_logger.info(
             f"UPDATE_ITEM_SUCCESS | list_id={list_id} | item_id={item_id} | item_name={item.name}"
         )
@@ -495,6 +503,9 @@ def delete_item(
         )
 
     try:
+        # Remove linked dispensa item before deleting the source
+        DispensaService.delete_by_source_item(db, item_id)
+
         item_name = item.name
         db.delete(item)
         db.commit()
@@ -628,6 +639,13 @@ def mark_item_not_purchased(
     db.commit()
     db.refresh(item)
 
+    # Sync to dispensa (will delete the dispensa item since not_purchased=True)
+    try:
+        DispensaService.sync_from_source_item(db, item_id)
+        db.commit()
+    except Exception:
+        pass  # Non-critical
+
     return item
 
 
@@ -697,6 +715,13 @@ def verify_item_with_quantity(
 
         db.commit()
         db.refresh(item)
+
+        # Sync changes to dispensa if linked
+        try:
+            DispensaService.sync_from_source_item(db, item_id)
+            db.commit()
+        except Exception:
+            pass  # Non-critical
 
         verification_logger.info(
             f"VERIFY_ITEM_SUCCESS | list_id={list_id} | item_id={item_id} | "
