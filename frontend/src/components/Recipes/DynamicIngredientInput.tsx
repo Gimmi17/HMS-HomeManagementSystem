@@ -129,10 +129,17 @@ export function DynamicIngredientInput({ ingredients, onChange }: DynamicIngredi
 
     searchTimers.current[rowId] = setTimeout(async () => {
       try {
-        const results = await foodsService.search(query)
+        const houseId = localStorage.getItem('current_house_id') || ''
+        if (!houseId) {
+          setRows(prev => prev.map(row =>
+            row.id === rowId ? { ...row, isSearching: false } : row
+          ))
+          return
+        }
+        const response = await foodsService.search(houseId, query)
         setRows(prev => prev.map(row =>
           row.id === rowId
-            ? { ...row, searchResults: results, isSearching: false, showDropdown: true }
+            ? { ...row, searchResults: response.foods, isSearching: false, showDropdown: true }
             : row
         ))
       } catch (error) {

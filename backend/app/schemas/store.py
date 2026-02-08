@@ -34,6 +34,7 @@ class StoreUpdate(BaseModel):
 class StoreResponse(BaseModel):
     """Schema for store response"""
     id: UUID
+    house_id: Optional[UUID] = None
     chain: Optional[str] = None
     name: str
     address: Optional[str] = None

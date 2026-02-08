@@ -109,7 +109,7 @@ export function Pantry() {
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const response = await categoriesService.getAll()
+        const response = await categoriesService.getAll(houseId)
         setCategories(response.categories)
       } catch (err) {
         console.error('Failed to load categories:', err)

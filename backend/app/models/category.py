@@ -1,7 +1,7 @@
 """
 Category Model
 Represents product categories for shopping list items.
-Categories are shared across all houses.
+Each house has its own categories. Categories with house_id=null are global templates.
 """
 
 from sqlalchemy import Column, String, ForeignKey, Integer
@@ -16,12 +16,22 @@ class Category(BaseModel):
     Category Model
 
     Represents a product category (e.g., "Food", "No Food", "Chemicals", "Pet Food").
-    Shared across all houses - anyone can create and use categories.
+    Each house has its own categories. house_id=null means global template.
     """
     __tablename__ = "categories"
 
+    # House this category belongs to (null = global template)
+    house_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("houses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="House this category belongs to (null = global template)"
+    )
+
     # Category name (e.g., "Food", "No Food", "Chemicals", "Pet Food")
-    name = Column(String(100), nullable=False, unique=True, index=True)
+    # Unique constraint removed - same name can exist in different houses
+    name = Column(String(100), nullable=False, index=True)
 
     # Optional description
     description = Column(String(500), nullable=True)

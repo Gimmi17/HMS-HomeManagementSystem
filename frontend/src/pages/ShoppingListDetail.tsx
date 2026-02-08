@@ -66,8 +66,10 @@ export function ShoppingListDetail() {
   // Load categories
   useEffect(() => {
     const loadCategories = async () => {
+      const houseId = localStorage.getItem('current_house_id') || ''
+      if (!houseId) return
       try {
-        const response = await categoriesService.getAll()
+        const response = await categoriesService.getAll(houseId)
         setCategories(response.categories)
       } catch (error) {
         console.error('Failed to load categories:', error)

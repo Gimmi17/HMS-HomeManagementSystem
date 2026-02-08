@@ -47,6 +47,7 @@ export interface HouseInvite {
 // Food types (from nutrition DB)
 export interface Food {
   id: string
+  house_id?: string  // null = global template
   name: string
   category: string
   calories?: number
@@ -233,6 +234,7 @@ export type StoreSize = 'S' | 'M' | 'L' | 'XL' | 'XXL'
 
 export interface Store {
   id: string
+  house_id?: string  // null = global template
   chain?: string
   name: string
   address?: string
@@ -362,6 +364,7 @@ export interface GrocyProductSimple {
 // Category types
 export interface Category {
   id: string
+  house_id?: string  // null = global template
   name: string
   description?: string
   icon?: string

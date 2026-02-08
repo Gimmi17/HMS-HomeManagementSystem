@@ -25,10 +25,97 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.product_catalog import ProductCatalog
+from app.models.product_category_tag import ProductCategoryTag
 from app.models.shopping_list import ShoppingListItem
+from sqlalchemy import or_
 from app.integrations.openfoodfacts import openfoodfacts_client
+from app.services.product_nutrition_service import product_nutrition_service
 
 logger = logging.getLogger(__name__)
+
+
+def get_user_provided_name_for_barcode(db: Session, barcode: str) -> Optional[str]:
+    """
+    Get the user-provided product name for a barcode from shopping list items.
+
+    When a product is not found in OpenFoodFacts during verification,
+    the user may have provided a name (grocy_product_name) during the load check.
+    This function retrieves that name to use for uncertified products.
+    """
+    # Find any shopping list item with this barcode that has a user-provided name
+    item = db.query(ShoppingListItem).filter(
+        ShoppingListItem.scanned_barcode == barcode,
+        ShoppingListItem.grocy_product_name.isnot(None),
+        ShoppingListItem.grocy_product_name != ""
+    ).order_by(ShoppingListItem.verified_at.desc()).first()
+
+    if item and item.grocy_product_name:
+        return item.grocy_product_name
+
+    return None
+
+
+def parse_and_save_category_tags(db: Session, product: ProductCatalog, categories_str: Optional[str], categories_tags: Optional[list] = None):
+    """
+    Parse category strings from OpenFoodFacts and create/link ProductCategoryTag entries.
+
+    OpenFoodFacts provides:
+    - categories: comma-separated human-readable names (e.g., "Beverages, Sodas")
+    - categories_tags: list of tag IDs (e.g., ["en:beverages", "en:sodas"])
+
+    We prefer categories_tags as they are more structured.
+    """
+    if not categories_tags and not categories_str:
+        return
+
+    # Use tags if available, otherwise parse comma-separated string
+    if categories_tags:
+        tag_ids = categories_tags
+    else:
+        # Parse comma-separated and create simple tag IDs
+        tag_ids = [f"manual:{cat.strip().lower().replace(' ', '-')}" for cat in categories_str.split(',') if cat.strip()]
+
+    for tag_id in tag_ids:
+        if not tag_id or not isinstance(tag_id, str):
+            continue
+
+        tag_id = tag_id.strip()
+        if not tag_id:
+            continue
+
+        # Check if tag already exists
+        existing_tag = db.query(ProductCategoryTag).filter(ProductCategoryTag.tag_id == tag_id).first()
+
+        if existing_tag:
+            # Link to product if not already linked
+            if existing_tag not in product.category_tags:
+                product.category_tags.append(existing_tag)
+        else:
+            # Create new tag
+            # Parse tag_id format: "lang:category-name" or just "category-name"
+            if ':' in tag_id:
+                lang, name = tag_id.split(':', 1)
+                # Convert tag name to human readable: "carbonated-drinks" -> "Carbonated Drinks"
+                human_name = name.replace('-', ' ').title()
+            else:
+                lang = None
+                human_name = tag_id.replace('-', ' ').title()
+
+            new_tag = ProductCategoryTag(
+                tag_id=tag_id,
+                name=human_name,
+                lang=lang
+            )
+            db.add(new_tag)
+            product.category_tags.append(new_tag)
+
+    try:
+        db.commit()
+        logger.info(f"[Enrichment] Saved {len(product.category_tags)} category tags for product {product.barcode}")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[Enrichment] Failed to save category tags for {product.barcode}: {e}")
+
 
 # Global queue for background processing
 _enrichment_queue: Queue = Queue()
@@ -61,6 +148,14 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
     # Check if product already exists in catalog
     existing = db.query(ProductCatalog).filter(ProductCatalog.barcode == barcode).first()
     if existing:
+        # If existing entry is "not_found" with no name, try to get user-provided name
+        if existing.source == "not_found" and not existing.name:
+            user_name = get_user_provided_name_for_barcode(db, barcode)
+            if user_name:
+                existing.name = user_name
+                db.commit()
+                logger.info(f"[Enrichment] Updated uncertified product {barcode} with user-provided name: {user_name}")
+
         logger.info(f"[Enrichment] Product {barcode} already in catalog: {existing.name}")
         return existing
 
@@ -70,9 +165,15 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
 
     if not result.get("found"):
         logger.info(f"[Enrichment] Product {barcode} not found in Open Food Facts")
+        # Try to get user-provided name from shopping list items
+        user_name = get_user_provided_name_for_barcode(db, barcode)
+        if user_name:
+            logger.info(f"[Enrichment] Using user-provided name for {barcode}: {user_name}")
+
         # Still create a minimal entry so we don't keep searching
         product = ProductCatalog(
             barcode=barcode,
+            name=user_name,  # Use user-provided name if available
             source="not_found",
         )
         db.add(product)
@@ -112,6 +213,26 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
     db.refresh(product)
 
     logger.info(f"[Enrichment] Product {barcode} added to catalog: {product.name} ({product.brand})")
+
+    # Parse and save normalized category tags
+    categories_tags = result.get("categories_tags")  # List of tag IDs from OFF
+    categories_str = result.get("categories")  # Comma-separated string fallback
+    parse_and_save_category_tags(db, product, categories_str, categories_tags)
+
+    # Also fetch detailed nutrition data
+    try:
+        nutrition = await product_nutrition_service.fetch_and_save_nutrition(
+            db=db,
+            product_id=product.id,
+            barcode=barcode
+        )
+        if nutrition:
+            logger.info(f"[Enrichment] ProductNutrition saved for {barcode}")
+        else:
+            logger.info(f"[Enrichment] No detailed nutrition data available for {barcode}")
+    except Exception as e:
+        logger.warning(f"[Enrichment] Failed to save ProductNutrition for {barcode}: {e}")
+
     return product
 
 

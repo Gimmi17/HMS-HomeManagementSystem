@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -269,6 +269,56 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <SqlConsole />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Anagrafiche />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/users"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheUsers />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/houses"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheHouses />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/foods"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheFoods />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/products"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheProducts />
             </MainLayout>
           </PrivateRoute>
         }

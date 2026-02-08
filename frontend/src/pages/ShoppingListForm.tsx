@@ -76,9 +76,11 @@ export function ShoppingListForm() {
 
   // Load stores and categories
   useEffect(() => {
+    if (!currentHouse?.id) return
+    const houseId = currentHouse.id
     const loadStores = async () => {
       try {
-        const response = await storesService.getAll()
+        const response = await storesService.getAll(houseId)
         setStores(response.stores)
       } catch (error) {
         console.error('Failed to load stores:', error)
@@ -86,7 +88,7 @@ export function ShoppingListForm() {
     }
     const loadCategories = async () => {
       try {
-        const response = await categoriesService.getAll()
+        const response = await categoriesService.getAll(houseId)
         setCategories(response.categories)
       } catch (error) {
         console.error('Failed to load categories:', error)
@@ -94,7 +96,7 @@ export function ShoppingListForm() {
     }
     loadStores()
     loadCategories()
-  }, [])
+  }, [currentHouse?.id])
 
   // Check for recoverable not-purchased items when creating new list
   useEffect(() => {
@@ -529,7 +531,7 @@ export function ShoppingListForm() {
                 onClick={async () => {
                   if (newStoreName.trim()) {
                     try {
-                      const newStore = await storesService.create({ name: newStoreName.trim() })
+                      const newStore = await storesService.create(currentHouse!.id, { name: newStoreName.trim() })
                       setStores((prev) => [...prev, newStore])
                       setStoreId(newStore.id)
                       setNewStoreName('')
@@ -782,7 +784,7 @@ export function ShoppingListForm() {
                     onClick={async () => {
                       if (newStoreName.trim()) {
                         try {
-                          const newStore = await storesService.create({ name: newStoreName.trim() })
+                          const newStore = await storesService.create(currentHouse!.id, { name: newStoreName.trim() })
                           setStores((prev) => [...prev, newStore])
                           setStoreId(newStore.id)
                           setNewStoreName('')

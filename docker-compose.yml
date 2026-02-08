@@ -69,8 +69,7 @@ services:
       VITE_API_URL: ${VITE_API_URL:-/api/v1}
       VITE_APP_NAME: ${VITE_APP_NAME:-Meal Planner}
     ports:
-      - "5052:3000"
-      - "5053:3443"
+      - "5056:3000"
     volumes:
       - ./frontend/ssl:/etc/nginx/ssl:ro
     depends_on:
@@ -82,7 +81,7 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: meal-planner_postgres_dev_data
+    name: meal-planner_postgres_test_rebuild
   backend_logs:
     driver: local
 

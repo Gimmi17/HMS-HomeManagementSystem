@@ -24,6 +24,7 @@ from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.shopping_list import ShoppingList, ShoppingListItem, ShoppingListStatus, VerificationStatus
 from app.models.store import Store
+from app.models.product_catalog import ProductCatalog
 from app.services.product_enrichment import enrich_product_background
 from app.schemas.shopping_list import (
     ShoppingListCreate,
@@ -715,6 +716,16 @@ def verify_item_with_quantity(
         if data.product_name:
             item.grocy_product_name = data.product_name
 
+            # Also update ProductCatalog if it exists as "not_found" with no name
+            existing_product = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == data.barcode
+            ).first()
+            if existing_product and existing_product.source == "not_found" and not existing_product.name:
+                existing_product.name = data.product_name
+                verification_logger.info(
+                    f"VERIFY_ITEM_CATALOG_UPDATE | barcode={data.barcode} | name={data.product_name}"
+                )
+
         db.commit()
         db.refresh(item)
 
@@ -896,6 +907,13 @@ def add_extra_item(
     # Set grocy_product_name if we have product name (for display)
     if data.product_name:
         item.grocy_product_name = data.product_name
+
+        # Also update ProductCatalog if it exists as "not_found" with no name
+        existing_product = db.query(ProductCatalog).filter(
+            ProductCatalog.barcode == data.barcode
+        ).first()
+        if existing_product and existing_product.source == "not_found" and not existing_product.name:
+            existing_product.name = data.product_name
 
     db.add(item)
     db.commit()

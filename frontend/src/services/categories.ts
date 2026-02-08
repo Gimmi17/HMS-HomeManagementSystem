@@ -6,12 +6,17 @@ interface CategoriesResponse {
   total: number
 }
 
+interface ImportResult {
+  message: string
+  imported: number
+}
+
 export const categoriesService = {
   /**
-   * Get all categories
+   * Get all categories for a house
    */
-  async getAll(params?: { search?: string; limit?: number; offset?: number }): Promise<CategoriesResponse> {
-    const response = await api.get('/categories', { params })
+  async getAll(houseId: string, params?: { search?: string; limit?: number; offset?: number }): Promise<CategoriesResponse> {
+    const response = await api.get('/categories', { params: { house_id: houseId, ...params } })
     return response.data
   },
 
@@ -26,8 +31,8 @@ export const categoriesService = {
   /**
    * Create a new category
    */
-  async create(data: CategoryCreate): Promise<Category> {
-    const response = await api.post('/categories', data)
+  async create(houseId: string, data: CategoryCreate): Promise<Category> {
+    const response = await api.post('/categories', data, { params: { house_id: houseId } })
     return response.data
   },
 
@@ -44,6 +49,22 @@ export const categoriesService = {
    */
   async delete(categoryId: string): Promise<void> {
     await api.delete(`/categories/${categoryId}`)
+  },
+
+  /**
+   * Get global template categories
+   */
+  async getTemplates(): Promise<CategoriesResponse> {
+    const response = await api.get('/categories/templates')
+    return response.data
+  },
+
+  /**
+   * Import templates into a house
+   */
+  async importTemplates(houseId: string): Promise<ImportResult> {
+    const response = await api.post('/categories/import-templates', null, { params: { house_id: houseId } })
+    return response.data
   },
 }
 

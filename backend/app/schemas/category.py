@@ -30,6 +30,7 @@ class CategoryUpdate(BaseModel):
 class CategoryResponse(BaseModel):
     """Schema for category response"""
     id: UUID
+    house_id: Optional[UUID] = None
     name: str
     description: Optional[str] = None
     icon: Optional[str] = None

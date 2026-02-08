@@ -10,6 +10,7 @@ const navItems = [
   { to: '/pantry', label: 'Dispensa', icon: '🏠' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/house', label: 'Casa', icon: '👥' },
+  { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
 ]
 

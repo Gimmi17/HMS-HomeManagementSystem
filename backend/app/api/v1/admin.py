@@ -30,6 +30,24 @@ COLUMN_DEFAULTS = {
     "users": {
         "has_recovery_setup": "FALSE",
         "recovery_pin_hash": "NULL",
+        "role": "'basic'",
+        "preferences": "'{}'",
+    },
+    "categories": {
+        "house_id": "NULL",
+    },
+    "stores": {
+        "house_id": "NULL",
+    },
+    "foods": {
+        "house_id": "NULL",
+    },
+    "product_catalog": {
+        "house_id": "NULL",
+        "cancelled": "FALSE",  # Soft delete flag (v2 - gestione-anagrafiche)
+    },
+    "dispensa_items": {
+        "source_item_id": "NULL",  # Link to shopping list item (v2 - dispensa sync)
     },
 }
 
@@ -81,6 +99,75 @@ def patch_insert_defaults(stmt: str, db_inspector) -> str:
     suffix = f" {on_conflict}" if on_conflict else ""
 
     return f'INSERT INTO "{table_name}" ({new_cols}) VALUES ({new_vals}){suffix};'
+
+
+# Table dependency order for import - tables with no deps first
+TABLE_IMPORT_ORDER = [
+    'users',
+    'houses',
+    'user_houses',
+    'house_invites',
+    'categories',
+    'stores',
+    'foods',
+    'recipes',
+    'meals',
+    'shopping_lists',
+    'shopping_list_items',
+    'product_catalog',
+    'product_category_tags',              # v2: normalized categories (no deps on catalog)
+    'product_category_associations',      # v2: many-to-many (depends on catalog + tags)
+    'product_nutrition',
+    'dispensa_items',
+    'weights',
+    'health_records',
+    'error_logs',
+]
+
+
+def get_table_from_insert(stmt: str) -> str:
+    """Extract table name from INSERT statement."""
+    match = re.match(r'^\s*INSERT\s+INTO\s+"?(\w+)"?\s*', stmt, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def normalize_enum_values(stmt: str) -> str:
+    """
+    Normalize enum values in INSERT statements.
+    PostgreSQL enums use uppercase values (ADMIN, BASIC, ACTIVE, etc.)
+    This function ensures consistency.
+    """
+    # No normalization needed - PostgreSQL enums are uppercase
+    # and the export already uses uppercase values
+    return stmt
+
+
+def sort_statements_by_dependency(statements: list[str]) -> list[str]:
+    """Sort INSERT statements by table dependency order."""
+    # Separate INSERT statements from others
+    inserts = []
+    others = []
+
+    for stmt in statements:
+        if stmt.strip().upper().startswith('INSERT'):
+            inserts.append(stmt)
+        else:
+            others.append(stmt)
+
+    # Sort inserts by table order
+    def get_order(stmt):
+        table = get_table_from_insert(stmt)
+        try:
+            return TABLE_IMPORT_ORDER.index(table)
+        except ValueError:
+            return len(TABLE_IMPORT_ORDER)  # Unknown tables at the end
+
+    inserts.sort(key=get_order)
+
+    # Return other statements first (like SET, CREATE), then sorted inserts
+    return others + inserts
 
 
 def parse_sql_statements(sql_content: str) -> list[str]:
@@ -166,6 +253,15 @@ async def import_database(
         # Parse statements
         statements = parse_sql_statements(sql_content)
 
+        # Sort statements by table dependency order
+        statements = sort_statements_by_dependency(statements)
+
+        # Log the first few statements to debug ordering
+        print(f"[Import] Total statements: {len(statements)}", flush=True)
+        for i, stmt in enumerate(statements[:10]):
+            table = get_table_from_insert(stmt)
+            print(f"[Import] Statement {i}: table={table}, stmt={stmt[:100]}...", flush=True)
+
         # Track results
         executed = 0
         skipped = 0
@@ -207,16 +303,42 @@ async def import_database(
                 # Patch INSERT statements with missing NOT NULL columns
                 patched_stmt = patch_insert_defaults(stmt, db_inspector)
 
+                # Normalize enum values (ADMIN -> admin, BASIC -> basic, etc.)
+                patched_stmt = normalize_enum_values(patched_stmt)
+
+                # Log users inserts for debugging
+                if 'INSERT INTO "users"' in patched_stmt:
+                    print(f"[Import] Executing users INSERT: {patched_stmt[:200]}...", flush=True)
+
                 db.execute(text(patched_stmt))
                 db.commit()  # Commit each statement individually
                 executed += 1
+
+                # Log success for critical tables
+                table_name = get_table_from_insert(patched_stmt)
+                if table_name in ['users', 'houses']:
+                    print(f"[Import] Successfully inserted into {table_name}", flush=True)
 
             except Exception as e:
                 db.rollback()  # Rollback failed statement
                 error_msg = str(e)
 
-                # Don't report duplicate key errors
-                if 'duplicate key' in error_msg.lower() or 'already exists' in error_msg.lower():
+                # Log critical table errors
+                table_name = get_table_from_insert(stmt)
+                if table_name in ['users', 'houses']:
+                    print(f"[Import] FAILED to insert into {table_name}: {error_msg}", flush=True)
+                    print(f"[Import] Statement was: {stmt[:300]}...", flush=True)
+
+                # Don't report duplicate/conflict errors - these are expected during re-import
+                is_duplicate_error = any(pattern in error_msg.lower() for pattern in [
+                    'duplicate key',
+                    'already exists',
+                    'unique constraint',
+                    'violates unique',
+                    'on conflict do nothing',
+                    'conflicting key',
+                ])
+                if is_duplicate_error:
                     skipped += 1
                 else:
                     # Full error for console debugging
@@ -361,18 +483,23 @@ async def export_database(
         ordered_tables = [
             'users',
             'houses',
-            'house_members',
+            'user_houses',
+            'house_invites',
             'categories',
-            'store_chains',
             'stores',
-            'products',
+            'foods',
             'recipes',
-            'recipe_ingredients',
             'meals',
             'shopping_lists',
             'shopping_list_items',
-            'pantry_items',
-            'weight_entries',
+            'product_catalog',
+            'product_category_tags',              # v2: normalized categories
+            'product_category_associations',      # v2: many-to-many
+            'product_nutrition',
+            'dispensa_items',
+            'weights',
+            'health_records',
+            'error_logs',
         ]
 
         # Add any tables not in the ordered list

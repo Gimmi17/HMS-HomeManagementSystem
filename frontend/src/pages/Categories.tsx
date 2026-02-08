@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import categoriesService from '@/services/categories'
+import { useHouse } from '@/context/HouseContext'
 import type { Category } from '@/types'
 
 interface CategoryFormData {
@@ -36,6 +37,7 @@ const PRESET_COLORS = [
 ]
 
 export function Categories() {
+  const { currentHouse } = useHouse()
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -43,11 +45,13 @@ export function Categories() {
   const [formData, setFormData] = useState<CategoryFormData>(emptyForm)
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Category | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
 
   const loadCategories = async () => {
+    if (!currentHouse) return
     setIsLoading(true)
     try {
-      const response = await categoriesService.getAll()
+      const response = await categoriesService.getAll(currentHouse.id)
       setCategories(response.categories)
     } catch (error) {
       console.error('Failed to load categories:', error)
@@ -58,7 +62,7 @@ export function Categories() {
 
   useEffect(() => {
     loadCategories()
-  }, [])
+  }, [currentHouse])
 
   const openCreateModal = () => {
     setEditingCategory(null)
@@ -86,6 +90,7 @@ export function Categories() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!currentHouse) return
     if (!formData.name.trim()) {
       alert('Il nome della categoria è obbligatorio')
       return
@@ -104,7 +109,7 @@ export function Categories() {
       if (editingCategory) {
         await categoriesService.update(editingCategory.id, data)
       } else {
-        await categoriesService.create(data)
+        await categoriesService.create(currentHouse.id, data)
       }
 
       closeModal()
@@ -119,6 +124,26 @@ export function Categories() {
       }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleImportTemplates = async () => {
+    if (!currentHouse) return
+    setIsImporting(true)
+    try {
+      const result = await categoriesService.importTemplates(currentHouse.id)
+      alert(result.message)
+      loadCategories()
+    } catch (error: unknown) {
+      console.error('Failed to import templates:', error)
+      const apiError = error as { response?: { data?: { detail?: string } } }
+      if (apiError.response?.data?.detail) {
+        alert(apiError.response.data.detail)
+      } else {
+        alert('Errore durante l\'importazione')
+      }
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -143,7 +168,7 @@ export function Categories() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
-          to="/settings"
+          to="/anagrafiche"
           className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -160,17 +185,29 @@ export function Categories() {
       </div>
 
       {/* Categories List */}
-      {isLoading ? (
+      {!currentHouse ? (
+        <p className="text-gray-500 text-sm">Seleziona una casa per gestire le categorie</p>
+      ) : isLoading ? (
         <p className="text-gray-500 text-sm">Caricamento...</p>
       ) : categories.length === 0 ? (
         <div className="card text-center py-8">
           <p className="text-gray-500 text-sm">Nessuna categoria configurata</p>
-          <button
-            onClick={openCreateModal}
-            className="btn btn-primary mt-4 text-sm"
-          >
-            Aggiungi la prima categoria
-          </button>
+          <div className="flex flex-col gap-2 mt-4">
+            <button
+              onClick={handleImportTemplates}
+              disabled={isImporting}
+              className="btn btn-secondary text-sm mx-auto"
+            >
+              {isImporting ? 'Importazione...' : 'Importa categorie predefinite'}
+            </button>
+            <span className="text-xs text-gray-400">oppure</span>
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary text-sm mx-auto"
+            >
+              Aggiungi manualmente
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
