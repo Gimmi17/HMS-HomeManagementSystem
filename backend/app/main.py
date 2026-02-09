@@ -124,6 +124,15 @@ async def startup_event():
     else:
         print(f"✓ Database schema up to date")
 
+    # Seed hardcoded barcode lookup sources
+    from app.services.barcode_source_service import seed_hardcoded_sources
+    db = SessionLocal()
+    try:
+        seed_hardcoded_sources(db)
+        print(f"✓ Barcode lookup sources seeded")
+    finally:
+        db.close()
+
     # Configure error logging system
     configure_error_logging(SessionLocal)
     print(f"✓ Error logging system configured")

@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import storesService from '@/services/stores'
 import categoriesService from '@/services/categories'
 import { grocyHouseService } from '@/services/grocy'
+import productsService from '@/services/products'
+import type { ProductSuggestion } from '@/services/products'
 import type { ShoppingListItemCreate, GrocyProductSimple, Store, Category } from '@/types'
 
 interface ItemRow {
@@ -73,6 +75,13 @@ export function ShoppingListForm() {
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
+  const [activeAutocompleteId, setActiveAutocompleteId] = useState<string | null>(null)
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
+  const suggestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autocompleteRef = useRef<HTMLDivElement | null>(null)
 
   // Load stores and categories
   useEffect(() => {
@@ -222,12 +231,63 @@ export function ShoppingListForm() {
     }
   }, [focusItemId, items])
 
+  // Close autocomplete on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target as Node)) {
+        setActiveAutocompleteId(null)
+        setSuggestions([])
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Debounced autocomplete search
+  const searchSuggestions = useCallback((itemId: string, value: string) => {
+    if (suggestTimeoutRef.current) {
+      clearTimeout(suggestTimeoutRef.current)
+    }
+
+    if (value.length < 3 || !currentHouse?.id) {
+      setSuggestions([])
+      setActiveAutocompleteId(null)
+      return
+    }
+
+    suggestTimeoutRef.current = setTimeout(async () => {
+      try {
+        const result = await productsService.suggestProducts(currentHouse.id, value)
+        setSuggestions(result.suggestions)
+        setActiveAutocompleteId(result.suggestions.length > 0 ? itemId : null)
+        setSelectedSuggestionIndex(-1)
+      } catch (error) {
+        console.error('Autocomplete suggest failed:', error)
+        setSuggestions([])
+        setActiveAutocompleteId(null)
+      }
+    }, 300)
+  }, [currentHouse?.id])
+
+  const selectSuggestion = (itemId: string, suggestion: ProductSuggestion) => {
+    const displayName = suggestion.brand
+      ? `${suggestion.name} (${suggestion.brand})`
+      : suggestion.name
+    handleItemChange(itemId, 'name', displayName)
+    setSuggestions([])
+    setActiveAutocompleteId(null)
+    setSelectedSuggestionIndex(-1)
+  }
+
   const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | boolean | undefined) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item
       )
     )
+    if (field === 'name' && typeof value === 'string') {
+      searchSuggestions(itemId, value)
+    }
   }
 
   const addItem = (afterId?: string, shouldFocus = false) => {
@@ -256,6 +316,36 @@ export function ShoppingListForm() {
   }
 
   const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>, itemId: string) => {
+    // Autocomplete keyboard navigation
+    if (activeAutocompleteId === itemId && suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSuggestionIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        )
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        )
+        return
+      }
+      if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+        e.preventDefault()
+        selectSuggestion(itemId, suggestions[selectedSuggestionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSuggestions([])
+        setActiveAutocompleteId(null)
+        setSelectedSuggestionIndex(-1)
+        return
+      }
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault()
 
@@ -496,7 +586,7 @@ export function ShoppingListForm() {
   }
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
@@ -593,15 +683,39 @@ export function ShoppingListForm() {
                 <div className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-medium">
                   {index + 1}
                 </div>
-                <input
-                  ref={(el) => { inputRefs.current[item.id] = el }}
-                  type="text"
-                  value={item.name}
-                  onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, item.id)}
-                  placeholder="Nome articolo..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-primary-500"
-                />
+                <div className="flex-1 relative" ref={activeAutocompleteId === item.id ? autocompleteRef : undefined}>
+                  <input
+                    ref={(el) => { inputRefs.current[item.id] = el }}
+                    type="text"
+                    value={item.name}
+                    onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(e, item.id)}
+                    placeholder="Nome articolo..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-primary-500"
+                  />
+                  {activeAutocompleteId === item.id && suggestions.length > 0 && (
+                    <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {suggestions.map((suggestion, sIdx) => (
+                        <button
+                          key={suggestion.barcode}
+                          type="button"
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-primary-50 ${
+                            sIdx === selectedSuggestionIndex ? 'bg-primary-100 text-primary-800' : 'text-gray-700'
+                          }`}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectSuggestion(item.id, suggestion)
+                          }}
+                        >
+                          <span className="font-medium">{suggestion.name}</span>
+                          {suggestion.brand && (
+                            <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Quantity, Grocy button, actions */}
@@ -736,16 +850,14 @@ export function ShoppingListForm() {
         </button>
       </div>
 
-      {/* Fixed save button */}
-      <div className="fixed bottom-20 sm:bottom-4 left-0 right-0 p-4 bg-white border-t border-gray-200 safe-area-bottom">
-        <button
-          type="button"
-          onClick={() => setShowSaveModal(true)}
-          className="btn btn-primary w-full text-sm"
-        >
-          Salva Lista
-        </button>
-      </div>
+      {/* Save button */}
+      <button
+        type="button"
+        onClick={() => setShowSaveModal(true)}
+        className="btn btn-primary w-full text-sm"
+      >
+        Salva Lista
+      </button>
 
       {/* Save Modal */}
       {showSaveModal && (

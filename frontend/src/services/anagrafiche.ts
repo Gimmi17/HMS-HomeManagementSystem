@@ -224,6 +224,39 @@ export interface ProductCategoryTag {
 }
 
 // ============================================================
+// BARCODE LOOKUP SOURCES
+// ============================================================
+
+export interface BarcodeLookupSource {
+  id: string
+  name: string
+  code: string
+  base_url: string
+  api_path: string
+  is_hardcoded: boolean
+  sort_order: number
+  cancelled: boolean
+  description: string | null
+}
+
+export interface BarcodeLookupSourceCreate {
+  name: string
+  code: string
+  base_url: string
+  api_path?: string
+  sort_order: number
+  description?: string
+}
+
+export interface BarcodeLookupSourceUpdate {
+  name?: string
+  base_url?: string
+  api_path?: string
+  sort_order?: number
+  description?: string
+}
+
+// ============================================================
 // SERVICE
 // ============================================================
 
@@ -334,6 +367,40 @@ export const anagraficheService = {
   async getProductCategory(categoryId: string): Promise<ProductCategoryTag> {
     const response = await api.get(`/anagrafiche/product-categories/${categoryId}`)
     return response.data
+  },
+
+  // Barcode Sources
+  async getBarcodeSources(): Promise<{ sources: BarcodeLookupSource[]; total: number }> {
+    const response = await api.get('/anagrafiche/barcode-sources')
+    return response.data
+  },
+
+  async createBarcodeSource(data: BarcodeLookupSourceCreate): Promise<BarcodeLookupSource> {
+    const response = await api.post('/anagrafiche/barcode-sources', data)
+    return response.data
+  },
+
+  async updateBarcodeSource(id: string, data: BarcodeLookupSourceUpdate): Promise<BarcodeLookupSource> {
+    const response = await api.put(`/anagrafiche/barcode-sources/${id}`, data)
+    return response.data
+  },
+
+  async cancelBarcodeSource(id: string): Promise<BarcodeLookupSource> {
+    const response = await api.put(`/anagrafiche/barcode-sources/${id}/cancel`)
+    return response.data
+  },
+
+  async restoreBarcodeSource(id: string): Promise<BarcodeLookupSource> {
+    const response = await api.put(`/anagrafiche/barcode-sources/${id}/restore`)
+    return response.data
+  },
+
+  async deleteBarcodeSource(id: string): Promise<void> {
+    await api.delete(`/anagrafiche/barcode-sources/${id}`)
+  },
+
+  async reorderBarcodeSources(sourceIds: string[]): Promise<void> {
+    await api.put('/anagrafiche/barcode-sources/reorder', { source_ids: sourceIds })
   },
 
   // Migration

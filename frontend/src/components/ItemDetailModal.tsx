@@ -189,7 +189,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Nome prodotto..."
-            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
@@ -239,7 +239,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
               inputMode="decimal"
               value={quantityText}
               onChange={(e) => handleQuantityChange(e.target.value)}
-              className="flex-1 min-w-0 text-center text-xl font-bold py-2 border rounded-lg"
+              className="flex-1 min-w-0 text-center text-xl font-bold py-2 border rounded-lg text-base"
             />
             <button
               onClick={() => {
@@ -264,7 +264,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
             value={expiryDateInput}
             onChange={(e) => setExpiryDateInput(e.target.value)}
             placeholder="DDMMYY (es: 150226)"
-            className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             inputMode="numeric"
           />
         </div>
@@ -278,7 +278,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
             <select
               value={selectedCategoryId || ''}
               onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
-              className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Seleziona classe...</option>
               {categories.map((cat) => (
@@ -303,7 +303,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
               value={barcodeInput}
               onChange={(e) => setBarcodeInput(e.target.value)}
               placeholder="Inserisci barcode..."
-              className="flex-1 px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+              className="flex-1 px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
               inputMode="numeric"
             />
             <button

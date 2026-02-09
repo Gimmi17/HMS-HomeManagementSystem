@@ -27,6 +27,13 @@ ADD COLUMN IF NOT EXISTS cancelled BOOLEAN DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS ix_product_catalog_cancelled
 ON product_catalog(cancelled);
 
+-- ProductCatalog: local category (assigned by user)
+ALTER TABLE product_catalog
+ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES categories(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS ix_product_catalog_category_id
+ON product_catalog(category_id);
+
 -- Categories: multi-tenancy
 ALTER TABLE categories
 ADD COLUMN IF NOT EXISTS house_id UUID REFERENCES houses(id) ON DELETE CASCADE;

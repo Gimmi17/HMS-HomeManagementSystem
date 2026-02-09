@@ -21,6 +21,7 @@ from app.models.food import Food
 from app.models.product_catalog import ProductCatalog
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
 from app.models.shopping_list import ShoppingListItem
+from app.models.barcode_source import BarcodeLookupSource
 from app.services.auth_service import hash_password
 
 
@@ -1053,6 +1054,240 @@ def get_product_category(
         lang=cat.lang,
         product_count=count
     )
+
+
+# ============================================================
+# BARCODE LOOKUP SOURCES
+# ============================================================
+
+class BarcodeLookupSourceItem(BaseModel):
+    id: UUID
+    name: str
+    code: str
+    base_url: str
+    api_path: str
+    is_hardcoded: bool
+    sort_order: int
+    cancelled: bool
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BarcodeLookupSourceCreate(BaseModel):
+    name: str
+    code: str
+    base_url: str
+    api_path: str = "/api/v2/product/{barcode}"
+    sort_order: int
+    description: Optional[str] = None
+
+
+class BarcodeLookupSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_path: Optional[str] = None
+    sort_order: Optional[int] = None
+    description: Optional[str] = None
+
+
+class BarcodeLookupSourceReorder(BaseModel):
+    source_ids: List[UUID]
+
+
+class BarcodeLookupSourceListResponse(BaseModel):
+    sources: List[BarcodeLookupSourceItem]
+    total: int
+
+
+@router.get("/barcode-sources", response_model=BarcodeLookupSourceListResponse)
+def list_barcode_sources(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all barcode lookup sources ordered by sort_order (includes cancelled)."""
+    sources = db.query(BarcodeLookupSource).order_by(BarcodeLookupSource.sort_order).all()
+
+    return BarcodeLookupSourceListResponse(
+        sources=[
+            BarcodeLookupSourceItem(
+                id=s.id,
+                name=s.name,
+                code=s.code,
+                base_url=s.base_url,
+                api_path=s.api_path,
+                is_hardcoded=s.is_hardcoded,
+                sort_order=s.sort_order,
+                cancelled=s.cancelled,
+                description=s.description,
+            )
+            for s in sources
+        ],
+        total=len(sources)
+    )
+
+
+@router.post("/barcode-sources", response_model=BarcodeLookupSourceItem, status_code=status.HTTP_201_CREATED)
+def create_barcode_source(
+    data: BarcodeLookupSourceCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new barcode lookup source."""
+    existing = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.code == data.code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Codice sorgente gia esistente")
+
+    source = BarcodeLookupSource(
+        name=data.name,
+        code=data.code,
+        base_url=data.base_url,
+        api_path=data.api_path,
+        sort_order=data.sort_order,
+        description=data.description,
+        is_hardcoded=False,
+        cancelled=False,
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+
+    return BarcodeLookupSourceItem(
+        id=source.id,
+        name=source.name,
+        code=source.code,
+        base_url=source.base_url,
+        api_path=source.api_path,
+        is_hardcoded=source.is_hardcoded,
+        sort_order=source.sort_order,
+        cancelled=source.cancelled,
+        description=source.description,
+    )
+
+
+# NOTE: reorder must be defined BEFORE {source_id} routes to avoid path conflict
+@router.put("/barcode-sources/reorder")
+def reorder_barcode_sources(
+    data: BarcodeLookupSourceReorder,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reorder barcode lookup sources. Receives list of IDs in desired order."""
+    for idx, source_id in enumerate(data.source_ids):
+        source = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.id == source_id).first()
+        if source:
+            source.sort_order = idx + 1
+
+    db.commit()
+
+    return {"message": "Ordine aggiornato"}
+
+
+@router.put("/barcode-sources/{source_id}", response_model=BarcodeLookupSourceItem)
+def update_barcode_source(
+    source_id: UUID,
+    data: BarcodeLookupSourceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a barcode lookup source."""
+    source = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Sorgente non trovata")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(source, field, value)
+
+    db.commit()
+    db.refresh(source)
+
+    return BarcodeLookupSourceItem(
+        id=source.id,
+        name=source.name,
+        code=source.code,
+        base_url=source.base_url,
+        api_path=source.api_path,
+        is_hardcoded=source.is_hardcoded,
+        sort_order=source.sort_order,
+        cancelled=source.cancelled,
+        description=source.description,
+    )
+
+
+@router.put("/barcode-sources/{source_id}/cancel", response_model=BarcodeLookupSourceItem)
+def cancel_barcode_source(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel (soft-delete) a barcode lookup source."""
+    source = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Sorgente non trovata")
+
+    source.cancelled = True
+    db.commit()
+    db.refresh(source)
+
+    return BarcodeLookupSourceItem(
+        id=source.id,
+        name=source.name,
+        code=source.code,
+        base_url=source.base_url,
+        api_path=source.api_path,
+        is_hardcoded=source.is_hardcoded,
+        sort_order=source.sort_order,
+        cancelled=source.cancelled,
+        description=source.description,
+    )
+
+
+@router.put("/barcode-sources/{source_id}/restore", response_model=BarcodeLookupSourceItem)
+def restore_barcode_source(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Restore a cancelled barcode lookup source."""
+    source = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Sorgente non trovata")
+
+    source.cancelled = False
+    db.commit()
+    db.refresh(source)
+
+    return BarcodeLookupSourceItem(
+        id=source.id,
+        name=source.name,
+        code=source.code,
+        base_url=source.base_url,
+        api_path=source.api_path,
+        is_hardcoded=source.is_hardcoded,
+        sort_order=source.sort_order,
+        cancelled=source.cancelled,
+        description=source.description,
+    )
+
+
+@router.delete("/barcode-sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_barcode_source(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a barcode lookup source (only non-hardcoded)."""
+    source = db.query(BarcodeLookupSource).filter(BarcodeLookupSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Sorgente non trovata")
+
+    if source.is_hardcoded:
+        raise HTTPException(status_code=400, detail="Non puoi eliminare una sorgente predefinita. Puoi solo annullarla.")
+
+    db.delete(source)
+    db.commit()
 
 
 # ============================================================

@@ -30,8 +30,10 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   const [quantityText, setQuantityText] = useState(String(item.quantity || 1))
   const [isWeight, setIsWeight] = useState(item.unit === 'kg' || item.unit === 'g')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
+  const [catalogCategoryId, setCatalogCategoryId] = useState<string | undefined>(undefined)
   const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
   const [productName, setProductName] = useState<string | null>(null)
+  const [sourceName, setSourceName] = useState<string | null>(null)
   const [showPhotoScanner, setShowPhotoScanner] = useState(false)
   const [isLookingUp, setIsLookingUp] = useState(false)
 
@@ -95,6 +97,7 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   const lookupBarcode = async (barcode: string) => {
     if (!barcode.trim()) {
       setProductName(null)
+      setSourceName(null)
       return
     }
 
@@ -104,8 +107,15 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
       if (result.found) {
         const name = result.brand ? `${result.product_name} (${result.brand})` : result.product_name
         setProductName(name || null)
+        setSourceName(result.source_name || null)
       } else {
         setProductName(null)
+        setSourceName(null)
+      }
+      // Pre-select category from catalog if not already set by user
+      if (result.category_id && !selectedCategoryId) {
+        setSelectedCategoryId(result.category_id)
+        setCatalogCategoryId(result.category_id)
       }
     } catch {
       setProductName(null)
@@ -252,7 +262,14 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
               <p className="text-xs text-gray-400 mt-1">Cercando prodotto...</p>
             )}
             {productName && (
-              <p className="text-xs text-green-600 mt-1">{productName}</p>
+              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                <p className="text-xs text-green-600">{productName}</p>
+                {sourceName && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+                    da {sourceName}
+                  </span>
+                )}
+              </div>
             )}
             {barcodeInput && !productName && !isLookingUp && (
               <p className="text-xs text-gray-400 mt-1">Prodotto non trovato in anagrafica</p>
@@ -278,7 +295,7 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
           {categories.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Categoria {item.category_id ? '(conferma)' : '(opzionale)'}
+                Categoria {catalogCategoryId ? '(da catalogo)' : item.category_id ? '(conferma)' : '(opzionale)'}
               </label>
               <select
                 value={selectedCategoryId || ''}

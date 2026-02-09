@@ -45,6 +45,7 @@ COLUMN_DEFAULTS = {
     "product_catalog": {
         "house_id": "NULL",
         "cancelled": "FALSE",  # Soft delete flag (v2 - gestione-anagrafiche)
+        "category_id": "NULL",  # Local category (v2 - gestione-anagrafiche)
     },
     "dispensa_items": {
         "source_item_id": "NULL",  # Link to shopping list item (v2 - dispensa sync)
@@ -118,6 +119,7 @@ TABLE_IMPORT_ORDER = [
     'product_category_tags',              # v2: normalized categories (no deps on catalog)
     'product_category_associations',      # v2: many-to-many (depends on catalog + tags)
     'product_nutrition',
+    'barcode_lookup_sources',             # v3: configurable barcode sources
     'dispensa_items',
     'weights',
     'health_records',
@@ -496,6 +498,7 @@ async def export_database(
             'product_category_tags',              # v2: normalized categories
             'product_category_associations',      # v2: many-to-many
             'product_nutrition',
+            'barcode_lookup_sources',             # v3: configurable barcode sources
             'dispensa_items',
             'weights',
             'health_records',

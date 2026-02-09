@@ -69,6 +69,15 @@ class ProductCatalog(BaseModel):
     # Raw data from API (for future use)
     raw_data = Column(JSON, nullable=True)
 
+    # Local category (assigned by user during load verification)
+    category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Local category assigned by user"
+    )
+
     # Soft delete flag
     cancelled = Column(Boolean, default=False, nullable=False, index=True)
 

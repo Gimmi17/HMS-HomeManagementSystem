@@ -5,12 +5,15 @@ Endpoints for product lookup using Open Food Facts database.
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional
 
+from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
-from app.integrations.openfoodfacts import openfoodfacts_client
+from app.models.product_catalog import ProductCatalog
+from app.services.barcode_source_service import lookup_barcode_chain
 
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -26,6 +29,9 @@ class ProductLookupResponse(BaseModel):
     quantity: Optional[str] = None
     categories: Optional[str] = None
     nutriscore: Optional[str] = None
+    category_id: Optional[str] = None  # Local category from ProductCatalog
+    source_code: Optional[str] = None
+    source_name: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -34,18 +40,43 @@ class ProductLookupResponse(BaseModel):
     response_model=ProductLookupResponse,
     summary="Lookup Product by Barcode",
     description="""
-    Look up a product by barcode using Open Food Facts database.
+    Look up a product by barcode using configurable barcode sources (fallback chain).
+    Also checks the local product catalog for saved category.
 
-    Open Food Facts is a free, open database of food products from around the world.
-    No configuration required - works globally.
+    Sources are tried in order of priority until a result is found.
     """
 )
 async def lookup_barcode(
     barcode: str,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Look up a barcode in Open Food Facts."""
-    result = await openfoodfacts_client.lookup_barcode(barcode)
+    """Look up a barcode using the fallback chain and local catalog."""
+    result = await lookup_barcode_chain(db, barcode)
+
+    # Check local catalog for saved category_id
+    local_category_id = None
+    local_product = db.query(ProductCatalog).filter(
+        ProductCatalog.barcode == barcode,
+        ProductCatalog.cancelled == False
+    ).first()
+    if local_product and local_product.category_id:
+        local_category_id = str(local_product.category_id)
+
+    # If not found in any source but exists locally with a name, return local data
+    if not result["found"] and local_product and local_product.name:
+        return ProductLookupResponse(
+            found=True,
+            barcode=barcode,
+            product_name=local_product.name,
+            brand=local_product.brand,
+            quantity=local_product.quantity_text,
+            categories=local_product.categories,
+            nutriscore=local_product.nutriscore,
+            category_id=local_category_id,
+            source_code="local",
+            source_name="Catalogo Locale",
+        )
 
     return ProductLookupResponse(
         found=result["found"],
@@ -56,5 +87,8 @@ async def lookup_barcode(
         quantity=result.get("quantity"),
         categories=result.get("categories"),
         nutriscore=result.get("nutriscore"),
+        category_id=local_category_id,
+        source_code=result.get("source_code"),
+        source_name=result.get("source_name"),
         error=result.get("error")
     )

@@ -65,6 +65,15 @@ const anagrafiche: AnagraficaItem[] = [
     color: 'bg-rose-500',
     implemented: true,
   },
+  {
+    id: 'barcode-sources',
+    label: 'Sorgenti Barcode',
+    description: 'Siti API per la ricerca prodotti tramite codice a barre',
+    icon: '🌐',
+    path: '/anagrafiche/barcode-sources',
+    color: 'bg-teal-500',
+    implemented: true,
+  },
 ]
 
 export function Anagrafiche() {

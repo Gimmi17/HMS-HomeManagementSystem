@@ -439,6 +439,14 @@ def update_item(
         for field, value in update_data.items():
             setattr(item, field, value)
 
+        # Propagate category_id to ProductCatalog if item has a barcode
+        if 'category_id' in update_data and update_data['category_id'] and item.scanned_barcode:
+            catalog_product = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == item.scanned_barcode
+            ).first()
+            if catalog_product:
+                catalog_product.category_id = update_data['category_id']
+
         db.commit()
         db.refresh(item)
 
@@ -448,6 +456,14 @@ def update_item(
             db.commit()
         except Exception:
             pass  # Non-critical: don't fail the update if sync fails
+
+        # Enrich product catalog if a barcode was set and not already in catalog
+        if 'scanned_barcode' in update_data and item.scanned_barcode:
+            existing = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == item.scanned_barcode
+            ).first()
+            if not existing:
+                enrich_product_background(SessionLocal, item.scanned_barcode, item_id=item_id, list_id=list_id)
 
         verification_logger.info(
             f"UPDATE_ITEM_SUCCESS | list_id={list_id} | item_id={item_id} | item_name={item.name}"

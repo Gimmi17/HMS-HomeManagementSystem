@@ -30,6 +30,7 @@ from app.models.shopping_list import ShoppingListItem
 from sqlalchemy import or_
 from app.integrations.openfoodfacts import openfoodfacts_client
 from app.services.product_nutrition_service import product_nutrition_service
+from app.services.barcode_source_service import lookup_barcode_chain
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +160,12 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
         logger.info(f"[Enrichment] Product {barcode} already in catalog: {existing.name}")
         return existing
 
-    # Fetch from Open Food Facts
-    logger.info(f"[Enrichment] Fetching product {barcode} from Open Food Facts...")
-    result = await openfoodfacts_client.lookup_barcode(barcode, include_nutrients=True)
+    # Fetch from barcode sources (fallback chain)
+    logger.info(f"[Enrichment] Fetching product {barcode} from barcode sources...")
+    result = await lookup_barcode_chain(db, barcode)
 
     if not result.get("found"):
-        logger.info(f"[Enrichment] Product {barcode} not found in Open Food Facts")
+        logger.info(f"[Enrichment] Product {barcode} not found in any barcode source")
         # Try to get user-provided name from shopping list items
         user_name = get_user_provided_name_for_barcode(db, barcode)
         if user_name:
@@ -192,7 +193,7 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
         nova_group=result.get("nova_group"),
         image_url=result.get("image_url"),
         image_small_url=result.get("image_small_url"),
-        source="openfoodfacts",
+        source=result.get("source_code", "openfoodfacts"),
         raw_data=result,
     )
 
@@ -219,19 +220,23 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
     categories_str = result.get("categories")  # Comma-separated string fallback
     parse_and_save_category_tags(db, product, categories_str, categories_tags)
 
-    # Also fetch detailed nutrition data
-    try:
-        nutrition = await product_nutrition_service.fetch_and_save_nutrition(
-            db=db,
-            product_id=product.id,
-            barcode=barcode
-        )
-        if nutrition:
-            logger.info(f"[Enrichment] ProductNutrition saved for {barcode}")
-        else:
-            logger.info(f"[Enrichment] No detailed nutrition data available for {barcode}")
-    except Exception as e:
-        logger.warning(f"[Enrichment] Failed to save ProductNutrition for {barcode}: {e}")
+    # Also fetch detailed nutrition data (only from OpenFoodFacts)
+    source_code = result.get("source_code", "")
+    if source_code == "openfoodfacts":
+        try:
+            nutrition = await product_nutrition_service.fetch_and_save_nutrition(
+                db=db,
+                product_id=product.id,
+                barcode=barcode
+            )
+            if nutrition:
+                logger.info(f"[Enrichment] ProductNutrition saved for {barcode}")
+            else:
+                logger.info(f"[Enrichment] No detailed nutrition data available for {barcode}")
+        except Exception as e:
+            logger.warning(f"[Enrichment] Failed to save ProductNutrition for {barcode}: {e}")
+    else:
+        logger.info(f"[Enrichment] Skipping detailed nutrition for {barcode} (source: {source_code})")
 
     return product
 
