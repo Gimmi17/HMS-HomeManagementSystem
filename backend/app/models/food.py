@@ -1,9 +1,10 @@
 """
 Food Model
-Stores nutritional information for foods imported from CSV database.
+Stores nutritional information for foods.
 
-This model represents the nutrient database with 192 foods imported from nutrizione_pulito.csv.
-All values are per 100g of food. This is a read-only table populated during seeding.
+Each house has its own foods database. Foods with house_id=null are global templates
+imported from nutrizione_pulito.csv.
+All values are per 100g of food.
 
 Usage:
     - Search foods by name or category for recipe ingredients
@@ -11,7 +12,8 @@ Usage:
     - Autocomplete suggestions in frontend forms
 """
 
-from sqlalchemy import Column, String, Numeric, Index
+from sqlalchemy import Column, String, Numeric, Index, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.models.base import BaseModel
 
@@ -23,6 +25,8 @@ class Food(BaseModel):
     All nutritional values are stored per 100g of food to enable precise calculations
     when users add ingredients with custom quantities (e.g., 150g of chicken).
 
+    Each house has its own foods. house_id=null means global template.
+
     The calculation formula for actual nutrients is:
         actual_nutrient = (food.nutrient_per_100g * quantity_grams) / 100
 
@@ -33,14 +37,22 @@ class Food(BaseModel):
 
     __tablename__ = "foods"
 
+    # House this food belongs to (null = global template)
+    house_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("houses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="House this food belongs to (null = global template)"
+    )
+
     # Basic Information
     # -----------------
     # Name of the food (e.g., "Pollo", "Pasta", "Mele")
-    # Unique constraint ensures no duplicate foods in database
+    # Same name can exist in different houses
     # Indexed for fast search queries (autocomplete)
     name = Column(
         String(255),
-        unique=True,
         nullable=False,
         index=True,
         comment="Food name (e.g., 'Pollo', 'Pasta')"

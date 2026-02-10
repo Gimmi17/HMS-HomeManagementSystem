@@ -16,6 +16,7 @@ import logging
 
 from app.db.session import get_db, SessionLocal
 from app.services.error_logging import error_logger
+from app.services.dispensa_service import DispensaService
 
 # Logger for load verification operations
 verification_logger = logging.getLogger("load_verification")
@@ -23,6 +24,7 @@ from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.shopping_list import ShoppingList, ShoppingListItem, ShoppingListStatus, VerificationStatus
 from app.models.store import Store
+from app.models.product_catalog import ProductCatalog
 from app.services.product_enrichment import enrich_product_background
 from app.schemas.shopping_list import (
     ShoppingListCreate,
@@ -124,7 +126,8 @@ def create_shopping_list(
             grocy_product_id=item_data.grocy_product_id,
             grocy_product_name=item_data.grocy_product_name,
             quantity=item_data.quantity,
-            unit=item_data.unit
+            unit=item_data.unit,
+            urgent=item_data.urgent
         )
         db.add(item)
 
@@ -392,7 +395,8 @@ def add_item_to_list(
         grocy_product_id=data.grocy_product_id,
         grocy_product_name=data.grocy_product_name,
         quantity=data.quantity,
-        unit=data.unit
+        unit=data.unit,
+        urgent=data.urgent
     )
     db.add(item)
     db.commit()
@@ -435,8 +439,31 @@ def update_item(
         for field, value in update_data.items():
             setattr(item, field, value)
 
+        # Propagate category_id to ProductCatalog if item has a barcode
+        if 'category_id' in update_data and update_data['category_id'] and item.scanned_barcode:
+            catalog_product = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == item.scanned_barcode
+            ).first()
+            if catalog_product:
+                catalog_product.category_id = update_data['category_id']
+
         db.commit()
         db.refresh(item)
+
+        # Sync changes to dispensa if linked
+        try:
+            DispensaService.sync_from_source_item(db, item_id)
+            db.commit()
+        except Exception:
+            pass  # Non-critical: don't fail the update if sync fails
+
+        # Enrich product catalog if a barcode was set and not already in catalog
+        if 'scanned_barcode' in update_data and item.scanned_barcode:
+            existing = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == item.scanned_barcode
+            ).first()
+            if not existing:
+                enrich_product_background(SessionLocal, item.scanned_barcode, item_id=item_id, list_id=list_id)
 
         verification_logger.info(
             f"UPDATE_ITEM_SUCCESS | list_id={list_id} | item_id={item_id} | item_name={item.name}"
@@ -495,6 +522,9 @@ def delete_item(
         )
 
     try:
+        # Remove linked dispensa item before deleting the source
+        DispensaService.delete_by_source_item(db, item_id)
+
         item_name = item.name
         db.delete(item)
         db.commit()
@@ -585,6 +615,9 @@ def verify_item(
     # Set barcode and verification timestamp
     item.scanned_barcode = barcode
     item.verified_at = datetime.now(timezone.utc)
+    # Mark as checked/purchased when verified
+    item.checked = True
+    item.checked_at = datetime.now(timezone.utc)
     # Clear not_purchased if it was previously set
     item.not_purchased = False
     item.not_purchased_at = None
@@ -624,6 +657,13 @@ def mark_item_not_purchased(
 
     db.commit()
     db.refresh(item)
+
+    # Sync to dispensa (will delete the dispensa item since not_purchased=True)
+    try:
+        DispensaService.sync_from_source_item(db, item_id)
+        db.commit()
+    except Exception:
+        pass  # Non-critical
 
     return item
 
@@ -681,6 +721,9 @@ def verify_item_with_quantity(
         item.verified_quantity = data.quantity
         item.verified_unit = data.unit
         item.verified_at = datetime.now(timezone.utc)
+        # Mark as checked/purchased when verified
+        item.checked = True
+        item.checked_at = datetime.now(timezone.utc)
         # Clear not_purchased if it was previously set
         item.not_purchased = False
         item.not_purchased_at = None
@@ -689,8 +732,25 @@ def verify_item_with_quantity(
         if data.product_name:
             item.grocy_product_name = data.product_name
 
+            # Also update ProductCatalog if it exists as "not_found" with no name
+            existing_product = db.query(ProductCatalog).filter(
+                ProductCatalog.barcode == data.barcode
+            ).first()
+            if existing_product and existing_product.source == "not_found" and not existing_product.name:
+                existing_product.name = data.product_name
+                verification_logger.info(
+                    f"VERIFY_ITEM_CATALOG_UPDATE | barcode={data.barcode} | name={data.product_name}"
+                )
+
         db.commit()
         db.refresh(item)
+
+        # Sync changes to dispensa if linked
+        try:
+            DispensaService.sync_from_source_item(db, item_id)
+            db.commit()
+        except Exception:
+            pass  # Non-critical
 
         verification_logger.info(
             f"VERIFY_ITEM_SUCCESS | list_id={list_id} | item_id={item_id} | "
@@ -863,6 +923,13 @@ def add_extra_item(
     # Set grocy_product_name if we have product name (for display)
     if data.product_name:
         item.grocy_product_name = data.product_name
+
+        # Also update ProductCatalog if it exists as "not_found" with no name
+        existing_product = db.query(ProductCatalog).filter(
+            ProductCatalog.barcode == data.barcode
+        ).first()
+        if existing_product and existing_product.source == "not_found" and not existing_product.name:
+            existing_product.name = data.product_name
 
     db.add(item)
     db.commit()

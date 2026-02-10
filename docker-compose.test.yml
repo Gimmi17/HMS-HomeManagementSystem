@@ -1,0 +1,87 @@
+version: '3.8'
+
+# Test configuration - runs separately from main dev environment
+# Usage: docker-compose -f docker-compose.test.yml up --build
+
+services:
+  # PostgreSQL Database - Test instance
+  postgres-test:
+    image: postgres:14-alpine
+    container_name: meal-planner-db-test
+    environment:
+      POSTGRES_USER: meal_planner
+      POSTGRES_PASSWORD: testpassword123
+      POSTGRES_DB: meal_planner_test_db
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    networks:
+      - meal-network-test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend - Test instance
+  backend-test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: meal-planner-backend-test
+    environment:
+      DATABASE_URL: postgresql://meal_planner:testpassword123@postgres-test:5432/meal_planner_test_db
+      SECRET_KEY: test-secret-key-for-development-only
+      JWT_EXPIRATION: 3600
+      REFRESH_TOKEN_EXPIRATION: 604800
+      GROCY_URL: ""
+      GROCY_API_KEY: ""
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
+      DEBUG: 1
+    ports:
+      - "8848:8000"
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    networks:
+      meal-network-test:
+        aliases:
+          - backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+
+  # React Frontend - Test instance
+  frontend-test:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: meal-planner-frontend-test
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://192.168.1.52:8848/api/v1
+    ports:
+      - "5054:3000"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js:ro
+      - ./frontend/postcss.config.js:/app/postcss.config.js:ro
+      - /app/node_modules
+    depends_on:
+      - backend-test
+    networks:
+      - meal-network-test
+    command: npm run dev -- --host 0.0.0.0 --port 3000
+
+volumes:
+  postgres_test_data:
+    driver: local
+
+networks:
+  meal-network-test:
+    driver: bridge

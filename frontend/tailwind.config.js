@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        brand: ["'Cormorant Garamond'", 'serif'],
+      },
       colors: {
         primary: {
           50: '#f0fdf4',

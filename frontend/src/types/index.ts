@@ -47,6 +47,7 @@ export interface HouseInvite {
 // Food types (from nutrition DB)
 export interface Food {
   id: string
+  house_id?: string  // null = global template
   name: string
   category: string
   calories?: number
@@ -251,7 +252,7 @@ export interface AuthTokens {
 }
 
 export interface LoginRequest {
-  email: string
+  identifier: string
   password: string
 }
 
@@ -261,11 +262,47 @@ export interface RegisterRequest {
   full_name: string
 }
 
+// Password Recovery types
+export interface RecoverySetupRequest {
+  recovery_pin: string
+  recovery_pin_confirm: string
+}
+
+export interface RecoveryUpdateRequest {
+  current_password: string
+  recovery_pin: string
+  recovery_pin_confirm: string
+}
+
+export interface RecoveryCheckResponse {
+  has_recovery: boolean
+}
+
+export interface RecoveryStatusResponse {
+  has_recovery_setup: boolean
+}
+
+export interface PasswordResetRequest {
+  email: string
+  recovery_pin: string
+  new_password: string
+  new_password_confirm: string
+}
+
+export interface FirstTimeResetRequest {
+  email: string
+  recovery_pin: string
+  recovery_pin_confirm: string
+  new_password: string
+  new_password_confirm: string
+}
+
 // Store types
 export type StoreSize = 'S' | 'M' | 'L' | 'XL' | 'XXL'
 
 export interface Store {
   id: string
+  house_id?: string  // null = global template
   chain?: string
   name: string
   address?: string
@@ -312,6 +349,9 @@ export interface ShoppingListItem {
   verified_unit?: string
   not_purchased: boolean
   not_purchased_at?: string
+  urgent: boolean
+  expiry_date?: string  // formato YYYY-MM-DD dal backend
+  category_id?: string
   created_at: string
   updated_at: string
 }
@@ -357,6 +397,8 @@ export interface ShoppingListCreate {
     quantity?: number
     unit?: string
     position?: number
+    category_id?: string
+    urgent?: boolean
   }[]
 }
 
@@ -367,6 +409,8 @@ export interface ShoppingListItemCreate {
   quantity?: number
   unit?: string
   position?: number
+  category_id?: string
+  urgent?: boolean
 }
 
 // BarcodeBuddy types
@@ -407,6 +451,20 @@ export interface ReceiptItem {
   updated_at: string
 }
 
+// Category types
+export interface Category {
+  id: string
+  house_id?: string  // null = global template
+  name: string
+  description?: string
+  icon?: string
+  color?: string  // Hex color code (e.g., #FF5733)
+  sort_order: number
+  created_by?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ReceiptImage {
   id: string
   receipt_id: string
@@ -430,6 +488,44 @@ export interface Receipt {
   error_message?: string
   images: ReceiptImage[]
   items: ReceiptItem[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CategoryCreate {
+  name: string
+  description?: string
+  icon?: string
+  color?: string
+  sort_order?: number
+}
+
+export interface CategoryUpdate {
+  name?: string
+  description?: string
+  icon?: string
+  color?: string
+  sort_order?: number
+}
+
+// Dispensa types
+export interface DispensaItem {
+  id: string
+  house_id: string
+  name: string
+  quantity: number
+  unit: string | null
+  category_id: string | null
+  expiry_date: string | null
+  barcode: string | null
+  grocy_product_id: number | null
+  grocy_product_name: string | null
+  source_list_id: string | null
+  source_item_id: string | null
+  added_by: string | null
+  is_consumed: boolean
+  consumed_at: string | null
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -475,6 +571,12 @@ export interface ReconciliationResponse {
     quantity: number
     unit?: string
   }[]
+}
+
+export interface DispensaStats {
+  total: number
+  expiring_soon: number
+  expired: number
 }
 
 // API response types

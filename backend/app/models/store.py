@@ -1,7 +1,7 @@
 """
 Store Model
 Represents physical stores where shopping is done.
-Stores are shared across all houses to enable shared ordering data.
+Each house has its own stores. Stores with house_id=null are global templates.
 """
 
 from sqlalchemy import Column, String, ForeignKey, Enum
@@ -26,9 +26,18 @@ class Store(BaseModel):
     Store Model
 
     Represents a physical store (supermarket, grocery store, etc.)
-    Shared across all houses - anyone can create and use stores.
+    Each house has its own stores. house_id=null means global template.
     """
     __tablename__ = "stores"
+
+    # House this store belongs to (null = global template)
+    house_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("houses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="House this store belongs to (null = global template)"
+    )
 
     # Chain name (e.g., "Esselunga", "Lidl", "Conad")
     chain = Column(String(255), nullable=True, index=True)

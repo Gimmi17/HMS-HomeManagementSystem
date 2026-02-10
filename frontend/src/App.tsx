@@ -1,8 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
-import { LoginForm, RegisterForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, ReceiptUpload, LLMSettings } from './pages'
+import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, ReceiptUpload, LLMSettings } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -50,6 +50,14 @@ function App() {
         element={
           <PublicRoute>
             <RegisterForm />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute>
+            <ForgotPasswordForm />
           </PublicRoute>
         }
       />
@@ -186,6 +194,16 @@ function App() {
         }
       />
       <Route
+        path="/settings/categories"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Categories />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/shopping-lists"
         element={
           <PrivateRoute>
@@ -261,6 +279,76 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <LLMSettings />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings/sql-console"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <SqlConsole />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Anagrafiche />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/users"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheUsers />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/houses"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheHouses />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/foods"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheFoods />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/products"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheProducts />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/barcode-sources"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheBarcodeSources />
             </MainLayout>
           </PrivateRoute>
         }

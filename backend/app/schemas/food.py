@@ -57,6 +57,49 @@ class FoodNutrients(BaseModel):
     vitamin_b12_g: Optional[float] = Field(None, ge=0, description="Vitamin B12 in grams per 100g")
 
 
+class FoodCreate(FoodBase, FoodNutrients):
+    """
+    Schema for creating a new food.
+    """
+    pass
+
+
+class FoodUpdate(BaseModel):
+    """
+    Schema for updating a food.
+    All fields are optional.
+    """
+    name: Optional[str] = Field(None, max_length=255, description="Food name")
+    category: Optional[str] = Field(None, max_length=100, description="Food category")
+
+    # Macronutrients
+    proteins_g: Optional[float] = Field(None, ge=0, description="Protein in grams per 100g")
+    fats_g: Optional[float] = Field(None, ge=0, description="Fat in grams per 100g")
+    carbs_g: Optional[float] = Field(None, ge=0, description="Carbohydrates in grams per 100g")
+    fibers_g: Optional[float] = Field(None, ge=0, description="Fiber in grams per 100g")
+
+    # Essential fatty acids
+    omega3_ala_g: Optional[float] = Field(None, ge=0)
+    omega6_g: Optional[float] = Field(None, ge=0)
+
+    # Minerals
+    calcium_g: Optional[float] = Field(None, ge=0)
+    iron_g: Optional[float] = Field(None, ge=0)
+    magnesium_g: Optional[float] = Field(None, ge=0)
+    potassium_g: Optional[float] = Field(None, ge=0)
+    zinc_g: Optional[float] = Field(None, ge=0)
+
+    # Vitamins
+    vitamin_a_g: Optional[float] = Field(None, ge=0)
+    vitamin_c_g: Optional[float] = Field(None, ge=0)
+    vitamin_d_g: Optional[float] = Field(None, ge=0)
+    vitamin_e_g: Optional[float] = Field(None, ge=0)
+    vitamin_k_g: Optional[float] = Field(None, ge=0)
+    vitamin_b6_g: Optional[float] = Field(None, ge=0)
+    folate_b9_g: Optional[float] = Field(None, ge=0)
+    vitamin_b12_g: Optional[float] = Field(None, ge=0)
+
+
 class FoodResponse(FoodBase, FoodNutrients):
     """
     Complete Food response schema.
@@ -68,6 +111,7 @@ class FoodResponse(FoodBase, FoodNutrients):
     Includes all food information: basic info + full nutritional data.
     """
     id: UUID = Field(..., description="Unique food identifier")
+    house_id: Optional[UUID] = Field(None, description="House this food belongs to (null = global template)")
     created_at: datetime = Field(..., description="When food was added to database")
 
     # Pydantic v2 configuration

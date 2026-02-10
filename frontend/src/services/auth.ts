@@ -1,5 +1,16 @@
 import api from './api'
-import type { AuthTokens, LoginRequest, RegisterRequest, User } from '@/types'
+import type {
+  AuthTokens,
+  LoginRequest,
+  RegisterRequest,
+  User,
+  RecoverySetupRequest,
+  RecoveryUpdateRequest,
+  RecoveryCheckResponse,
+  RecoveryStatusResponse,
+  PasswordResetRequest,
+  FirstTimeResetRequest
+} from '@/types'
 
 export const authService = {
   async login(data: LoginRequest): Promise<AuthTokens> {
@@ -38,6 +49,35 @@ export const authService = {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('current_house_id')
+  },
+
+  // Password Recovery methods
+  async checkRecovery(email: string): Promise<RecoveryCheckResponse> {
+    const response = await api.post('/auth/check-recovery', { email })
+    return response.data
+  },
+
+  async getRecoveryStatus(): Promise<RecoveryStatusResponse> {
+    const response = await api.get('/auth/recovery-status')
+    return response.data
+  },
+
+  async setupRecovery(data: RecoverySetupRequest): Promise<RecoveryStatusResponse> {
+    const response = await api.post('/auth/setup-recovery', data)
+    return response.data
+  },
+
+  async updateRecovery(data: RecoveryUpdateRequest): Promise<RecoveryStatusResponse> {
+    const response = await api.put('/auth/update-recovery', data)
+    return response.data
+  },
+
+  async resetPassword(data: PasswordResetRequest): Promise<void> {
+    await api.post('/auth/reset-password', data)
+  },
+
+  async firstTimeReset(data: FirstTimeResetRequest): Promise<void> {
+    await api.post('/auth/first-time-reset', data)
   },
 }
 

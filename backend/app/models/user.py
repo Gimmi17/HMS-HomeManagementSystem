@@ -12,7 +12,7 @@ Each user has:
 A user can belong to multiple houses with different roles (OWNER, MEMBER, GUEST).
 """
 
-from sqlalchemy import Column, String, JSON, Enum as SQLEnum
+from sqlalchemy import Column, String, JSON, Enum as SQLEnum, Boolean
 from sqlalchemy.orm import relationship
 import enum
 
@@ -124,6 +124,22 @@ class User(BaseModel):
         default=UserRole.BASIC,
         nullable=False,
         comment="User role (admin, basic)"
+    )
+
+    # Password Recovery fields
+    # Recovery PIN - 6 digit numeric PIN for password recovery (hashed)
+    recovery_pin_hash = Column(
+        String(255),
+        nullable=True,
+        comment="Bcrypt hashed 6-digit recovery PIN"
+    )
+
+    # Flag indicating if recovery is configured
+    has_recovery_setup = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether user has configured password recovery"
     )
 
     # Relationships

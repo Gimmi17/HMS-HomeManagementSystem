@@ -49,8 +49,14 @@ export function IngredientSearch({ onSelect }: IngredientSearchProps) {
     setIsLoading(true)
     debounceTimeout.current = setTimeout(async () => {
       try {
-        const foods = await foodsService.search(query)
-        setResults(foods)
+        const houseId = localStorage.getItem('current_house_id') || ''
+        if (!houseId) {
+          setResults([])
+          setIsLoading(false)
+          return
+        }
+        const response = await foodsService.search(houseId, query)
+        setResults(response.foods)
         setIsOpen(true)
       } catch (error) {
         console.error('Errore nella ricerca ingredienti:', error)

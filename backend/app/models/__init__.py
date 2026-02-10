@@ -25,6 +25,11 @@ from app.models.store import Store
 from app.models.product_catalog import ProductCatalog
 from app.models.error_log import ErrorLog
 from app.models.receipt import Receipt, ReceiptImage, ReceiptItem, ReceiptStatus, ReceiptItemMatchStatus
+from app.models.category import Category
+from app.models.dispensa import DispensaItem
+from app.models.product_nutrition import ProductNutrition
+from app.models.product_category_tag import ProductCategoryTag, product_category_association
+from app.models.barcode_source import BarcodeLookupSource
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -53,4 +58,10 @@ __all__ = [
     "ReceiptItem",
     "ReceiptStatus",
     "ReceiptItemMatchStatus",
+    "Category",
+    "DispensaItem",
+    "ProductNutrition",
+    "ProductCategoryTag",
+    "product_category_association",
+    "BarcodeLookupSource",
 ]

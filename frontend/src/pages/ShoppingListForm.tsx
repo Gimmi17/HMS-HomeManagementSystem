@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import storesService from '@/services/stores'
+import categoriesService from '@/services/categories'
 import { grocyHouseService } from '@/services/grocy'
-import type { ShoppingListItemCreate, GrocyProductSimple, Store } from '@/types'
+import productsService from '@/services/products'
+import type { ProductSuggestion } from '@/services/products'
+import type { ShoppingListItemCreate, GrocyProductSimple, Store, Category } from '@/types'
 
 interface ItemRow {
   id: string
@@ -13,6 +16,8 @@ interface ItemRow {
   grocyProductName?: string
   quantity: number
   unit: string
+  categoryId?: string
+  urgent?: boolean
   isNew?: boolean  // Track if item needs to be saved to backend
 }
 
@@ -36,6 +41,7 @@ export function ShoppingListForm() {
   const [listName, setListName] = useState('')
   const [storeId, setStoreId] = useState<string | undefined>()
   const [stores, setStores] = useState<Store[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [newStoreName, setNewStoreName] = useState('')
   const [showNewStoreInput, setShowNewStoreInput] = useState(false)
   const [items, setItems] = useState<ItemRow[]>([
@@ -70,18 +76,36 @@ export function ShoppingListForm() {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  // Load stores
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
+  const [activeAutocompleteId, setActiveAutocompleteId] = useState<string | null>(null)
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1)
+  const suggestTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autocompleteRef = useRef<HTMLDivElement | null>(null)
+
+  // Load stores and categories
   useEffect(() => {
+    if (!currentHouse?.id) return
+    const houseId = currentHouse.id
     const loadStores = async () => {
       try {
-        const response = await storesService.getAll()
+        const response = await storesService.getAll(houseId)
         setStores(response.stores)
       } catch (error) {
         console.error('Failed to load stores:', error)
       }
     }
+    const loadCategories = async () => {
+      try {
+        const response = await categoriesService.getAll(houseId)
+        setCategories(response.categories)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+      }
+    }
     loadStores()
-  }, [])
+    loadCategories()
+  }, [currentHouse?.id])
 
   // Check for recoverable not-purchased items when creating new list
   useEffect(() => {
@@ -135,6 +159,8 @@ export function ShoppingListForm() {
                 grocyProductName: item.grocy_product_name,
                 quantity: item.quantity,
                 unit: item.unit || 'pz',
+                categoryId: item.category_id,
+                urgent: item.urgent,
                 isNew: false,  // Items from backend are already saved
               }))
             )
@@ -205,12 +231,63 @@ export function ShoppingListForm() {
     }
   }, [focusItemId, items])
 
-  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number) => {
+  // Close autocomplete on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target as Node)) {
+        setActiveAutocompleteId(null)
+        setSuggestions([])
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Debounced autocomplete search
+  const searchSuggestions = useCallback((itemId: string, value: string) => {
+    if (suggestTimeoutRef.current) {
+      clearTimeout(suggestTimeoutRef.current)
+    }
+
+    if (value.length < 3 || !currentHouse?.id) {
+      setSuggestions([])
+      setActiveAutocompleteId(null)
+      return
+    }
+
+    suggestTimeoutRef.current = setTimeout(async () => {
+      try {
+        const result = await productsService.suggestProducts(currentHouse.id, value)
+        setSuggestions(result.suggestions)
+        setActiveAutocompleteId(result.suggestions.length > 0 ? itemId : null)
+        setSelectedSuggestionIndex(-1)
+      } catch (error) {
+        console.error('Autocomplete suggest failed:', error)
+        setSuggestions([])
+        setActiveAutocompleteId(null)
+      }
+    }, 300)
+  }, [currentHouse?.id])
+
+  const selectSuggestion = (itemId: string, suggestion: ProductSuggestion) => {
+    const displayName = suggestion.brand
+      ? `${suggestion.name} (${suggestion.brand})`
+      : suggestion.name
+    handleItemChange(itemId, 'name', displayName)
+    setSuggestions([])
+    setActiveAutocompleteId(null)
+    setSelectedSuggestionIndex(-1)
+  }
+
+  const handleItemChange = (itemId: string, field: keyof ItemRow, value: string | number | boolean | undefined) => {
     setItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item
       )
     )
+    if (field === 'name' && typeof value === 'string') {
+      searchSuggestions(itemId, value)
+    }
   }
 
   const addItem = (afterId?: string, shouldFocus = false) => {
@@ -239,6 +316,36 @@ export function ShoppingListForm() {
   }
 
   const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>, itemId: string) => {
+    // Autocomplete keyboard navigation
+    if (activeAutocompleteId === itemId && suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSuggestionIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        )
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSuggestionIndex((prev) =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        )
+        return
+      }
+      if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+        e.preventDefault()
+        selectSuggestion(itemId, suggestions[selectedSuggestionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSuggestions([])
+        setActiveAutocompleteId(null)
+        setSelectedSuggestionIndex(-1)
+        return
+      }
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault()
 
@@ -254,8 +361,10 @@ export function ShoppingListForm() {
               name: currentItem.name.trim(),
               grocy_product_id: currentItem.grocyProductId,
               grocy_product_name: currentItem.grocyProductName,
-              quantity: currentItem.quantity,
+              quantity: currentItem.quantity || 1,
               unit: currentItem.unit,
+              category_id: currentItem.categoryId,
+              urgent: currentItem.urgent,
             })
 
             // Create new item and update state in one operation
@@ -365,9 +474,11 @@ export function ShoppingListForm() {
         name: item.name.trim(),
         grocy_product_id: item.grocyProductId,
         grocy_product_name: item.grocyProductName,
-        quantity: item.quantity,
+        quantity: item.quantity || 1,
         unit: item.unit,
         position: index,
+        category_id: item.categoryId,
+        urgent: item.urgent,
       }))
 
       if (isEditing && id) {
@@ -400,8 +511,10 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
+              category_id: item.categoryId,
+              urgent: item.urgent,
             })
           } else {
             // Update existing item (preserves checked status from backend)
@@ -409,8 +522,10 @@ export function ShoppingListForm() {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
-              quantity: item.quantity,
+              quantity: item.quantity || 1,
               unit: item.unit,
+              category_id: item.categoryId,
+              urgent: item.urgent,
             })
           }
         }
@@ -471,7 +586,7 @@ export function ShoppingListForm() {
   }
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
@@ -498,7 +613,7 @@ export function ShoppingListForm() {
                 value={newStoreName}
                 onChange={(e) => setNewStoreName(e.target.value)}
                 placeholder="Nome negozio..."
-                className="input flex-1 text-sm"
+                className="input flex-1"
                 autoFocus
               />
               <button
@@ -506,7 +621,7 @@ export function ShoppingListForm() {
                 onClick={async () => {
                   if (newStoreName.trim()) {
                     try {
-                      const newStore = await storesService.create({ name: newStoreName.trim() })
+                      const newStore = await storesService.create(currentHouse!.id, { name: newStoreName.trim() })
                       setStores((prev) => [...prev, newStore])
                       setStoreId(newStore.id)
                       setNewStoreName('')
@@ -536,7 +651,7 @@ export function ShoppingListForm() {
               <select
                 value={storeId || ''}
                 onChange={(e) => setStoreId(e.target.value || undefined)}
-                className="input flex-1 text-sm"
+                className="input flex-1"
               >
                 <option value="">Nessun negozio</option>
                 {stores.map((store) => (
@@ -568,36 +683,75 @@ export function ShoppingListForm() {
                 <div className="flex-shrink-0 w-6 h-6 bg-primary-100 text-primary-700 rounded-full flex items-center justify-center text-xs font-medium">
                   {index + 1}
                 </div>
-                <input
-                  ref={(el) => { inputRefs.current[item.id] = el }}
-                  type="text"
-                  value={item.name}
-                  onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, item.id)}
-                  placeholder="Nome articolo..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-primary-500"
-                />
+                <div className="flex-1 relative" ref={activeAutocompleteId === item.id ? autocompleteRef : undefined}>
+                  <input
+                    ref={(el) => { inputRefs.current[item.id] = el }}
+                    type="text"
+                    value={item.name}
+                    onChange={(e) => handleItemChange(item.id, 'name', e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(e, item.id)}
+                    placeholder="Nome articolo..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-primary-500"
+                  />
+                  {activeAutocompleteId === item.id && suggestions.length > 0 && (
+                    <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {suggestions.map((suggestion, sIdx) => (
+                        <button
+                          key={suggestion.barcode}
+                          type="button"
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-primary-50 ${
+                            sIdx === selectedSuggestionIndex ? 'bg-primary-100 text-primary-800' : 'text-gray-700'
+                          }`}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectSuggestion(item.id, suggestion)
+                          }}
+                        >
+                          <span className="font-medium">{suggestion.name}</span>
+                          {suggestion.brand && (
+                            <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Quantity, Grocy button, actions */}
               <div className="flex items-center gap-2 ml-8">
                 <input
                   type="number"
-                  value={item.quantity}
-                  onChange={(e) => handleItemChange(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                  value={item.quantity || ''}
+                  onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value))}
                   min={1}
-                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-sm text-center"
+                  className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-base text-center"
                 />
                 <select
                   value={item.unit}
                   onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-sm bg-white"
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white"
                 >
                   <option value="pz">pz</option>
                   <option value="kg">kg</option>
                   <option value="g">g</option>
                   <option value="l">l</option>
                   <option value="ml">ml</option>
+                </select>
+
+                {/* Category selector */}
+                <select
+                  value={item.categoryId || ''}
+                  onChange={(e) => handleItemChange(item.id, 'categoryId', e.target.value || undefined)}
+                  className="w-24 px-2 py-1.5 border border-gray-300 rounded-md text-base bg-white truncate"
+                  title="Categoria"
+                >
+                  <option value="">Cat.</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                    </option>
+                  ))}
                 </select>
 
                 {/* Grocy selector button */}
@@ -613,6 +767,22 @@ export function ShoppingListForm() {
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </button>
+
+                {/* Urgent toggle */}
+                <button
+                  type="button"
+                  onClick={() => handleItemChange(item.id, 'urgent', !item.urgent)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    item.urgent
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                  title={item.urgent ? 'Rimuovi urgente' : 'Segna come urgente'}
+                >
+                  <svg className="w-5 h-5" fill={item.urgent ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </button>
 
@@ -639,12 +809,28 @@ export function ShoppingListForm() {
                 </button>
               </div>
 
-              {/* Grocy badge */}
-              {item.grocyProductId && (
-                <div className="ml-8">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
-                    Grocy: {item.grocyProductName}
-                  </span>
+              {/* Badges (Grocy + Category) */}
+              {(item.grocyProductId || item.categoryId) && (
+                <div className="ml-8 flex flex-wrap gap-1">
+                  {item.grocyProductId && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
+                      Grocy: {item.grocyProductName}
+                    </span>
+                  )}
+                  {item.categoryId && (() => {
+                    const cat = categories.find(c => c.id === item.categoryId)
+                    return cat ? (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium"
+                        style={{
+                          backgroundColor: cat.color ? `${cat.color}20` : '#E5E7EB',
+                          color: cat.color || '#374151'
+                        }}
+                      >
+                        {cat.icon} {cat.name}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
               )}
             </div>
@@ -664,16 +850,14 @@ export function ShoppingListForm() {
         </button>
       </div>
 
-      {/* Fixed save button */}
-      <div className="fixed bottom-20 sm:bottom-4 left-0 right-0 p-4 bg-white border-t border-gray-200 safe-area-bottom">
-        <button
-          type="button"
-          onClick={() => setShowSaveModal(true)}
-          className="btn btn-primary w-full text-sm"
-        >
-          Salva Lista
-        </button>
-      </div>
+      {/* Save button */}
+      <button
+        type="button"
+        onClick={() => setShowSaveModal(true)}
+        className="btn btn-primary w-full text-sm"
+      >
+        Salva Lista
+      </button>
 
       {/* Save Modal */}
       {showSaveModal && (
@@ -688,7 +872,7 @@ export function ShoppingListForm() {
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}
                 placeholder={getPlaceholderName()}
-                className="input w-full text-sm"
+                className="input w-full"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Lascia vuoto per generare automaticamente
@@ -704,7 +888,7 @@ export function ShoppingListForm() {
                     value={newStoreName}
                     onChange={(e) => setNewStoreName(e.target.value)}
                     placeholder="Nome negozio..."
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                     autoFocus
                   />
                   <button
@@ -712,7 +896,7 @@ export function ShoppingListForm() {
                     onClick={async () => {
                       if (newStoreName.trim()) {
                         try {
-                          const newStore = await storesService.create({ name: newStoreName.trim() })
+                          const newStore = await storesService.create(currentHouse!.id, { name: newStoreName.trim() })
                           setStores((prev) => [...prev, newStore])
                           setStoreId(newStore.id)
                           setNewStoreName('')
@@ -742,7 +926,7 @@ export function ShoppingListForm() {
                   <select
                     value={storeId || ''}
                     onChange={(e) => setStoreId(e.target.value || undefined)}
-                    className="input flex-1 text-sm"
+                    className="input flex-1"
                   >
                     <option value="">Nessun negozio</option>
                     {stores.map((store) => (
@@ -867,7 +1051,7 @@ export function ShoppingListForm() {
                 value={grocySearch}
                 onChange={(e) => setGrocySearch(e.target.value)}
                 placeholder="Cerca prodotto..."
-                className="input w-full text-sm"
+                className="input w-full"
                 autoFocus
               />
             </div>

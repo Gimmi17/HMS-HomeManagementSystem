@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, error_logs, admin, receipts, llm
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm
 
 
 # Create main v1 router
@@ -154,6 +154,17 @@ api_router.include_router(
 )
 
 
+# Include product nutrition endpoints
+# Endpoints: GET/POST/PUT/DELETE /product-nutrition
+# Detailed nutritional data from Open Food Facts API or manual entry
+# Requires authentication
+api_router.include_router(
+    product_nutrition.router,
+    # prefix is already defined in product_nutrition.router (/product-nutrition)
+    tags=["Product Nutrition"],
+)
+
+
 # Include error logs endpoints
 # Endpoints: GET /error-logs, GET /error-logs/stats, GET /error-logs/{id}, POST /error-logs/{id}/resolve
 # Error log management (admin only)
@@ -173,6 +184,40 @@ api_router.include_router(
     admin.router,
     # prefix is already defined in admin.router (/admin)
     tags=["Admin"],
+)
+
+
+# Include categories endpoints
+# Endpoints: POST/GET/PUT/DELETE /categories
+# Product category management (shared across all houses)
+# Requires authentication
+api_router.include_router(
+    categories.router,
+    # prefix is already defined in categories.router (/categories)
+    tags=["Categories"],
+)
+
+
+# Include dispensa endpoints
+# Endpoints: GET/POST /dispensa, GET /dispensa/stats, POST /dispensa/from-shopping-list
+# GET/PUT/DELETE /dispensa/{id}, POST /dispensa/{id}/consume, POST /dispensa/{id}/unconsume
+# Pantry management with consumption tracking and shopping list integration
+# Requires authentication
+api_router.include_router(
+    dispensa.router,
+    # prefix is already defined in dispensa.router (/dispensa)
+    tags=["Dispensa"],
+)
+
+
+# Include anagrafiche endpoints
+# Endpoints: CRUD for users, houses, foods, products
+# Master data management for admin purposes
+# Requires authentication
+api_router.include_router(
+    anagrafiche.router,
+    # prefix is already defined in anagrafiche.router (/anagrafiche)
+    tags=["Anagrafiche"],
 )
 
 

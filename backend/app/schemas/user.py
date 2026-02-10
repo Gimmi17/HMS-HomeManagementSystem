@@ -55,17 +55,18 @@ class LoginRequest(BaseModel):
     Schema for user login request.
 
     Used in POST /api/v1/auth/login endpoint.
+    Accepts either email or username (full_name) as identifier.
 
     Example:
         {
-            "email": "user@example.com",
+            "identifier": "user@example.com",
             "password": "SecurePass123!"
         }
     """
-    email: EmailStr = Field(
+    identifier: str = Field(
         ...,
-        description="User's email address",
-        examples=["user@example.com"]
+        description="User's email address or username",
+        examples=["user@example.com", "Gimmi"]
     )
     password: str = Field(
         ...,
@@ -262,4 +263,162 @@ class TokenPayload(BaseModel):
     type: str = Field(
         ...,
         description="Token type (access or refresh)"
+    )
+
+
+# ============================================================================
+# Password Recovery Schemas
+# ============================================================================
+
+class RecoverySetupRequest(BaseModel):
+    """
+    Schema for setting up password recovery PIN.
+
+    Used in POST /api/v1/auth/setup-recovery endpoint.
+
+    Example:
+        {
+            "recovery_pin": "123456",
+            "recovery_pin_confirm": "123456"
+        }
+    """
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit numeric recovery PIN",
+        examples=["123456"]
+    )
+    recovery_pin_confirm: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Confirm recovery PIN (must match)",
+        examples=["123456"]
+    )
+
+
+class RecoveryUpdateRequest(BaseModel):
+    """
+    Schema for updating password recovery PIN (requires current password).
+
+    Used in PUT /api/v1/auth/update-recovery endpoint.
+    """
+    current_password: str = Field(
+        ...,
+        description="Current password for verification"
+    )
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="New 6-digit recovery PIN"
+    )
+    recovery_pin_confirm: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Confirm new recovery PIN"
+    )
+
+
+class RecoveryCheckRequest(BaseModel):
+    """
+    Schema for checking if user has recovery configured.
+
+    Used in POST /api/v1/auth/check-recovery endpoint.
+    """
+    email: EmailStr = Field(
+        ...,
+        description="Email address to check recovery status for"
+    )
+
+
+class RecoveryCheckResponse(BaseModel):
+    """
+    Schema for recovery check response.
+    """
+    has_recovery: bool = Field(
+        ...,
+        description="Whether user has recovery configured"
+    )
+
+
+class PasswordResetRequest(BaseModel):
+    """
+    Schema for resetting password using recovery PIN.
+
+    Used in POST /api/v1/auth/reset-password endpoint.
+    """
+    email: EmailStr = Field(
+        ...,
+        description="User's email address"
+    )
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit recovery PIN"
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        description="New password (minimum 8 characters)"
+    )
+    new_password_confirm: str = Field(
+        ...,
+        min_length=8,
+        description="Confirm new password"
+    )
+
+
+class FirstTimeResetRequest(BaseModel):
+    """
+    Schema for first-time password reset (users without recovery configured).
+
+    Sets up recovery PIN and changes password in one step.
+    Only works for users who have NOT configured recovery yet.
+    """
+    email: EmailStr = Field(
+        ...,
+        description="User's email address"
+    )
+    recovery_pin: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="New 6-digit recovery PIN to configure"
+    )
+    recovery_pin_confirm: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="Confirm recovery PIN"
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        description="New password (minimum 8 characters)"
+    )
+    new_password_confirm: str = Field(
+        ...,
+        min_length=8,
+        description="Confirm new password"
+    )
+
+
+class RecoveryStatusResponse(BaseModel):
+    """
+    Schema for recovery status response.
+    """
+    has_recovery_setup: bool = Field(
+        ...,
+        description="Whether user has configured password recovery"
     )

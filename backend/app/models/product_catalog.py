@@ -2,10 +2,13 @@
 Product Catalog Model
 Local cache of product data from Open Food Facts and other sources.
 
+Each house has its own product catalog. Products with house_id=null are global templates.
 Stores product information for faster lookups and offline access.
 """
 
-from sqlalchemy import Column, String, Text, Float, JSON
+from sqlalchemy import Column, String, Text, Float, JSON, ForeignKey, Boolean
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
 
@@ -15,11 +18,21 @@ class ProductCatalog(BaseModel):
 
     Local cache of product data scanned during load verification.
     Data is enriched from Open Food Facts API.
+    Each house has its own products. house_id=null means global template.
     """
     __tablename__ = "product_catalog"
 
-    # Primary identifier - barcode
-    barcode = Column(String(100), unique=True, nullable=False, index=True)
+    # House this product belongs to (null = global template)
+    house_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("houses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="House this product belongs to (null = global template)"
+    )
+
+    # Primary identifier - barcode (same barcode can exist in different houses)
+    barcode = Column(String(100), nullable=False, index=True)
 
     # Basic info
     name = Column(String(255), nullable=True)
@@ -55,6 +68,25 @@ class ProductCatalog(BaseModel):
 
     # Raw data from API (for future use)
     raw_data = Column(JSON, nullable=True)
+
+    # Local category (assigned by user during load verification)
+    category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Local category assigned by user"
+    )
+
+    # Soft delete flag
+    cancelled = Column(Boolean, default=False, nullable=False, index=True)
+
+    # Relationship to normalized category tags
+    category_tags = relationship(
+        "ProductCategoryTag",
+        secondary="product_category_associations",
+        back_populates="products"
+    )
 
     def __repr__(self):
         return f"<ProductCatalog(barcode={self.barcode}, name='{self.name}')>"

@@ -5,121 +5,85 @@ import productsService from '@/services/products'
 import { grocyHouseService } from '@/services/grocy'
 import BarcodeScanner from '@/components/BarcodeScanner'
 import { useHouse } from '@/context/HouseContext'
-import type { ShoppingList, ShoppingListItem, GrocyBulkAddItem, GrocyBulkAddStockResponse } from '@/types'
+import categoriesService from '@/services/categories'
+import dispensaService from '@/services/dispensa'
+import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
+import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
+import type { ShoppingList, ShoppingListItem, GrocyBulkAddItem, GrocyBulkAddStockResponse, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
 
-interface QuantityModalProps {
-  item?: ShoppingListItem | null
-  barcode: string
-  productName?: string
-  isExtraItem?: boolean
-  onConfirm: (quantity: number, isWeight: boolean) => void
-  onCancel: () => void
-}
-
-interface HardwareScannerModalProps {
-  itemName?: string
-  isExtraItem?: boolean
-  onScan: (barcode: string) => void
-  onCancel: () => void
-}
-
-function HardwareScannerModal({ itemName, isExtraItem, onScan, onCancel }: HardwareScannerModalProps) {
-  const [barcode, setBarcode] = useState('')
-  const inputRef = React.useRef<HTMLInputElement>(null)
-
-  // Auto-focus on mount
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  const handleSubmit = () => {
-    if (barcode.trim()) {
-      onScan(barcode.trim())
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && barcode.trim()) {
-      e.preventDefault()
-      onScan(barcode.trim())
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b">
-          <h3 className="font-semibold text-lg">
-            {isExtraItem ? 'Aggiungi Prodotto Extra' : 'Scansiona Barcode'}
-          </h3>
-          {itemName && <p className="text-sm text-gray-500 mt-1">{itemName}</p>}
-          {isExtraItem && <p className="text-sm text-green-600 mt-1">Scansiona un prodotto non in lista</p>}
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Usa lo scanner hardware
-            </label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Scansiona o inserisci barcode..."
-              className="w-full px-4 py-3 border rounded-lg text-lg font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              autoFocus
-              autoComplete="off"
-            />
-            <p className="text-xs text-gray-400 mt-2">
-              Premi Invio o clicca Avanti per confermare
-            </p>
-          </div>
-        </div>
-
-        <div className="p-4 border-t flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!barcode.trim()}
-            className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-              barcode.trim()
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            Avanti
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-interface EditItemModalProps {
+interface VerificationModalProps {
   item: ShoppingListItem
-  onSave: (name: string, quantity: number, unit: string) => void
+  categories: Category[]
+  onConfirm: (data: {
+    quantity: number
+    isWeight: boolean
+    expiryDate?: string | null
+    categoryId?: string
+    barcode?: string
+    productName?: string
+  }) => void
   onCancel: () => void
+  onMarkNotPurchased: () => void
 }
 
-function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
-  const [name, setName] = useState(item.grocy_product_name || item.name)
-  const [quantity, setQuantity] = useState(item.verified_quantity ?? item.quantity)
-  const [quantityText, setQuantityText] = useState(String(item.verified_quantity ?? item.quantity).replace('.', ','))
-  const [isWeight, setIsWeight] = useState(
-    item.verified_unit === 'kg' || item.unit === 'kg' || item.unit === 'g'
-  )
-  const inputRef = React.useRef<HTMLInputElement>(null)
+function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPurchased }: VerificationModalProps) {
+  const [quantity, setQuantity] = useState(item.quantity || 1)
+  const [quantityText, setQuantityText] = useState(String(item.quantity || 1))
+  const [isWeight, setIsWeight] = useState(item.unit === 'kg' || item.unit === 'g')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
+  const [catalogCategoryId, setCatalogCategoryId] = useState<string | undefined>(undefined)
+  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
+  const [productName, setProductName] = useState<string | null>(null)
+  const [sourceName, setSourceName] = useState<string | null>(null)
+  const [showPhotoScanner, setShowPhotoScanner] = useState(false)
+  const [isLookingUp, setIsLookingUp] = useState(false)
 
-  // Parse quantity from text (handles both comma and dot as decimal separator)
+  // Expiry date state
+  const formatDateForDisplay = (dateStr: string | undefined): string => {
+    if (!dateStr) return ''
+    const [year, month, day] = dateStr.split('-')
+    return `${day}/${month}/${year}`
+  }
+  const [expiryDateInput, setExpiryDateInput] = useState(
+    item.expiry_date ? formatDateForDisplay(item.expiry_date) : ''
+  )
+
+  // Parse expiry date from various formats to YYYY-MM-DD
+  const parseExpiryDate = (input: string): string | null => {
+    if (!input.trim()) return null
+
+    // Try compact format: DDMMYY or DDMMYYYY
+    const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
+    if (compactMatch) {
+      const day = compactMatch[1]
+      const month = compactMatch[2]
+      const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
+      const d = parseInt(day, 10)
+      const m = parseInt(month, 10)
+      const y = parseInt(year, 10)
+      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+      return `${year}-${month}-${day}`
+    }
+
+    // Try format with separators
+    const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
+    if (separatorMatch) {
+      const day = separatorMatch[1].padStart(2, '0')
+      const month = separatorMatch[2].padStart(2, '0')
+      const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
+      const d = parseInt(day, 10)
+      const m = parseInt(month, 10)
+      const y = parseInt(year, 10)
+      if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
+      return `${year}-${month}-${day}`
+    }
+
+    return null
+  }
+
+  // Parse quantity from text
   const parseQuantity = (text: string): number => {
     const normalized = text.replace(',', '.')
     const parsed = parseFloat(normalized)
@@ -127,50 +91,91 @@ function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
   }
 
   const handleQuantityChange = (text: string) => {
-    // Allow only numbers, comma, and dot
     const filtered = text.replace(/[^0-9.,]/g, '')
     setQuantityText(filtered)
     setQuantity(parseQuantity(filtered))
   }
 
-  useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
-  }, [])
-
-  const handleSave = () => {
-    if (name.trim()) {
-      onSave(name.trim(), quantity, isWeight ? 'kg' : 'pz')
+  // Lookup barcode when it changes
+  const lookupBarcode = async (barcode: string) => {
+    if (!barcode.trim()) {
+      setProductName(null)
+      setSourceName(null)
+      return
     }
+
+    setIsLookingUp(true)
+    try {
+      const result = await productsService.lookupBarcode(barcode)
+      if (result.found) {
+        const name = result.brand ? `${result.product_name} (${result.brand})` : result.product_name
+        setProductName(name || null)
+        setSourceName(result.source_name || null)
+      } else {
+        setProductName(null)
+        setSourceName(null)
+      }
+      // Pre-select category from catalog if not already set by user
+      if (result.category_id && !selectedCategoryId) {
+        setSelectedCategoryId(result.category_id)
+        setCatalogCategoryId(result.category_id)
+      }
+    } catch {
+      setProductName(null)
+    } finally {
+      setIsLookingUp(false)
+    }
+  }
+
+  // Handle barcode from photo scanner
+  const handlePhotoBarcodeScanned = (barcode: string) => {
+    setBarcodeInput(barcode)
+    setShowPhotoScanner(false)
+    lookupBarcode(barcode)
+  }
+
+  // Handle manual barcode input on Enter
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      lookupBarcode(barcodeInput)
+    }
+  }
+
+  const handleConfirm = () => {
+    const parsedExpiry = expiryDateInput.trim() ? parseExpiryDate(expiryDateInput.trim()) : null
+    onConfirm({
+      quantity,
+      isWeight,
+      expiryDate: parsedExpiry,
+      categoryId: selectedCategoryId,
+      barcode: barcodeInput.trim() || undefined,
+      productName: productName || undefined,
+    })
+  }
+
+  // Show photo scanner
+  if (showPhotoScanner) {
+    return (
+      <PhotoBarcodeScanner
+        onScan={handlePhotoBarcodeScanned}
+        onClose={() => setShowPhotoScanner(false)}
+      />
+    )
   }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b">
-          <h3 className="font-semibold text-lg">Modifica Prodotto</h3>
-          {item.scanned_barcode && (
-            <p className="text-xs text-gray-500 mt-1">Barcode: {item.scanned_barcode}</p>
-          )}
+          <h3 className="font-semibold text-lg">{item.name}</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Richiesto: {item.quantity} {item.unit}
+          </p>
         </div>
 
         <div className="p-4 space-y-4">
-          {/* Product Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nome prodotto
-            </label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Inserisci nome prodotto..."
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
-          {/* Unit type */}
+          {/* Quantity type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Tipo di misura
@@ -230,135 +235,107 @@ function EditItemModal({ item, onSave, onCancel }: EditItemModalProps) {
               </button>
             </div>
           </div>
-        </div>
 
-        <div className="p-4 border-t flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim()}
-            className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
-              name.trim()
-                ? 'bg-blue-500 text-white hover:bg-blue-600'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            Salva
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function QuantityModal({ item, barcode, productName, isExtraItem, onConfirm, onCancel }: QuantityModalProps) {
-  const [quantity, setQuantity] = useState(item?.quantity || 1)
-  const [quantityText, setQuantityText] = useState(String(item?.quantity || 1))
-  const [isWeight, setIsWeight] = useState(item?.unit === 'kg' || item?.unit === 'g')
-
-  // Parse quantity from text (handles both comma and dot as decimal separator)
-  const parseQuantity = (text: string): number => {
-    const normalized = text.replace(',', '.')
-    const parsed = parseFloat(normalized)
-    return isNaN(parsed) ? 0 : parsed
-  }
-
-  const handleQuantityChange = (text: string) => {
-    // Allow only numbers, comma, and dot
-    const filtered = text.replace(/[^0-9.,]/g, '')
-    setQuantityText(filtered)
-    setQuantity(parseQuantity(filtered))
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b">
-          <h3 className="font-semibold text-lg">
-            {isExtraItem ? 'Prodotto Extra' : item?.name || 'Prodotto'}
-          </h3>
-          {productName && <p className="text-sm text-green-600 mt-1">{productName}</p>}
-          <p className="text-xs text-gray-500 mt-1">Barcode: {barcode}</p>
-        </div>
-
-        <div className="p-4 space-y-4">
+          {/* Barcode */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tipo di misura
+              Barcode {item.scanned_barcode ? '(conferma)' : '(opzionale)'}
             </label>
             <div className="flex gap-2">
-              <button
-                onClick={() => setIsWeight(false)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Pezzi (n°)
-              </button>
-              <button
-                onClick={() => setIsWeight(true)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isWeight ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Peso (kg)
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Quantità {isWeight ? '(kg)' : '(pezzi)'}
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  const newQty = Math.max(isWeight ? 0.1 : 1, quantity - (isWeight ? 0.1 : 1))
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
-              >
-                -
-              </button>
               <input
                 type="text"
-                inputMode="decimal"
-                value={quantityText}
-                onChange={(e) => handleQuantityChange(e.target.value)}
-                className="flex-1 text-center text-2xl font-bold py-2 border rounded-lg"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                onKeyDown={handleBarcodeKeyDown}
+                placeholder="Inserisci o scansiona..."
+                className="flex-1 px-4 py-3 border rounded-lg font-mono focus:ring-2 focus:ring-blue-500"
               />
               <button
-                onClick={() => {
-                  const newQty = quantity + (isWeight ? 0.1 : 1)
-                  setQuantity(newQty)
-                  setQuantityText(String(Math.round(newQty * 10) / 10).replace('.', ','))
-                }}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-xl font-bold"
+                onClick={() => setShowPhotoScanner(true)}
+                className="px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                title="Scatta foto per leggere barcode"
               >
-                +
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
               </button>
             </div>
+            {isLookingUp && (
+              <p className="text-xs text-gray-400 mt-1">Cercando prodotto...</p>
+            )}
+            {productName && (
+              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                <p className="text-xs text-green-600">{productName}</p>
+                {sourceName && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
+                    da {sourceName}
+                  </span>
+                )}
+              </div>
+            )}
+            {barcodeInput && !productName && !isLookingUp && (
+              <p className="text-xs text-gray-400 mt-1">Prodotto non trovato in anagrafica</p>
+            )}
           </div>
+
+          {/* Expiry date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Data Scadenza {item.expiry_date ? '(conferma)' : '(opzionale)'}
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={expiryDateInput}
+              onChange={(e) => setExpiryDateInput(e.target.value)}
+              placeholder="DDMMYY (es: 150226)"
+              className="w-full px-4 py-3 border rounded-lg text-center text-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            />
+          </div>
+
+          {/* Category */}
+          {categories.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Categoria {catalogCategoryId ? '(da catalogo)' : item.category_id ? '(conferma)' : '(opzionale)'}
+              </label>
+              <select
+                value={selectedCategoryId || ''}
+                onChange={(e) => setSelectedCategoryId(e.target.value || undefined)}
+                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">Seleziona categoria...</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
-        <div className="p-4 border-t flex gap-3">
+        <div className="p-4 border-t space-y-2">
+          <div className="flex gap-3">
+            <button
+              onClick={onCancel}
+              className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+            >
+              Annulla
+            </button>
+            <button
+              onClick={handleConfirm}
+              className="flex-1 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600"
+            >
+              Verifica
+            </button>
+          </div>
           <button
-            onClick={onCancel}
-            className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+            onClick={onMarkNotPurchased}
+            className="w-full py-2.5 rounded-lg bg-red-100 text-red-700 font-medium hover:bg-red-200 text-sm"
           >
-            Annulla
-          </button>
-          <button
-            onClick={() => onConfirm(quantity, isWeight)}
-            className="flex-1 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600"
-          >
-            Conferma
+            Non Acquistato
           </button>
         </div>
       </div>
@@ -369,7 +346,6 @@ function QuantityModal({ item, barcode, productName, isExtraItem, onConfirm, onC
 function getItemState(item: ShoppingListItem): VerificationState {
   if (item.not_purchased) return 'not_purchased'
   if (!item.verified_at) return 'pending'
-  // Check if we have product info (grocy_product_name indicates we found product data)
   if (item.grocy_product_name) return 'verified_with_info'
   return 'verified_no_info'
 }
@@ -387,11 +363,7 @@ export function LoadVerification() {
 
   const [list, setList] = useState<ShoppingList | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [showScanner, setShowScanner] = useState(false)
-  const [scanningItem, setScanningItem] = useState<ShoppingListItem | null>(null)
-  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null)
-  const [scannedProductName, setScannedProductName] = useState<string | null>(null)
-  const [showQuantityModal, setShowQuantityModal] = useState(false)
+  const [verifyingItem, setVerifyingItem] = useState<ShoppingListItem | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [hardwareScannerMode, setHardwareScannerMode] = useState(false)
   const [showHardwareScanner, setShowHardwareScanner] = useState(false)
@@ -402,6 +374,8 @@ export function LoadVerification() {
   const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const { currentHouse } = useHouse()
+  const [categories, setCategories] = useState<Category[]>([])
+
 
   // Initial load
   useEffect(() => {
@@ -428,9 +402,24 @@ export function LoadVerification() {
     fetchList()
   }, [id])
 
+  // Load categories
+  useEffect(() => {
+    const loadCategories = async () => {
+      const houseId = localStorage.getItem('current_house_id') || ''
+      if (!houseId) return
+      try {
+        const response = await categoriesService.getAll(houseId)
+        setCategories(response.categories)
+      } catch (error) {
+        console.error('Failed to load categories:', error)
+      }
+    }
+    loadCategories()
+  }, [])
+
   // Live polling
   useEffect(() => {
-    if (!id || isLoading || showScanner || showQuantityModal || showHardwareScanner) return
+    if (!id || isLoading || verifyingItem || editingItem) return
 
     const pollInterval = setInterval(async () => {
       try {
@@ -442,7 +431,7 @@ export function LoadVerification() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [id, isLoading, showScanner, showQuantityModal, showHardwareScanner])
+  }, [id, isLoading, verifyingItem, editingItem])
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
@@ -452,146 +441,84 @@ export function LoadVerification() {
   const handleItemClick = (item: ShoppingListItem) => {
     const state = getItemState(item)
     if (state === 'pending') {
-      setScanningItem(item)
-      if (hardwareScannerMode) {
-        setShowHardwareScanner(true)
-      } else {
-        setShowScanner(true)
-      }
+      setVerifyingItem(item)
     }
   }
 
-  const handleHardwareScan = async (barcode: string) => {
-    setShowHardwareScanner(false)
-    // Use the same flow as camera scanner
-    await handleBarcodeScan(barcode)
-  }
+  const handleVerificationConfirm = async (data: {
+    quantity: number
+    isWeight: boolean
+    expiryDate?: string | null
+    categoryId?: string
+    barcode?: string
+    productName?: string
+  }) => {
+    if (!list || !verifyingItem) return
 
-  const handleStartExtraScanning = () => {
-    setIsAddingExtra(true)
-    setScanningItem(null) // No item selected, we're adding new ones
-    if (hardwareScannerMode) {
-      setShowHardwareScanner(true)
-    } else {
-      setShowScanner(true)
-    }
-  }
-
-  const handleStopExtraMode = () => {
-    setAddingExtraMode(false)
-    setIsAddingExtra(false)
-  }
-
-  const handleBarcodeScan = async (barcode: string) => {
-    setShowScanner(false)
-    setScannedBarcode(barcode)
-
-    // Look up product info
-    try {
-      const result = await productsService.lookupBarcode(barcode)
-      if (result.found) {
-        const name = result.brand ? `${result.product_name} (${result.brand})` : result.product_name
-        setScannedProductName(name || null)
-      } else {
-        setScannedProductName(null)
-      }
-    } catch {
-      setScannedProductName(null)
-    }
-
-    setShowQuantityModal(true)
-  }
-
-  const handleQuantityConfirm = async (quantity: number, isWeight: boolean) => {
-    if (!list || !scannedBarcode) return
-
-    setShowQuantityModal(false)
+    setVerifyingItem(null)
 
     try {
-      if (isAddingExtra) {
-        // Adding extra item (not originally on the list)
-        await shoppingListsService.addExtraItem(
-          list.id,
-          scannedBarcode,
-          quantity,
-          isWeight ? 'kg' : 'pz',
-          scannedProductName || undefined
-        )
-
-        showToast(
-          scannedProductName
-            ? `Aggiunto: ${scannedProductName}`
-            : 'Prodotto extra aggiunto',
-          'success'
-        )
-
-        // Refresh list
-        const updatedList = await shoppingListsService.getById(list.id)
-        setList(updatedList)
-
-        // Reset state and reopen scanner if still in extra mode
-        setScannedBarcode(null)
-        setScannedProductName(null)
-
-        if (addingExtraMode) {
-          // Continue scanning - reopen scanner after a short delay
-          setTimeout(() => {
-            if (hardwareScannerMode) {
-              setShowHardwareScanner(true)
-            } else {
-              setShowScanner(true)
-            }
-          }, 300)
-        } else {
-          setIsAddingExtra(false)
-        }
-      } else {
-        // Regular item verification
-        if (!scanningItem) return
-
+      // If barcode provided, verify with it
+      if (data.barcode) {
         await shoppingListsService.verifyItemWithQuantity(
           list.id,
-          scanningItem.id,
-          scannedBarcode,
-          quantity,
-          isWeight ? 'kg' : 'pz',
-          scannedProductName || undefined
+          verifyingItem.id,
+          data.barcode,
+          data.quantity,
+          data.isWeight ? 'kg' : 'pz',
+          data.productName
         )
-
-        // Refresh list
-        const updatedList = await shoppingListsService.getById(list.id)
-        setList(updatedList)
-
-        showToast(
-          scannedProductName
-            ? `Verificato: ${scannedProductName}`
-            : 'Articolo verificato (prodotto non in anagrafica)',
-          'success'
+      } else {
+        // Verify without barcode (just quantity)
+        await shoppingListsService.verifyItemWithQuantity(
+          list.id,
+          verifyingItem.id,
+          '', // empty barcode
+          data.quantity,
+          data.isWeight ? 'kg' : 'pz',
+          undefined
         )
+      }
 
-        // Check if all items are verified
-        const allVerified = updatedList.items.every((item) => item.verified_at)
-        if (allVerified && !addingExtraMode) {
-          await shoppingListsService.update(list.id, { verification_status: 'completed' })
-          showToast('Controllo carico completato!', 'success')
-        }
+      // Update expiry date and category if provided
+      const updateData: { expiry_date?: string; category_id?: string } = {}
+      if (data.expiryDate) {
+        updateData.expiry_date = data.expiryDate
+      }
+      if (data.categoryId) {
+        updateData.category_id = data.categoryId
+      }
+      if (Object.keys(updateData).length > 0) {
+        await shoppingListsService.updateItem(list.id, verifyingItem.id, updateData)
+      }
 
-        setScanningItem(null)
-        setScannedBarcode(null)
-        setScannedProductName(null)
+      // Refresh list
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
+
+      showToast(
+        data.productName
+          ? `Verificato: ${data.productName}`
+          : 'Articolo verificato',
+        'success'
+      )
+
+      // Check if all items are verified
+      const allVerified = updatedList.items.every((item) => item.verified_at)
+      if (allVerified) {
+        await shoppingListsService.update(list.id, { verification_status: 'completed' })
+        showToast('Controllo carico completato!', 'success')
       }
     } catch (error) {
-      console.error('Failed to process item:', error)
-      showToast('Errore durante l\'operazione. Riprova.', 'error')
-      setIsAddingExtra(false)
-      setScanningItem(null)
-      setScannedBarcode(null)
-      setScannedProductName(null)
+      console.error('Failed to verify item:', error)
+      showToast('Errore durante la verifica. Riprova.', 'error')
     }
   }
 
   const handleMarkNotPurchased = async (item: ShoppingListItem) => {
     if (!list) return
+
+    setVerifyingItem(null)
 
     try {
       await shoppingListsService.markNotPurchased(list.id, item.id)
@@ -621,6 +548,10 @@ export function LoadVerification() {
     }
   }
 
+  // Dispensa dialog state
+  const [showDispensaDialog, setShowDispensaDialog] = useState(false)
+  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
+
   const handleCompleteVerification = async () => {
     if (!list) return
 
@@ -634,7 +565,6 @@ export function LoadVerification() {
     }
 
     try {
-      // Mark verification as completed AND list as completed
       await shoppingListsService.update(list.id, {
         verification_status: 'completed',
         status: 'completed'
@@ -649,8 +579,8 @@ export function LoadVerification() {
         // Show Grocy sync modal
         setShowGrocySyncModal(true)
       } else {
-        showToast('Controllo carico completato!', 'success')
-        navigate('/shopping-lists')
+        // Show dispensa dialog instead of alert
+        setShowDispensaDialog(true)
       }
     } catch (error) {
       console.error('Failed to complete verification:', error)
@@ -705,26 +635,75 @@ export function LoadVerification() {
     navigate('/shopping-lists')
   }
 
+  const handleSendToDispensa = async () => {
+    if (!list) return
+    const houseId = localStorage.getItem('current_house_id') || ''
+    if (!houseId) {
+      navigate('/shopping-lists')
+      return
+    }
+
+    setIsSendingToDispensa(true)
+    try {
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id)
+      showToast(`${result.count} articoli inviati alla Dispensa!`, 'success')
+      setTimeout(() => navigate('/shopping-lists'), 1500)
+    } catch (error) {
+      console.error('Failed to send to dispensa:', error)
+      showToast('Errore nell\'invio alla Dispensa', 'error')
+      setTimeout(() => navigate('/shopping-lists'), 1500)
+    } finally {
+      setIsSendingToDispensa(false)
+      setShowDispensaDialog(false)
+    }
+  }
+
+  const handleSkipDispensa = () => {
+    setShowDispensaDialog(false)
+    navigate('/shopping-lists')
+  }
+
   const handleEditItem = (item: ShoppingListItem) => {
-    // Only allow editing verified items (especially those without product info)
     const state = getItemState(item)
     if (state === 'verified_no_info' || state === 'verified_with_info') {
       setEditingItem(item)
     }
   }
 
-  const handleSaveEdit = async (name: string, quantity: number, unit: string) => {
+  const handleSaveEdit = async (data: ItemDetailModalData) => {
     if (!list || !editingItem) return
 
     try {
-      await shoppingListsService.updateItem(list.id, editingItem.id, {
-        name: name,
-        grocy_product_name: name,
-        verified_quantity: quantity,
-        verified_unit: unit,
-      })
+      // Only update grocy_product_name if it was already set (from API lookup)
+      // This prevents manual edits from changing the item to "verified_with_info" (green)
+      const updateData: Partial<ShoppingListItem> = {
+        name: data.name,
+        verified_quantity: data.quantity,
+        verified_unit: data.unit,
+      }
 
-      // Refresh list
+      // Only update grocy_product_name if item already had it (was found via API)
+      if (editingItem.grocy_product_name) {
+        updateData.grocy_product_name = data.name
+      }
+
+      // Add expiry date if provided
+      if (data.expiryDate) {
+        updateData.expiry_date = data.expiryDate
+      }
+
+      // Add category if provided
+      if (data.categoryId) {
+        updateData.category_id = data.categoryId
+      }
+
+      // Add barcode if provided
+      if (data.barcode) {
+        updateData.scanned_barcode = data.barcode
+      }
+
+      await shoppingListsService.updateItem(list.id, editingItem.id, updateData)
+
       const updatedList = await shoppingListsService.getById(list.id)
       setList(updatedList)
       setEditingItem(null)
@@ -738,14 +717,12 @@ export function LoadVerification() {
   const handleDeleteItem = async (item: ShoppingListItem) => {
     if (!list) return
 
-    // Confirm deletion
-    const itemName = item.grocy_product_name || item.name
-    if (!confirm(`Eliminare "${itemName}"?`)) return
+    if (!confirm(`Eliminare "${item.grocy_product_name || item.name}"?`)) {
+      return
+    }
 
     try {
       await shoppingListsService.deleteItem(list.id, item.id)
-
-      // Refresh list
       const updatedList = await shoppingListsService.getById(list.id)
       setList(updatedList)
       showToast('Articolo eliminato', 'success')
@@ -783,116 +760,33 @@ export function LoadVerification() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={handlePause}
+          <Link
+            to="/shopping-lists"
             className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-          </button>
+          </Link>
           <div>
             <h1 className="text-lg font-bold text-gray-900">Controllo Carico</h1>
             <p className="text-xs text-gray-500">{list.name}</p>
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="text-lg font-bold text-blue-600">{verifiedCount}/{totalCount}</div>
-          {notPurchasedCount > 0 && (
-            <div className="text-xs text-red-500">{notPurchasedCount} non acquistati</div>
-          )}
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-blue-500 transition-all"
-          style={{ width: `${totalCount > 0 ? (verifiedCount / totalCount) * 100 : 0}%` }}
-        />
-      </div>
-
-      {/* Complete Verification Button */}
-      <button
-        onClick={handleCompleteVerification}
-        className="w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 bg-green-600 text-white hover:bg-green-700"
-      >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-        Completa Controllo Carico
-      </button>
-
-      {/* Hardware Scanner Mode Toggle */}
-      <button
-        onClick={() => setHardwareScannerMode(!hardwareScannerMode)}
-        className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors ${
-          hardwareScannerMode
-            ? 'bg-purple-500 text-white'
-            : 'bg-gray-100 text-gray-700 border border-gray-300'
-        }`}
-      >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-        </svg>
-        {hardwareScannerMode ? 'Scanner Hardware Attivo' : 'Usa Scanner Hardware'}
-      </button>
-
-      {/* Add Extra Products Button */}
-      {addingExtraMode ? (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
-            onClick={handleStartExtraScanning}
-            className="flex-1 py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 bg-green-500 text-white"
+            onClick={handlePause}
+            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Scansiona Prodotto Extra
+            Pausa
           </button>
           <button
-            onClick={handleStopExtraMode}
-            className="py-3 px-4 rounded-lg font-medium bg-red-500 text-white"
-            title="Termina modalità extra"
+            onClick={handleCompleteVerification}
+            className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            Completa
           </button>
-        </div>
-      ) : (
-        <button
-          onClick={() => {
-            setAddingExtraMode(true)
-            handleStartExtraScanning()
-          }}
-          className="w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-700 border border-gray-300"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Aggiungi Prodotti Extra
-        </button>
-      )}
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 text-xs">
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-full bg-gray-300"></div>
-          <span>Da verificare</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-full bg-green-500"></div>
-          <span>Con anagrafica</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-          <span>Senza anagrafica</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-          <span>Non acquistato</span>
         </div>
       </div>
 
@@ -907,166 +801,125 @@ export function LoadVerification() {
         </div>
       )}
 
+      {/* Progress */}
+      <div className="card p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-gray-600">Progresso</span>
+          <span className="text-sm font-medium">
+            {verifiedCount}/{totalCount}
+            {notPurchasedCount > 0 && (
+              <span className="text-red-500 ml-1">({notPurchasedCount} non acquistati)</span>
+            )}
+          </span>
+        </div>
+        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-green-500 transition-all"
+            style={{ width: `${totalCount > 0 ? (verifiedCount / totalCount) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
       {/* Items */}
       <div className="space-y-2">
         {list.items.map((item) => {
           const state = getItemState(item)
           const colors = STATE_COLORS[state]
-          const isPending = state === 'pending'
 
           return (
             <div
               key={item.id}
-              className={`rounded-lg border-2 ${colors.border} ${colors.bg} p-3`}
+              onClick={() => handleItemClick(item)}
+              className={`card p-3 border-2 transition-colors cursor-pointer ${colors.bg} ${colors.border}`}
             >
-              <div className="flex items-center gap-3">
-                {/* Item info */}
-                <div className="flex-1 min-w-0">
-                  <div className={`font-medium ${state === 'not_purchased' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                    {item.name}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {item.verified_quantity !== undefined && item.verified_quantity !== null ? (
-                      <span className="text-blue-600 font-medium">
-                        {item.verified_quantity} {item.verified_unit || 'pz'}
-                      </span>
-                    ) : (
-                      <span>{item.quantity} {item.unit || 'pz'}</span>
-                    )}
-                    {item.scanned_barcode && (
-                      <span className="ml-2 text-gray-400">({item.scanned_barcode})</span>
-                    )}
-                  </div>
-                  {item.grocy_product_name && (
-                    <div className="text-xs text-green-600 mt-0.5">{item.grocy_product_name}</div>
+              <div className="flex items-start gap-3">
+                {/* Status icon */}
+                <div className={`mt-0.5 ${colors.icon}`}>
+                  {state === 'pending' && (
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                  {state === 'not_purchased' && (
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  {(state === 'verified_no_info' || state === 'verified_with_info') && (
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
                   )}
                 </div>
 
-                {/* Status indicator / Action buttons */}
-                <div className="flex items-center gap-2">
-                  {isPending && (
-                    <>
-                      <button
-                        onClick={() => handleMarkNotPurchased(item)}
-                        className="p-2 bg-red-500 text-white rounded-lg"
-                        title="Non acquistato"
-                      >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleItemClick(item)}
-                        className="p-2 bg-blue-500 text-white rounded-lg"
-                        title="Scansiona"
-                      >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                  {!isPending && (
-                    <div className="flex items-center gap-2">
-                      {/* Edit button for verified items (except not_purchased) */}
-                      {state !== 'not_purchased' && (
-                        <button
-                          onClick={() => handleEditItem(item)}
-                          className="p-2 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300"
-                          title="Modifica"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                          </svg>
-                        </button>
-                      )}
-                      {/* Delete button for all verified items */}
-                      <button
-                        onClick={() => handleDeleteItem(item)}
-                        className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200"
-                        title="Elimina"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        state === 'not_purchased' ? 'bg-red-500' :
-                        state === 'verified_no_info' ? 'bg-orange-500' : 'bg-green-500'
-                      }`}>
-                        {state === 'not_purchased' ? (
-                          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
+                {/* Item info */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-900">
+                    {item.grocy_product_name || item.name}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">
+                    {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit}
+                    {item.scanned_barcode && (
+                      <span className="ml-2 text-gray-400">EAN: {item.scanned_barcode}</span>
+                    )}
+                  </div>
+                  {item.expiry_date && (
+                    <div className="text-xs text-orange-600 mt-0.5">
+                      Scad: {item.expiry_date.split('-').reverse().join('/')}
                     </div>
                   )}
                 </div>
+
+                {/* Edit button for verified items */}
+                {(state === 'verified_no_info' || state === 'verified_with_info') && (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditItem(item)
+                      }}
+                      className="p-1.5 text-gray-500 hover:bg-white/50 rounded"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteItem(item)
+                      }}
+                      className="p-1.5 text-red-500 hover:bg-white/50 rounded"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* Barcode Scanner */}
-      {showScanner && (
-        <BarcodeScanner
-          onScan={handleBarcodeScan}
-          onClose={() => {
-            setShowScanner(false)
-            setScanningItem(null)
-            if (isAddingExtra && !addingExtraMode) {
-              setIsAddingExtra(false)
-            }
-          }}
+      {/* Verification Modal */}
+      {verifyingItem && (
+        <VerificationModal
+          item={verifyingItem}
+          categories={categories}
+          onConfirm={handleVerificationConfirm}
+          onCancel={() => setVerifyingItem(null)}
+          onMarkNotPurchased={() => handleMarkNotPurchased(verifyingItem)}
         />
       )}
 
-      {/* Quantity Modal */}
-      {showQuantityModal && scannedBarcode && (scanningItem || isAddingExtra) && (
-        <QuantityModal
-          item={scanningItem}
-          barcode={scannedBarcode}
-          productName={scannedProductName || undefined}
-          isExtraItem={isAddingExtra}
-          onConfirm={handleQuantityConfirm}
-          onCancel={() => {
-            setShowQuantityModal(false)
-            setScanningItem(null)
-            setScannedBarcode(null)
-            setScannedProductName(null)
-            if (isAddingExtra && !addingExtraMode) {
-              setIsAddingExtra(false)
-            }
-          }}
-        />
-      )}
-
-      {/* Hardware Scanner Modal */}
-      {showHardwareScanner && (scanningItem || isAddingExtra) && (
-        <HardwareScannerModal
-          itemName={scanningItem?.name}
-          isExtraItem={isAddingExtra}
-          onScan={handleHardwareScan}
-          onCancel={() => {
-            setShowHardwareScanner(false)
-            setScanningItem(null)
-            if (isAddingExtra && !addingExtraMode) {
-              setIsAddingExtra(false)
-            }
-          }}
-        />
-      )}
-
-      {/* Edit Item Modal */}
+      {/* Edit Modal */}
       {editingItem && (
-        <EditItemModal
+        <ItemDetailModal
           item={editingItem}
+          categories={categories}
+          mode="verify"
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
         />
@@ -1193,6 +1046,40 @@ export function LoadVerification() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dispensa Dialog */}
+      {showDispensaDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Controllo carico completato!</h3>
+              <p className="text-sm text-gray-500 mt-2">
+                Vuoi mandare gli articoli verificati alla Dispensa?
+              </p>
+            </div>
+            <div className="p-4 border-t space-y-2">
+              <button
+                onClick={handleSendToDispensa}
+                disabled={isSendingToDispensa}
+                className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+              >
+                {isSendingToDispensa ? 'Invio in corso...' : 'Si, manda a Dispensa'}
+              </button>
+              <button
+                onClick={handleSkipDispensa}
+                className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+              >
+                No, grazie
+              </button>
             </div>
           </div>
         </div>

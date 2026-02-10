@@ -58,7 +58,7 @@ export function Recipes() {
           placeholder="Cerca ricette..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="input w-full text-sm"
+          className="input w-full"
         />
       </div>
 

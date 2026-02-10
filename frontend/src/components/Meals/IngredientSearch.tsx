@@ -50,8 +50,14 @@ export function IngredientSearch({
     // Set new timeout for debounced search
     searchTimeoutRef.current = window.setTimeout(async () => {
       try {
-        const data = await foodsService.search(query, undefined, 20)
-        setResults(data)
+        const houseId = localStorage.getItem('current_house_id') || ''
+        if (!houseId) {
+          setResults([])
+          setIsLoading(false)
+          return
+        }
+        const data = await foodsService.search(houseId, query, undefined, 20)
+        setResults(data.foods)
         setIsOpen(true)
       } catch (error) {
         console.error('Search failed:', error)

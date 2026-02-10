@@ -5,10 +5,14 @@ One-shot import functionality for database migration.
 """
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+from datetime import datetime, date
+from uuid import UUID
 import re
 import logging
+import json
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
@@ -18,6 +22,154 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/admin")
+
+
+# Default values for NOT NULL columns missing from old backups.
+# Maps table_name -> {column_name: default_sql_value}
+COLUMN_DEFAULTS = {
+    "users": {
+        "has_recovery_setup": "FALSE",
+        "recovery_pin_hash": "NULL",
+        "role": "'basic'",
+        "preferences": "'{}'",
+    },
+    "categories": {
+        "house_id": "NULL",
+    },
+    "stores": {
+        "house_id": "NULL",
+    },
+    "foods": {
+        "house_id": "NULL",
+    },
+    "product_catalog": {
+        "house_id": "NULL",
+        "cancelled": "FALSE",  # Soft delete flag (v2 - gestione-anagrafiche)
+        "category_id": "NULL",  # Local category (v2 - gestione-anagrafiche)
+    },
+    "dispensa_items": {
+        "source_item_id": "NULL",  # Link to shopping list item (v2 - dispensa sync)
+    },
+}
+
+
+def patch_insert_defaults(stmt: str, db_inspector) -> str:
+    """
+    Patch INSERT statements to add missing NOT NULL columns with defaults.
+
+    If the INSERT targets a table in COLUMN_DEFAULTS and is missing columns
+    that are NOT NULL, inject the column + default value.
+    """
+    # Match: INSERT INTO "table" (cols) VALUES (vals) ...
+    match = re.match(
+        r'^INSERT\s+INTO\s+"(\w+)"\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*(ON\s+CONFLICT.*)?;?\s*$',
+        stmt,
+        re.IGNORECASE | re.DOTALL
+    )
+    if not match:
+        return stmt
+
+    table_name = match.group(1)
+    if table_name not in COLUMN_DEFAULTS:
+        return stmt
+
+    existing_cols_raw = match.group(2)
+    values_raw = match.group(3)
+    on_conflict = match.group(4) or ""
+
+    existing_cols = [c.strip().strip('"') for c in existing_cols_raw.split(',')]
+
+    added_cols = []
+    added_vals = []
+    for col, default_val in COLUMN_DEFAULTS[table_name].items():
+        if col not in existing_cols:
+            # Verify the column actually exists in the DB table
+            try:
+                db_columns = {c['name'] for c in db_inspector.get_columns(table_name)}
+                if col in db_columns:
+                    added_cols.append(col)
+                    added_vals.append(default_val)
+            except Exception:
+                pass
+
+    if not added_cols:
+        return stmt
+
+    new_cols = existing_cols_raw + ', ' + ', '.join(f'"{c}"' for c in added_cols)
+    new_vals = values_raw + ', ' + ', '.join(added_vals)
+    suffix = f" {on_conflict}" if on_conflict else ""
+
+    return f'INSERT INTO "{table_name}" ({new_cols}) VALUES ({new_vals}){suffix};'
+
+
+# Table dependency order for import - tables with no deps first
+TABLE_IMPORT_ORDER = [
+    'users',
+    'houses',
+    'user_houses',
+    'house_invites',
+    'categories',
+    'stores',
+    'foods',
+    'recipes',
+    'meals',
+    'shopping_lists',
+    'shopping_list_items',
+    'product_catalog',
+    'product_category_tags',              # v2: normalized categories (no deps on catalog)
+    'product_category_associations',      # v2: many-to-many (depends on catalog + tags)
+    'product_nutrition',
+    'barcode_lookup_sources',             # v3: configurable barcode sources
+    'dispensa_items',
+    'weights',
+    'health_records',
+    'error_logs',
+]
+
+
+def get_table_from_insert(stmt: str) -> str:
+    """Extract table name from INSERT statement."""
+    match = re.match(r'^\s*INSERT\s+INTO\s+"?(\w+)"?\s*', stmt, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def normalize_enum_values(stmt: str) -> str:
+    """
+    Normalize enum values in INSERT statements.
+    PostgreSQL enums use uppercase values (ADMIN, BASIC, ACTIVE, etc.)
+    This function ensures consistency.
+    """
+    # No normalization needed - PostgreSQL enums are uppercase
+    # and the export already uses uppercase values
+    return stmt
+
+
+def sort_statements_by_dependency(statements: list[str]) -> list[str]:
+    """Sort INSERT statements by table dependency order."""
+    # Separate INSERT statements from others
+    inserts = []
+    others = []
+
+    for stmt in statements:
+        if stmt.strip().upper().startswith('INSERT'):
+            inserts.append(stmt)
+        else:
+            others.append(stmt)
+
+    # Sort inserts by table order
+    def get_order(stmt):
+        table = get_table_from_insert(stmt)
+        try:
+            return TABLE_IMPORT_ORDER.index(table)
+        except ValueError:
+            return len(TABLE_IMPORT_ORDER)  # Unknown tables at the end
+
+    inserts.sort(key=get_order)
+
+    # Return other statements first (like SET, CREATE), then sorted inserts
+    return others + inserts
 
 
 def parse_sql_statements(sql_content: str) -> list[str]:
@@ -103,6 +255,15 @@ async def import_database(
         # Parse statements
         statements = parse_sql_statements(sql_content)
 
+        # Sort statements by table dependency order
+        statements = sort_statements_by_dependency(statements)
+
+        # Log the first few statements to debug ordering
+        print(f"[Import] Total statements: {len(statements)}", flush=True)
+        for i, stmt in enumerate(statements[:10]):
+            table = get_table_from_insert(stmt)
+            print(f"[Import] Statement {i}: table={table}, stmt={stmt[:100]}...", flush=True)
+
         # Track results
         executed = 0
         skipped = 0
@@ -116,6 +277,9 @@ async def import_database(
             r'^\s*COMMENT\s+ON\s+EXTENSION',
             r'^\\',  # Skip psql commands like \restrict, \copy, etc.
         ]
+
+        # Get DB inspector for column patching
+        db_inspector = inspect(db.bind)
 
         # Disable foreign key checks during import
         try:
@@ -138,16 +302,45 @@ async def import_database(
                 if should_skip:
                     continue
 
-                db.execute(text(stmt))
+                # Patch INSERT statements with missing NOT NULL columns
+                patched_stmt = patch_insert_defaults(stmt, db_inspector)
+
+                # Normalize enum values (ADMIN -> admin, BASIC -> basic, etc.)
+                patched_stmt = normalize_enum_values(patched_stmt)
+
+                # Log users inserts for debugging
+                if 'INSERT INTO "users"' in patched_stmt:
+                    print(f"[Import] Executing users INSERT: {patched_stmt[:200]}...", flush=True)
+
+                db.execute(text(patched_stmt))
                 db.commit()  # Commit each statement individually
                 executed += 1
+
+                # Log success for critical tables
+                table_name = get_table_from_insert(patched_stmt)
+                if table_name in ['users', 'houses']:
+                    print(f"[Import] Successfully inserted into {table_name}", flush=True)
 
             except Exception as e:
                 db.rollback()  # Rollback failed statement
                 error_msg = str(e)
 
-                # Don't report duplicate key errors
-                if 'duplicate key' in error_msg.lower() or 'already exists' in error_msg.lower():
+                # Log critical table errors
+                table_name = get_table_from_insert(stmt)
+                if table_name in ['users', 'houses']:
+                    print(f"[Import] FAILED to insert into {table_name}: {error_msg}", flush=True)
+                    print(f"[Import] Statement was: {stmt[:300]}...", flush=True)
+
+                # Don't report duplicate/conflict errors - these are expected during re-import
+                is_duplicate_error = any(pattern in error_msg.lower() for pattern in [
+                    'duplicate key',
+                    'already exists',
+                    'unique constraint',
+                    'violates unique',
+                    'on conflict do nothing',
+                    'conflicting key',
+                ])
+                if is_duplicate_error:
                     skipped += 1
                 else:
                     # Full error for console debugging
@@ -180,3 +373,198 @@ async def import_database(
             pass
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+def format_value(value) -> str:
+    """Format a Python value for SQL INSERT statement."""
+    if value is None:
+        return 'NULL'
+    elif isinstance(value, bool):
+        return 'TRUE' if value else 'FALSE'
+    elif isinstance(value, (int, float)):
+        return str(value)
+    elif isinstance(value, (datetime, date)):
+        return f"'{value.isoformat()}'"
+    elif isinstance(value, UUID):
+        return f"'{str(value)}'"
+    elif isinstance(value, dict):
+        # JSON fields
+        return f"'{json.dumps(value, ensure_ascii=False).replace(chr(39), chr(39)+chr(39))}'"
+    else:
+        # String - escape single quotes
+        escaped = str(value).replace("'", "''")
+        return f"'{escaped}'"
+
+
+@router.post("/sql-console")
+async def sql_console(
+    query: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Execute SQL queries directly on the database.
+    Supports SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE, DROP.
+    Use with caution!
+    """
+    sql_query = query.get("query", "").strip()
+
+    if not sql_query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    try:
+        result = db.execute(text(sql_query))
+
+        # Determine query type
+        query_upper = sql_query.upper().lstrip()
+
+        if query_upper.startswith("SELECT"):
+            # Return rows for SELECT queries
+            rows = result.fetchall()
+            columns = list(result.keys()) if rows else []
+
+            # Convert rows to list of dicts, handling special types
+            data = []
+            for row in rows:
+                row_dict = {}
+                for i, col in enumerate(columns):
+                    value = row[i]
+                    # Convert special types to strings
+                    if isinstance(value, (datetime, date)):
+                        value = value.isoformat()
+                    elif isinstance(value, UUID):
+                        value = str(value)
+                    elif isinstance(value, dict):
+                        pass  # JSON is fine
+                    row_dict[col] = value
+                data.append(row_dict)
+
+            return {
+                "success": True,
+                "type": "select",
+                "columns": columns,
+                "rows": data,
+                "row_count": len(data)
+            }
+        else:
+            # For INSERT, UPDATE, DELETE, ALTER, CREATE, DROP
+            db.commit()
+            affected = result.rowcount if result.rowcount >= 0 else 0
+
+            return {
+                "success": True,
+                "type": "execute",
+                "message": f"Query executed successfully",
+                "affected_rows": affected
+            }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "type": "error",
+            "message": str(e)
+        }
+
+
+@router.get("/export-database")
+async def export_database(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Export database to SQL dump file.
+    Generates INSERT statements for all tables, compatible with the import endpoint.
+    """
+    try:
+        inspector = inspect(db.bind)
+        table_names = inspector.get_table_names()
+
+        # Order tables by dependencies (foreign keys)
+        # Tables without foreign keys first, then tables that depend on them
+        ordered_tables = [
+            'users',
+            'houses',
+            'user_houses',
+            'house_invites',
+            'categories',
+            'stores',
+            'foods',
+            'recipes',
+            'meals',
+            'shopping_lists',
+            'shopping_list_items',
+            'product_catalog',
+            'product_category_tags',              # v2: normalized categories
+            'product_category_associations',      # v2: many-to-many
+            'product_nutrition',
+            'barcode_lookup_sources',             # v3: configurable barcode sources
+            'dispensa_items',
+            'weights',
+            'health_records',
+            'error_logs',
+        ]
+
+        # Add any tables not in the ordered list
+        for table in table_names:
+            if table not in ordered_tables and not table.startswith('alembic'):
+                ordered_tables.append(table)
+
+        # Filter to only existing tables
+        ordered_tables = [t for t in ordered_tables if t in table_names]
+
+        sql_lines = []
+        sql_lines.append(f"-- Database Export")
+        sql_lines.append(f"-- Generated: {datetime.now().isoformat()}")
+        sql_lines.append(f"-- Tables: {len(ordered_tables)}")
+        sql_lines.append("")
+
+        total_rows = 0
+
+        for table_name in ordered_tables:
+            # Get columns
+            columns = inspector.get_columns(table_name)
+            column_names = [col['name'] for col in columns]
+
+            # Get all rows
+            result = db.execute(text(f'SELECT * FROM "{table_name}"'))
+            rows = result.fetchall()
+
+            if rows:
+                sql_lines.append(f"-- Table: {table_name} ({len(rows)} rows)")
+
+                for row in rows:
+                    values = []
+                    for i, col_name in enumerate(column_names):
+                        values.append(format_value(row[i]))
+
+                    columns_str = ', '.join(f'"{c}"' for c in column_names)
+                    values_str = ', '.join(values)
+
+                    sql_lines.append(
+                        f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({values_str}) '
+                        f'ON CONFLICT DO NOTHING;'
+                    )
+
+                sql_lines.append("")
+                total_rows += len(rows)
+
+        sql_lines.append(f"-- Export complete: {total_rows} total rows")
+
+        sql_content = '\n'.join(sql_lines)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"meal_planner_backup_{timestamp}.sql"
+
+        return Response(
+            content=sql_content,
+            media_type="application/sql",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

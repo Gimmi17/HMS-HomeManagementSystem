@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import storesService from '@/services/stores'
+import { useHouse } from '@/context/HouseContext'
 import type { Store, StoreSize } from '@/types'
 
 const SIZE_OPTIONS: { value: StoreSize; label: string }[] = [
@@ -36,6 +37,7 @@ const emptyForm: StoreFormData = {
 }
 
 export function Stores() {
+  const { currentHouse } = useHouse()
   const [stores, setStores] = useState<Store[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -43,11 +45,13 @@ export function Stores() {
   const [formData, setFormData] = useState<StoreFormData>(emptyForm)
   const [isSaving, setIsSaving] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Store | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
 
   const loadStores = async () => {
+    if (!currentHouse) return
     setIsLoading(true)
     try {
-      const response = await storesService.getAll()
+      const response = await storesService.getAll(currentHouse.id)
       setStores(response.stores)
     } catch (error) {
       console.error('Failed to load stores:', error)
@@ -58,7 +62,7 @@ export function Stores() {
 
   useEffect(() => {
     loadStores()
-  }, [])
+  }, [currentHouse])
 
   const openCreateModal = () => {
     setEditingStore(null)
@@ -86,6 +90,7 @@ export function Stores() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!currentHouse) return
     if (!formData.name.trim()) {
       alert('Il nome del negozio è obbligatorio')
       return
@@ -104,7 +109,7 @@ export function Stores() {
       if (editingStore) {
         await storesService.update(editingStore.id, data)
       } else {
-        await storesService.create(data)
+        await storesService.create(currentHouse.id, data)
       }
 
       closeModal()
@@ -114,6 +119,26 @@ export function Stores() {
       alert('Errore durante il salvataggio')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleImportTemplates = async () => {
+    if (!currentHouse) return
+    setIsImporting(true)
+    try {
+      const result = await storesService.importTemplates(currentHouse.id)
+      alert(result.message)
+      loadStores()
+    } catch (error: unknown) {
+      console.error('Failed to import templates:', error)
+      const apiError = error as { response?: { data?: { detail?: string } } }
+      if (apiError.response?.data?.detail) {
+        alert(apiError.response.data.detail)
+      } else {
+        alert('Errore durante l\'importazione')
+      }
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -133,7 +158,7 @@ export function Stores() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
-          to="/settings"
+          to="/anagrafiche"
           className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -150,17 +175,29 @@ export function Stores() {
       </div>
 
       {/* Stores List */}
-      {isLoading ? (
+      {!currentHouse ? (
+        <p className="text-gray-500 text-sm">Seleziona una casa per gestire i negozi</p>
+      ) : isLoading ? (
         <p className="text-gray-500 text-sm">Caricamento...</p>
       ) : stores.length === 0 ? (
         <div className="card text-center py-8">
           <p className="text-gray-500 text-sm">Nessun negozio configurato</p>
-          <button
-            onClick={openCreateModal}
-            className="btn btn-primary mt-4 text-sm"
-          >
-            Aggiungi il primo negozio
-          </button>
+          <div className="flex flex-col gap-2 mt-4">
+            <button
+              onClick={handleImportTemplates}
+              disabled={isImporting}
+              className="btn btn-secondary text-sm mx-auto"
+            >
+              {isImporting ? 'Importazione...' : 'Importa negozi predefiniti'}
+            </button>
+            <span className="text-xs text-gray-400">oppure</span>
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary text-sm mx-auto"
+            >
+              Aggiungi manualmente
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -247,7 +284,7 @@ export function Stores() {
                     value={formData.chain}
                     onChange={(e) => setFormData({ ...formData, chain: e.target.value })}
                     placeholder="es. Esselunga, Lidl, Conad..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Nome della catena di supermercati
@@ -262,7 +299,7 @@ export function Stores() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="es. Via Roma, Centro Commerciale..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -278,7 +315,7 @@ export function Stores() {
                     value={formData.country}
                     onChange={(e) => setFormData({ ...formData, country: e.target.value })}
                     placeholder="es. Italia, Svizzera..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                 </div>
 
@@ -288,7 +325,7 @@ export function Stores() {
                   <select
                     value={formData.size}
                     onChange={(e) => setFormData({ ...formData, size: e.target.value as StoreSize | '' })}
-                    className="input w-full text-sm"
+                    className="input w-full"
                   >
                     <option value="">Seleziona dimensione</option>
                     {SIZE_OPTIONS.map((opt) => (
@@ -307,7 +344,7 @@ export function Stores() {
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     placeholder="Via, numero civico, città..."
-                    className="input w-full text-sm"
+                    className="input w-full"
                   />
                 </div>
               </div>

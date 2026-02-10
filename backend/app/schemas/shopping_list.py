@@ -7,7 +7,7 @@ Pydantic models for Shopping List API request/response validation.
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 from enum import Enum
 
 
@@ -40,6 +40,8 @@ class ShoppingListItemBase(BaseModel):
 class ShoppingListItemCreate(ShoppingListItemBase):
     """Schema for creating a shopping list item"""
     position: Optional[int] = Field(None, description="Position in list")
+    category_id: Optional[UUID] = Field(None, description="Category ID")
+    urgent: bool = False
 
 
 class ShoppingListItemUpdate(BaseModel):
@@ -53,6 +55,9 @@ class ShoppingListItemUpdate(BaseModel):
     scanned_barcode: Optional[str] = Field(None, max_length=100)
     verified_quantity: Optional[float] = Field(None, ge=0)
     verified_unit: Optional[str] = Field(None, max_length=50)
+    expiry_date: Optional[date] = Field(None, description="Expiry date of the purchased product")
+    category_id: Optional[UUID] = Field(None, description="Category ID")
+    urgent: Optional[bool] = None
 
 
 class ShoppingListItemResponse(ShoppingListItemBase):
@@ -67,6 +72,9 @@ class ShoppingListItemResponse(ShoppingListItemBase):
     verified_unit: Optional[str] = None
     not_purchased: bool = False
     not_purchased_at: Optional[datetime] = None
+    urgent: bool = False
+    expiry_date: Optional[date] = None
+    category_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
 

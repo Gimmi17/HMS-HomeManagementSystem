@@ -2,8 +2,8 @@ import { NavLink } from 'react-router-dom'
 
 const navItems = [
   { to: '/', label: 'Home', icon: '📊' },
-  { to: '/meals', label: 'Pasti', icon: '🍽️' },
   { to: '/shopping-lists', label: 'Spesa', icon: '🛒' },
+  { to: '/pantry', label: 'Dispensa', icon: '📦' },
   { to: '/recipes', label: 'Ricette', icon: '📖' },
   { to: '/settings', label: 'Altro', icon: '⚙️' },
 ]

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # Application Settings
     API_VERSION: str = "v1"  # API version prefix
-    PROJECT_NAME: str = "Meal Planner API"  # Project name for docs
+    PROJECT_NAME: str = "HMS API"  # Project name for docs
     DEBUG: bool = False  # Debug mode (should be False in production)
 
     model_config = SettingsConfigDict(

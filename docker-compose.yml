@@ -111,7 +111,7 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: meal-planner_postgres_dev_data
+    name: meal-planner_postgres_test_rebuild
   backend_logs:
     driver: local
   ocr_logs:
