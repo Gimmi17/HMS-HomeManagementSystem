@@ -3,7 +3,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
 import { grocyHouseService } from '@/services/grocy'
-import BarcodeScanner from '@/components/BarcodeScanner'
 import { useHouse } from '@/context/HouseContext'
 import categoriesService from '@/services/categories'
 import dispensaService from '@/services/dispensa'
@@ -365,10 +364,6 @@ export function LoadVerification() {
   const [isLoading, setIsLoading] = useState(true)
   const [verifyingItem, setVerifyingItem] = useState<ShoppingListItem | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [hardwareScannerMode, setHardwareScannerMode] = useState(false)
-  const [showHardwareScanner, setShowHardwareScanner] = useState(false)
-  const [addingExtraMode, setAddingExtraMode] = useState(false)
-  const [isAddingExtra, setIsAddingExtra] = useState(false) // Currently scanning for extra item
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null) // Item being edited
   const [showGrocySyncModal, setShowGrocySyncModal] = useState(false) // Grocy sync modal
   const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)

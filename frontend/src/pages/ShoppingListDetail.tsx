@@ -28,9 +28,6 @@ export function ShoppingListDetail() {
   const [categories, setCategories] = useState<Category[]>([])
 
 
-  // Derived state: are we in verification mode?
-  const isVerificationMode = list?.verification_status === 'in_progress'
-
   // Dispensa
   const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
 
