@@ -23,6 +23,8 @@ from app.models.product_category_tag import ProductCategoryTag, product_category
 from app.models.shopping_list import ShoppingListItem
 from app.models.barcode_source import BarcodeLookupSource
 from app.services.auth_service import hash_password
+from app.services.barcode_source_service import lookup_barcode_chain
+from app.services.product_enrichment import parse_and_save_category_tags
 
 
 router = APIRouter(prefix="/anagrafiche", tags=["Anagrafiche"])
@@ -914,6 +916,85 @@ def set_product_name(
     product.name = data.name
     db.commit()
     db.refresh(product)
+
+    return ProductListItem(
+        id=product.id,
+        barcode=product.barcode,
+        name=product.name,
+        brand=product.brand,
+        quantity_text=product.quantity_text,
+        categories=product.categories,
+        energy_kcal=product.energy_kcal,
+        proteins_g=product.proteins_g,
+        carbs_g=product.carbs_g,
+        sugars_g=product.sugars_g,
+        fats_g=product.fats_g,
+        saturated_fats_g=product.saturated_fats_g,
+        fiber_g=product.fiber_g,
+        salt_g=product.salt_g,
+        nutriscore=product.nutriscore,
+        ecoscore=product.ecoscore,
+        nova_group=product.nova_group,
+        source=product.source,
+        created_at=product.created_at
+    )
+
+
+@router.post("/products/{product_id}/refetch", response_model=ProductListItem)
+async def refetch_product_from_api(
+    product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Re-fetch product data from web APIs (barcode lookup chain with fallback).
+    Updates the existing ProductCatalog entry with fresh data from the sources.
+    """
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    if not product.barcode or not product.barcode.strip():
+        raise HTTPException(status_code=400, detail="Prodotto senza barcode, impossibile cercare nelle API")
+
+    # Call the barcode lookup chain (same used during verification)
+    result = await lookup_barcode_chain(db, product.barcode)
+
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail="Prodotto non trovato in nessuna sorgente API")
+
+    # Update product with fetched data
+    product.name = result.get("product_name") or product.name
+    product.brand = result.get("brand") or product.brand
+    product.quantity_text = result.get("quantity") or product.quantity_text
+    product.categories = result.get("categories") or product.categories
+    product.nutriscore = result.get("nutriscore") or product.nutriscore
+    product.ecoscore = result.get("ecoscore") or product.ecoscore
+    product.nova_group = result.get("nova_group") or product.nova_group
+    product.image_url = result.get("image_url") or product.image_url
+    product.image_small_url = result.get("image_small_url") or product.image_small_url
+    product.source = result.get("source_code", product.source)
+    product.raw_data = result
+
+    # Update nutritional data
+    nutrients = result.get("nutrients", {})
+    if nutrients:
+        product.energy_kcal = nutrients.get("energy-kcal_100g") or product.energy_kcal
+        product.proteins_g = nutrients.get("proteins_100g") or product.proteins_g
+        product.carbs_g = nutrients.get("carbohydrates_100g") or product.carbs_g
+        product.sugars_g = nutrients.get("sugars_100g") or product.sugars_g
+        product.fats_g = nutrients.get("fat_100g") or product.fats_g
+        product.saturated_fats_g = nutrients.get("saturated-fat_100g") or product.saturated_fats_g
+        product.fiber_g = nutrients.get("fiber_100g") or product.fiber_g
+        product.salt_g = nutrients.get("salt_100g") or product.salt_g
+
+    db.commit()
+    db.refresh(product)
+
+    # Update category tags
+    categories_tags = result.get("categories_tags")
+    categories_str = result.get("categories")
+    parse_and_save_category_tags(db, product, categories_str, categories_tags)
 
     return ProductListItem(
         id=product.id,

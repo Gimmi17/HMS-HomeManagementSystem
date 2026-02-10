@@ -32,6 +32,7 @@ export function AnagraficheProducts() {
     nutriscore: ''
   })
   const [isSaving, setIsSaving] = useState(false)
+  const [isFetching, setIsFetching] = useState(false)
 
   // Name recovery from receipts
   const [isRecoveringNames, setIsRecoveringNames] = useState(false)
@@ -149,6 +150,29 @@ export function AnagraficheProducts() {
       fetchProducts()
     } catch (err: any) {
       showToast(err.response?.data?.detail || 'Errore', 'error')
+    }
+  }
+
+  const handleRefetchFromApi = async () => {
+    if (!editingProduct) return
+    setIsFetching(true)
+    try {
+      const updated = await anagraficheService.refetchProduct(editingProduct.id)
+      // Update form with fetched data
+      setFormData({
+        barcode: updated.barcode,
+        name: updated.name || '',
+        brand: updated.brand || '',
+        quantity_text: updated.quantity_text || '',
+        energy_kcal: updated.energy_kcal?.toString() || '',
+        nutriscore: updated.nutriscore || ''
+      })
+      setEditingProduct(updated)
+      showToast(`Dati aggiornati da ${updated.source}`, 'success')
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Prodotto non trovato nelle API', 'error')
+    } finally {
+      setIsFetching(false)
     }
   }
 
@@ -598,14 +622,36 @@ export function AnagraficheProducts() {
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Barcode *</label>
-                <input
-                  type="text"
-                  value={formData.barcode}
-                  onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                  disabled={!!editingProduct}
-                  className="input w-full disabled:bg-gray-100"
-                  autoFocus={!editingProduct}
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={formData.barcode}
+                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                    disabled={!!editingProduct}
+                    className="input flex-1 disabled:bg-gray-100"
+                    autoFocus={!editingProduct}
+                  />
+                  {editingProduct && formData.barcode && formData.barcode.trim() !== '' && (
+                    <button
+                      onClick={handleRefetchFromApi}
+                      disabled={isFetching}
+                      className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-1 text-sm whitespace-nowrap"
+                      title="Cerca dati prodotto nelle API esterne"
+                    >
+                      {isFetching ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      )}
+                      Cerca API
+                    </button>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>

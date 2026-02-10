@@ -358,6 +358,11 @@ export const anagraficheService = {
     return response.data
   },
 
+  async refetchProduct(productId: string): Promise<ProductListItem> {
+    const response = await api.post(`/anagrafiche/products/${productId}/refetch`)
+    return response.data
+  },
+
   // Product Categories
   async getProductCategories(params?: { search?: string; lang?: string; min_products?: number; limit?: number; offset?: number }): Promise<{ categories: ProductCategoryTag[]; total: number }> {
     const response = await api.get('/anagrafiche/product-categories', { params })
