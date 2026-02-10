@@ -662,6 +662,7 @@ class ProductCreateRequest(BaseModel):
 
 
 class ProductUpdateRequest(BaseModel):
+    barcode: Optional[str] = None
     name: Optional[str] = None
     brand: Optional[str] = None
     quantity_text: Optional[str] = None

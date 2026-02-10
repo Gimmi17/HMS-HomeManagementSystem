@@ -190,6 +190,7 @@ export interface ProductCreateRequest {
 }
 
 export interface ProductUpdateRequest {
+  barcode?: string
   name?: string
   brand?: string
   quantity_text?: string

@@ -126,7 +126,11 @@ export function AnagraficheProducts() {
 
       if (editingProduct) {
         const { barcode, ...updateData } = data
-        await anagraficheService.updateProduct(editingProduct.id, updateData as ProductUpdateRequest)
+        // Include barcode in update if product is not certified and barcode changed
+        const finalUpdate = !isProductCertified(editingProduct) && barcode !== editingProduct.barcode
+          ? { ...updateData, barcode }
+          : updateData
+        await anagraficheService.updateProduct(editingProduct.id, finalUpdate as ProductUpdateRequest)
         showToast('Prodotto aggiornato', 'success')
       } else {
         await anagraficheService.createProduct(data as ProductCreateRequest)
@@ -627,7 +631,7 @@ export function AnagraficheProducts() {
                     type="text"
                     value={formData.barcode}
                     onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    disabled={!!editingProduct}
+                    disabled={!!editingProduct && isProductCertified(editingProduct)}
                     className="input flex-1 disabled:bg-gray-100"
                     autoFocus={!editingProduct}
                   />
