@@ -110,6 +110,13 @@ export const receiptsService = {
   },
 
   /**
+   * Delete a single receipt image
+   */
+  async deleteImage(imageId: string): Promise<void> {
+    await api.delete(`/receipts/images/${imageId}`)
+  },
+
+  /**
    * Delete a receipt
    */
   async delete(receiptId: string): Promise<void> {
@@ -120,9 +127,7 @@ export const receiptsService = {
    * Get image URL for a receipt
    */
   getImageUrl(imagePath: string): string {
-    // The image path is relative to the data/receipts directory
-    // In production, this would be served via a static file route
-    return `/api/v1/static/receipts/${imagePath}`
+    return `/api/v1/receipts/images/file/${imagePath}`
   },
 }
 

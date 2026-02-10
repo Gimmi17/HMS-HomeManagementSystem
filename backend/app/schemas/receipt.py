@@ -114,6 +114,7 @@ class ReceiptSummary(BaseModel):
     image_count: int = Field(0, description="Number of images")
     item_count: int = Field(0, description="Number of extracted items")
     matched_count: int = Field(0, description="Number of matched items")
+    first_image_path: Optional[str] = Field(None, description="Path of first receipt image")
     created_at: datetime
 
     class Config:

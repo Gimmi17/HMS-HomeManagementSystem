@@ -443,6 +443,7 @@ export interface ReceiptSummary {
   image_count: number
   item_count: number
   matched_count: number
+  first_image_path?: string
   created_at: string
 }
 

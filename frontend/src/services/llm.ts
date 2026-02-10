@@ -11,11 +11,13 @@ export interface LLMConnection {
   url: string
   model: string
   purpose: string
+  connection_type: string
   enabled: boolean
   timeout: number
   temperature: number
   max_tokens: number
   has_api_key: boolean
+  docext_auth_user?: string
 }
 
 export interface LLMConnectionCreate {
@@ -23,11 +25,14 @@ export interface LLMConnectionCreate {
   url: string
   model?: string
   purpose?: string
+  connection_type?: string
   enabled?: boolean
   timeout?: number
   temperature?: number
   max_tokens?: number
   api_key?: string
+  docext_auth_user?: string
+  docext_auth_pass?: string
 }
 
 export interface LLMConnectionUpdate {
@@ -35,14 +40,23 @@ export interface LLMConnectionUpdate {
   url?: string
   model?: string
   purpose?: string
+  connection_type?: string
   enabled?: boolean
   timeout?: number
   temperature?: number
   max_tokens?: number
   api_key?: string
+  docext_auth_user?: string
+  docext_auth_pass?: string
 }
 
 export interface LLMPurpose {
+  value: string
+  label: string
+  description: string
+}
+
+export interface LLMType {
   value: string
   label: string
   description: string
@@ -114,8 +128,20 @@ const llmService = {
   /**
    * Test a connection before saving
    */
-  async testConnection(url: string, model: string = 'default'): Promise<LLMTestResult> {
-    const response = await api.post('/llm/test', { url, model })
+  async testConnection(
+    url: string,
+    model: string = 'default',
+    connectionType: string = 'openai',
+    docextAuthUser: string = 'admin',
+    docextAuthPass: string = 'admin'
+  ): Promise<LLMTestResult> {
+    const response = await api.post('/llm/test', {
+      url,
+      model,
+      connection_type: connectionType,
+      docext_auth_user: docextAuthUser,
+      docext_auth_pass: docextAuthPass
+    })
     return response.data
   },
 
@@ -135,6 +161,14 @@ const llmService = {
   async getPurposes(): Promise<LLMPurpose[]> {
     const response = await api.get('/llm/purposes')
     return response.data.purposes
+  },
+
+  /**
+   * Get available connection types
+   */
+  async getTypes(): Promise<LLMType[]> {
+    const response = await api.get('/llm/types')
+    return response.data.types
   }
 }
 

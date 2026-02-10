@@ -18,6 +18,7 @@ from app.models.user_house import UserHouse
 from app.integrations.llm import (
     LLMConnection,
     LLMPurpose,
+    LLMType,
     get_llm_manager,
     test_connection,
     check_connection_health,
@@ -80,11 +81,15 @@ class LLMConnectionCreate(BaseModel):
     url: str = Field(..., description="Base URL (e.g., http://localhost:8080)")
     model: str = Field(default="default", description="Model name/id")
     purpose: str = Field(default="general", description="Purpose: ocr, chat, suggestions, general")
+    connection_type: str = Field(default="openai", description="API type: openai, docext")
     enabled: bool = Field(default=True)
     timeout: float = Field(default=30.0, ge=5.0, le=300.0)
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=500, ge=10, le=4096)
     api_key: Optional[str] = Field(default=None, description="API key if required")
+    # DocExt specific
+    docext_auth_user: str = Field(default="admin", description="DocExt Gradio username")
+    docext_auth_pass: str = Field(default="admin", description="DocExt Gradio password")
 
 
 class LLMConnectionUpdate(BaseModel):
@@ -93,11 +98,14 @@ class LLMConnectionUpdate(BaseModel):
     url: Optional[str] = None
     model: Optional[str] = None
     purpose: Optional[str] = None
+    connection_type: Optional[str] = None
     enabled: Optional[bool] = None
     timeout: Optional[float] = Field(None, ge=5.0, le=300.0)
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=10, le=4096)
     api_key: Optional[str] = None
+    docext_auth_user: Optional[str] = None
+    docext_auth_pass: Optional[str] = None
 
 
 class LLMConnectionResponse(BaseModel):
@@ -107,17 +115,22 @@ class LLMConnectionResponse(BaseModel):
     url: str
     model: str
     purpose: str
+    connection_type: str
     enabled: bool
     timeout: float
     temperature: float
     max_tokens: int
     has_api_key: bool  # Don't expose actual key
+    docext_auth_user: Optional[str] = None
 
 
 class LLMTestRequest(BaseModel):
     """Request to test a connection"""
     url: str
     model: str = "default"
+    connection_type: str = "openai"
+    docext_auth_user: str = "admin"
+    docext_auth_pass: str = "admin"
 
 
 class LLMTestResponse(BaseModel):
@@ -143,11 +156,13 @@ def connection_to_response(conn: dict) -> LLMConnectionResponse:
         url=conn["url"],
         model=conn.get("model", "default"),
         purpose=conn.get("purpose", "general"),
+        connection_type=conn.get("connection_type", "openai"),
         enabled=conn.get("enabled", True),
         timeout=conn.get("timeout", 30.0),
         temperature=conn.get("temperature", 0.3),
         max_tokens=conn.get("max_tokens", 500),
-        has_api_key=bool(conn.get("api_key"))
+        has_api_key=bool(conn.get("api_key")),
+        docext_auth_user=conn.get("docext_auth_user", "admin") if conn.get("connection_type") == "docext" else None
     )
 
 
@@ -183,6 +198,12 @@ def create_connection(
     except ValueError:
         raise HTTPException(400, f"Invalid purpose. Must be one of: {[p.value for p in LLMPurpose]}")
 
+    # Validate connection_type
+    try:
+        conn_type = LLMType(data.connection_type)
+    except ValueError:
+        raise HTTPException(400, f"Invalid connection_type. Must be one of: {[t.value for t in LLMType]}")
+
     connections = get_llm_settings(house)
 
     # Create new connection
@@ -192,12 +213,15 @@ def create_connection(
         "url": data.url.rstrip('/'),
         "model": data.model,
         "purpose": purpose.value,
+        "connection_type": conn_type.value,
         "enabled": data.enabled,
         "timeout": data.timeout,
         "temperature": data.temperature,
         "max_tokens": data.max_tokens,
         "api_key": data.api_key,
-        "extra_headers": {}
+        "extra_headers": {},
+        "docext_auth_user": data.docext_auth_user,
+        "docext_auth_pass": data.docext_auth_pass
     }
 
     connections.append(new_conn)
@@ -253,6 +277,12 @@ def update_connection(
             conn["purpose"] = purpose.value
         except ValueError:
             raise HTTPException(400, f"Invalid purpose. Must be one of: {[p.value for p in LLMPurpose]}")
+    if data.connection_type is not None:
+        try:
+            conn_type = LLMType(data.connection_type)
+            conn["connection_type"] = conn_type.value
+        except ValueError:
+            raise HTTPException(400, f"Invalid connection_type. Must be one of: {[t.value for t in LLMType]}")
     if data.enabled is not None:
         conn["enabled"] = data.enabled
     if data.timeout is not None:
@@ -263,6 +293,10 @@ def update_connection(
         conn["max_tokens"] = data.max_tokens
     if data.api_key is not None:
         conn["api_key"] = data.api_key if data.api_key else None
+    if data.docext_auth_user is not None:
+        conn["docext_auth_user"] = data.docext_auth_user
+    if data.docext_auth_pass is not None:
+        conn["docext_auth_pass"] = data.docext_auth_pass if data.docext_auth_pass else None
 
     connections[conn_idx] = conn
     save_llm_settings(db, house, connections)
@@ -295,7 +329,13 @@ async def test_llm_connection(
     user: User = Depends(get_current_user)
 ):
     """Test an LLM connection before saving"""
-    result = await test_connection(data.url, data.model)
+    result = await test_connection(
+        url=data.url,
+        model=data.model,
+        connection_type=data.connection_type,
+        docext_auth_user=data.docext_auth_user,
+        docext_auth_pass=data.docext_auth_pass
+    )
     return LLMTestResponse(
         status=result.get("status", "error"),
         message=result.get("message"),
@@ -347,6 +387,33 @@ def list_purposes():
             for p in LLMPurpose
         ]
     }
+
+
+@router.get("/types")
+def list_connection_types():
+    """List available LLM connection types"""
+    return {
+        "types": [
+            {"value": t.value, "label": _get_type_label(t), "description": _get_type_description(t)}
+            for t in LLMType
+        ]
+    }
+
+
+def _get_type_label(conn_type: LLMType) -> str:
+    labels = {
+        LLMType.OPENAI: "OpenAI Compatible",
+        LLMType.DOCEXT: "DocExt",
+    }
+    return labels.get(conn_type, conn_type.value)
+
+
+def _get_type_description(conn_type: LLMType) -> str:
+    descriptions = {
+        LLMType.OPENAI: "MLX, Ollama, LM Studio, vLLM, OpenAI API",
+        LLMType.DOCEXT: "DocExt Document Intelligence (richiede GPU NVIDIA)",
+    }
+    return descriptions.get(conn_type, "")
 
 
 def _get_purpose_label(purpose: LLMPurpose) -> str:

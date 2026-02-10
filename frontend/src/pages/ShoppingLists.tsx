@@ -260,8 +260,8 @@ export function ShoppingLists() {
                   </svg>
                 </div>
                 <div className="text-left">
-                  <div className="font-medium">Carica Scontrino</div>
-                  <div className="text-xs text-gray-500">Scansiona e riconcilia con OCR</div>
+                  <div className="font-medium">Scontrini d'acquisto</div>
+                  <div className="text-xs text-gray-500">Foto scontrini e riconciliazione OCR</div>
                 </div>
               </button>
 

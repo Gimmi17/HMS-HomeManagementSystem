@@ -5,6 +5,7 @@ Upload, process, and reconcile receipt images with shopping lists.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID, uuid4
@@ -547,6 +548,7 @@ async def get_receipts_for_list(
         image_count = len(receipt.images)
         item_count = len(receipt.items)
         matched_count = sum(1 for item in receipt.items if item.match_status == ReceiptItemMatchStatus.MATCHED)
+        first_image = min(receipt.images, key=lambda x: x.position) if receipt.images else None
 
         summaries.append(ReceiptSummary(
             id=receipt.id,
@@ -557,6 +559,7 @@ async def get_receipts_for_list(
             image_count=image_count,
             item_count=item_count,
             matched_count=matched_count,
+            first_image_path=first_image.image_path if first_image else None,
             created_at=receipt.created_at
         ))
 
@@ -742,6 +745,52 @@ async def add_receipt_images(
         )
 
     return build_receipt_response(receipt)
+
+
+@router.delete("/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_receipt_image(
+    image_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a single receipt image.
+    """
+    image = db.query(ReceiptImage).filter(ReceiptImage.id == image_id).first()
+    if not image:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Immagine non trovata"
+        )
+
+    # Delete file
+    file_path = os.path.join(RECEIPTS_DIR, image.image_path)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to delete image file: {e}")
+
+    db.delete(image)
+    db.commit()
+
+    logger.info(f"Receipt image deleted: {image_id}")
+
+
+@router.get("/images/file/{filename}")
+async def serve_receipt_image(filename: str):
+    """
+    Serve a receipt image file.
+    """
+    # Sanitize filename to prevent path traversal
+    safe_filename = os.path.basename(filename)
+    file_path = os.path.join(RECEIPTS_DIR, safe_filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Immagine non trovata"
+        )
+    return FileResponse(file_path, media_type="image/jpeg")
 
 
 @router.delete("/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)

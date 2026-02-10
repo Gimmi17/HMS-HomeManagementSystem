@@ -27,6 +27,12 @@ class LLMPurpose(str, Enum):
     GENERAL = "general"      # Default/fallback
 
 
+class LLMType(str, Enum):
+    """Supported LLM API types"""
+    OPENAI = "openai"        # OpenAI-compatible (MLX, Ollama, LM Studio, vLLM)
+    DOCEXT = "docext"        # DocExt with Gradio API
+
+
 @dataclass
 class LLMConnection:
     """
@@ -39,6 +45,7 @@ class LLMConnection:
     url: str                         # Base URL (e.g., "http://localhost:8080")
     model: str = "default"           # Model name/id
     purpose: LLMPurpose = LLMPurpose.GENERAL  # What this connection is used for
+    connection_type: LLMType = LLMType.OPENAI  # API type
     enabled: bool = True
     timeout: float = 30.0
     temperature: float = 0.3         # Default temperature
@@ -48,10 +55,15 @@ class LLMConnection:
     api_key: Optional[str] = None    # For providers that need auth
     extra_headers: dict = field(default_factory=dict)
 
+    # DocExt specific settings
+    docext_auth_user: str = "admin"  # Gradio auth username
+    docext_auth_pass: str = "admin"  # Gradio auth password
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON storage"""
         d = asdict(self)
         d['purpose'] = self.purpose.value
+        d['connection_type'] = self.connection_type.value
         return d
 
     @classmethod
@@ -64,14 +76,24 @@ class LLMConnection:
         if 'purpose' in data and isinstance(data['purpose'], str):
             data['purpose'] = LLMPurpose(data['purpose'])
 
+        # Convert connection_type string to enum
+        if 'connection_type' in data and isinstance(data['connection_type'], str):
+            try:
+                data['connection_type'] = LLMType(data['connection_type'])
+            except ValueError:
+                data['connection_type'] = LLMType.OPENAI
+        elif 'connection_type' not in data:
+            data['connection_type'] = LLMType.OPENAI
+
         # Handle extra_headers default
         if 'extra_headers' not in data:
             data['extra_headers'] = {}
 
         # Filter to only valid fields
         valid_fields = {
-            'id', 'name', 'url', 'model', 'purpose', 'enabled',
-            'timeout', 'temperature', 'max_tokens', 'api_key', 'extra_headers'
+            'id', 'name', 'url', 'model', 'purpose', 'connection_type', 'enabled',
+            'timeout', 'temperature', 'max_tokens', 'api_key', 'extra_headers',
+            'docext_auth_user', 'docext_auth_pass'
         }
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
@@ -187,6 +209,188 @@ class LLMClient:
             return None
 
 
+class DocExtClient:
+    """
+    Client for DocExt Gradio API.
+
+    DocExt provides document extraction using vision-language models via Gradio.
+    API endpoint: /extract_information
+    """
+
+    def __init__(self, connection: LLMConnection):
+        self.connection = connection
+        self._client: Optional[httpx.AsyncClient] = None
+        self._session_hash: Optional[str] = None
+
+    @property
+    def base_url(self) -> str:
+        return self.connection.url.rstrip('/')
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            # DocExt uses basic auth
+            auth = None
+            if self.connection.docext_auth_user and self.connection.docext_auth_pass:
+                auth = (self.connection.docext_auth_user, self.connection.docext_auth_pass)
+
+            self._client = httpx.AsyncClient(
+                timeout=self.connection.timeout,
+                auth=auth
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    async def health_check(self) -> dict:
+        """Check if DocExt server is available"""
+        try:
+            client = await self._get_client()
+
+            # Try the Gradio config endpoint
+            response = await client.get(f"{self.base_url}/config")
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "status": "ok",
+                    "url": self.base_url,
+                    "models": [self.connection.model] if self.connection.model else ["docext"],
+                    "connection_name": self.connection.name,
+                    "version": data.get("version", "unknown")
+                }
+            elif response.status_code == 401:
+                return {"status": "error", "message": "Autenticazione fallita - verifica username/password"}
+            return {"status": "error", "message": f"HTTP {response.status_code}"}
+
+        except httpx.ConnectError:
+            return {"status": "offline", "message": "Impossibile connettersi al server DocExt"}
+        except Exception as e:
+            logger.error(f"DocExt health check failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def extract_from_image(
+        self,
+        image_path: str,
+        fields: Optional[list[dict]] = None
+    ) -> dict:
+        """
+        Extract information from an image using DocExt.
+
+        Args:
+            image_path: Path to the image file
+            fields: Optional list of fields to extract, e.g.:
+                    [{"name": "product_name", "type": "field", "description": "Nome prodotto"}]
+                    If not provided, uses default receipt extraction fields.
+
+        Returns:
+            Dict with extracted fields and tables
+        """
+        import base64
+        import os
+
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image not found: {image_path}")
+
+        # Default fields for receipt extraction
+        if fields is None:
+            fields = [
+                {"name": "store_name", "type": "field", "description": "Nome del negozio/supermercato"},
+                {"name": "date", "type": "field", "description": "Data dello scontrino"},
+                {"name": "total", "type": "field", "description": "Totale da pagare"},
+                {"name": "products", "type": "table", "description": "Lista prodotti con nome, quantità, prezzo unitario, prezzo totale"},
+            ]
+
+        try:
+            client = await self._get_client()
+
+            # Read and encode image
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+
+            # Determine mime type
+            ext = os.path.splitext(image_path)[1].lower()
+            mime_types = {'.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+            mime_type = mime_types.get(ext, 'image/jpeg')
+
+            # Gradio API call format
+            # First, upload the file
+            import uuid
+            session_hash = str(uuid.uuid4())
+
+            # Call the predict endpoint
+            payload = {
+                "data": [
+                    [{"path": image_path, "url": f"data:{mime_type};base64,{image_b64}"}],  # file_inputs
+                    self.connection.model or "hosted_vllm/Qwen/Qwen2.5-VL-7B-Instruct-AWQ",  # model_name
+                    {"headers": ["name", "type", "description"], "data": [[f["name"], f["type"], f["description"]] for f in fields]}  # fields_and_tables
+                ],
+                "session_hash": session_hash,
+                "fn_index": 0  # extract_information function
+            }
+
+            response = await client.post(
+                f"{self.base_url}/api/predict",
+                json=payload,
+                timeout=120.0  # Extraction can take time
+            )
+
+            if response.status_code != 200:
+                logger.error(f"DocExt extraction failed: HTTP {response.status_code} - {response.text}")
+                return {"error": f"HTTP {response.status_code}", "fields": {}, "tables": {}}
+
+            data = response.json()
+
+            # Parse Gradio response
+            if "data" in data and len(data["data"]) >= 2:
+                fields_result = data["data"][0]
+                tables_result = data["data"][1]
+                return {
+                    "fields": fields_result,
+                    "tables": tables_result,
+                    "raw_response": data
+                }
+
+            return {"error": "Unexpected response format", "raw_response": data}
+
+        except httpx.TimeoutException:
+            logger.error("DocExt extraction timeout")
+            return {"error": "Timeout durante estrazione"}
+        except Exception as e:
+            logger.error(f"DocExt extraction failed: {e}")
+            return {"error": str(e)}
+
+    async def extract_receipt_products(self, image_path: str) -> list[dict]:
+        """
+        Extract products from a receipt image.
+
+        Returns list of products with name, quantity, unit_price, total_price
+        """
+        result = await self.extract_from_image(image_path)
+
+        if "error" in result:
+            logger.error(f"DocExt receipt extraction error: {result['error']}")
+            return []
+
+        products = []
+
+        # Parse tables result for products
+        tables = result.get("tables", {})
+        if isinstance(tables, dict) and "data" in tables:
+            for row in tables.get("data", []):
+                if len(row) >= 4:
+                    products.append({
+                        "name": row[0] if row[0] else "",
+                        "quantity": float(row[1]) if row[1] else 1.0,
+                        "unit_price": float(row[2]) if row[2] else None,
+                        "total_price": float(row[3]) if row[3] else None
+                    })
+
+        return products
+
+
 # =============================================================================
 # LLM Manager - Handles multiple connections
 # =============================================================================
@@ -227,16 +431,27 @@ class LLMManager:
         """Get all configured connections"""
         return list(self._connections.values())
 
-    def get_client(self, connection_id: str) -> Optional[LLMClient]:
+    def get_client(self, connection_id: str) -> Optional[LLMClient | DocExtClient]:
         """Get or create a client for a specific connection"""
         conn = self._connections.get(connection_id)
         if not conn:
             return None
 
         if connection_id not in self._clients:
-            self._clients[connection_id] = LLMClient(conn)
+            # Create appropriate client based on connection type
+            if conn.connection_type == LLMType.DOCEXT:
+                self._clients[connection_id] = DocExtClient(conn)
+            else:
+                self._clients[connection_id] = LLMClient(conn)
 
         return self._clients[connection_id]
+
+    def get_docext_client(self, connection_id: str) -> Optional[DocExtClient]:
+        """Get a DocExt client specifically"""
+        client = self.get_client(connection_id)
+        if isinstance(client, DocExtClient):
+            return client
+        return None
 
     def get_client_for_purpose(self, purpose: LLMPurpose) -> Optional[LLMClient]:
         """Get the first enabled client for a specific purpose"""
@@ -310,24 +525,45 @@ async def check_connection_health(connection_id: str) -> dict:
     return await client.health_check()
 
 
-async def test_connection(url: str, model: str = "default") -> dict:
+async def test_connection(
+    url: str,
+    model: str = "default",
+    connection_type: str = "openai",
+    docext_auth_user: str = "admin",
+    docext_auth_pass: str = "admin"
+) -> dict:
     """Test a new connection before saving"""
     conn = LLMConnection(
         id="test",
         name="Test",
         url=url,
-        model=model
+        model=model,
+        connection_type=LLMType(connection_type) if connection_type else LLMType.OPENAI,
+        docext_auth_user=docext_auth_user,
+        docext_auth_pass=docext_auth_pass
     )
-    client = LLMClient(conn)
-    try:
-        health = await client.health_check()
-        if health.get("status") == "ok":
-            # Try a simple completion
-            response = await client.chat_completion(
-                messages=[{"role": "user", "content": "Rispondi solo: OK"}],
-                max_tokens=10
-            )
-            health["test_response"] = response
-        return health
-    finally:
-        await client.close()
+
+    if conn.connection_type == LLMType.DOCEXT:
+        client = DocExtClient(conn)
+        try:
+            health = await client.health_check()
+            # DocExt doesn't need a test completion
+            if health.get("status") == "ok":
+                health["test_response"] = "DocExt connesso"
+            return health
+        finally:
+            await client.close()
+    else:
+        client = LLMClient(conn)
+        try:
+            health = await client.health_check()
+            if health.get("status") == "ok":
+                # Try a simple completion
+                response = await client.chat_completion(
+                    messages=[{"role": "user", "content": "Rispondi solo: OK"}],
+                    max_tokens=10
+                )
+                health["test_response"] = response
+            return health
+        finally:
+            await client.close()

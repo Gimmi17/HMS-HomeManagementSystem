@@ -6,13 +6,7 @@ import shoppingListsService from '@/services/shoppingLists'
 import type { Receipt, ReceiptItem, ReconciliationResponse, ShoppingList } from '@/types'
 import type { ReceiptItemMatchStatus } from '@/types'
 
-type ProcessingStep = 'idle' | 'editing' | 'saving' | 'uploading' | 'processing' | 'review' | 'reconciling' | 'done' | 'error'
-
-interface ImagePreview {
-  id: string
-  file: File
-  previewUrl: string
-}
+type ProcessingStep = 'idle' | 'editing' | 'saving' | 'processing' | 'review' | 'reconciling' | 'done' | 'error'
 
 interface EditableItem {
   id: string
@@ -30,13 +24,12 @@ export function ReceiptUpload() {
   const [shoppingList, setShoppingList] = useState<ShoppingList | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null)
-  const [images, setImages] = useState<ImagePreview[]>([])
   const [step, setStep] = useState<ProcessingStep>('idle')
   const [error, setError] = useState<string | null>(null)
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
 
   // Editing state - which image is being edited
-  const [editingImage, setEditingImage] = useState<{ file: File; url: string } | null>(null)
+  const [editingImage, setEditingImage] = useState<{ url: string } | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null) // null = new image, number = re-editing existing
   const [cropArea, setCropArea] = useState<CropArea | null>(null)
   const [contrast, setContrast] = useState(120)
@@ -55,27 +48,30 @@ export function ReceiptUpload() {
       .catch(() => setError('Lista della spesa non trovata'))
   }, [listId])
 
-  // Cleanup URLs on unmount
+  // Load existing receipt for this list (prefer UPLOADED, fallback to most recent)
   useEffect(() => {
-    return () => {
-      images.forEach((img) => URL.revokeObjectURL(img.previewUrl))
-      if (editingImage) URL.revokeObjectURL(editingImage.url)
-    }
-  }, [])
+    if (!listId) return
+    receiptsService.getByListId(listId)
+      .then((data) => {
+        const target = data.receipts.find((r) => r.status === 'uploaded') || data.receipts[0]
+        if (target) {
+          receiptsService.getById(target.id).then(setReceipt)
+        }
+      })
+      .catch(() => {})
+  }, [listId])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     const validFile = files.find((f) => ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
 
     if (!validFile) {
-      // User cancelled or invalid file - go back to idle if we have images
       setStep('idle')
       return
     }
 
     // Open editing view for this new image
     setEditingImage({
-      file: validFile,
       url: URL.createObjectURL(validFile),
     })
     setEditingIndex(null) // New image, not re-editing
@@ -89,19 +85,19 @@ export function ReceiptUpload() {
     e.target.value = ''
   }
 
-  // Re-edit an existing image
+  // Re-edit an existing server image
   const handleReEditImage = (index: number) => {
-    const img = images[index]
+    if (!receipt) return
+    const sortedImages = [...receipt.images].sort((a, b) => a.position - b.position)
+    const img = sortedImages[index]
     if (!img) return
 
-    // Open the already-processed image for further editing
     setEditingImage({
-      file: img.file,
-      url: img.previewUrl, // Use the existing preview URL (already processed)
+      url: receiptsService.getImageUrl(img.image_path),
     })
     setEditingIndex(index)
-    setCropArea(null) // Reset crop for new edit session
-    setContrast(100) // Reset to neutral since image already has filters applied
+    setCropArea(null)
+    setContrast(100) // Neutral since image already has filters applied
     setBrightness(100)
     setImageLoaded(false)
     setStep('editing')
@@ -150,72 +146,59 @@ export function ReceiptUpload() {
       0, 0, sourceWidth, sourceHeight
     )
 
-    // Save reference to cleanup later
-    const urlToRevoke = editingImage.url
+    // Get processed blob
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.92)
+    })
 
-    // Convert to blob
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          setError('Errore nel salvataggio della foto')
-          setStep('editing')
-          return
+    if (!blob) {
+      setError('Errore nel salvataggio della foto')
+      setStep('editing')
+      return
+    }
+
+    const processedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' })
+
+    // Cleanup blob URL if it was a new image (not server re-edit)
+    if (editingIndex === null && editingImage.url.startsWith('blob:')) {
+      URL.revokeObjectURL(editingImage.url)
+    }
+
+    try {
+      let updatedReceipt: Receipt
+
+      if (editingIndex !== null && receipt) {
+        // Re-editing: delete old server image, add new
+        const sortedImages = [...receipt.images].sort((a, b) => a.position - b.position)
+        const oldImage = sortedImages[editingIndex]
+        if (oldImage) {
+          await receiptsService.deleteImage(oldImage.id)
         }
+        updatedReceipt = await receiptsService.addImages(receipt.id, [processedFile])
+      } else if (receipt) {
+        // Adding new image to existing receipt
+        updatedReceipt = await receiptsService.addImages(receipt.id, [processedFile])
+      } else {
+        // First image: create receipt
+        updatedReceipt = await receiptsService.upload(listId!, [processedFile])
+      }
 
-        const processedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' })
-        const previewUrl = URL.createObjectURL(processedFile)
+      setReceipt(updatedReceipt)
+    } catch (err) {
+      console.error('Upload failed:', err)
+      setError('Errore nel salvataggio della foto')
+      setStep('editing')
+      return
+    }
 
-        if (editingIndex !== null) {
-          // Re-editing: replace the existing image
-          setImages((prev) => {
-            const updated = [...prev]
-            // Revoke old URL
-            URL.revokeObjectURL(updated[editingIndex].previewUrl)
-            // Replace with new processed image
-            updated[editingIndex] = {
-              ...updated[editingIndex],
-              file: processedFile,
-              previewUrl,
-            }
-            return updated
-          })
-          // Don't revoke editingImage.url since it's the same as the old previewUrl (already revoked above)
-        } else {
-          // New image: add to list
-          setImages((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              file: processedFile,
-              previewUrl,
-            },
-          ])
-          // Cleanup the original file URL
-          URL.revokeObjectURL(urlToRevoke)
-        }
-
-        // Cleanup editing state
-        setEditingImage(null)
-        setEditingIndex(null)
-
-        // Set to idle
-        setStep('idle')
-
-        // Only open file picker for new images, not re-edits
-        if (editingIndex === null) {
-          setTimeout(() => {
-            fileInputRef.current?.click()
-          }, 100)
-        }
-      },
-      'image/jpeg',
-      0.92
-    )
+    setEditingImage(null)
+    setEditingIndex(null)
+    setStep('idle')
   }
 
   const handleCancelEdit = () => {
-    // Only revoke URL if it's a new image (not re-editing)
-    if (editingImage && editingIndex === null) {
+    // Only revoke URL if it's a new image blob (not server URL)
+    if (editingImage && editingIndex === null && editingImage.url.startsWith('blob:')) {
       URL.revokeObjectURL(editingImage.url)
     }
     setEditingImage(null)
@@ -223,27 +206,25 @@ export function ReceiptUpload() {
     setStep('idle')
   }
 
-  const handleRemoveImage = (id: string) => {
-    setImages((prev) => {
-      const toRemove = prev.find((img) => img.id === id)
-      if (toRemove) URL.revokeObjectURL(toRemove.previewUrl)
-      return prev.filter((img) => img.id !== id)
-    })
+  const handleRemoveImage = async (imageId: string) => {
+    if (!receipt) return
+    try {
+      await receiptsService.deleteImage(imageId)
+      const updated = await receiptsService.getById(receipt.id)
+      setReceipt(updated)
+    } catch {
+      setError("Errore nella rimozione dell'immagine")
+    }
   }
 
-  const handleUploadAndProcess = async () => {
-    if (!listId || images.length === 0) return
+  const handleProcess = async () => {
+    if (!receipt) return
 
     setError(null)
 
     try {
-      setStep('uploading')
-      const files = images.map((img) => img.file)
-      const uploaded = await receiptsService.upload(listId, files)
-      setReceipt(uploaded)
-
       setStep('processing')
-      const processed = await receiptsService.process(uploaded.id)
+      const processed = await receiptsService.process(receipt.id)
       setReceipt(processed)
 
       // Convert to editable items
@@ -323,15 +304,17 @@ export function ReceiptUpload() {
   }
 
   const handleReset = () => {
-    images.forEach((img) => URL.revokeObjectURL(img.previewUrl))
     setReceipt(null)
     setReconciliation(null)
-    setImages([])
     setEditableItems([])
     setStep('idle')
     setError(null)
     setSelectedExtras(new Set())
   }
+
+  const sortedImages = receipt?.images
+    ? [...receipt.images].sort((a, b) => a.position - b.position)
+    : []
 
   const groupedItems = receipt?.items.reduce(
     (acc, item) => {
@@ -360,7 +343,7 @@ export function ReceiptUpload() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link
-          to={listId ? `/shopping-lists/${listId}` : '/shopping-lists'}
+          to="/shopping-lists"
           className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -368,7 +351,7 @@ export function ReceiptUpload() {
           </svg>
         </Link>
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Carica Scontrino</h1>
+          <h1 className="text-lg font-bold text-gray-900">Scontrini d'acquisto</h1>
           {shoppingList && <p className="text-sm text-gray-500">{shoppingList.name}</p>}
         </div>
       </div>
@@ -459,32 +442,48 @@ export function ReceiptUpload() {
       {/* IDLE VIEW - Photo list */}
       {step === 'idle' && (
         <>
-          {/* Add photo button */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full py-4 border-2 border-dashed border-primary-300 bg-primary-50 rounded-xl text-primary-600 font-medium hover:bg-primary-100 flex items-center justify-center gap-2"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            {images.length === 0 ? 'Scatta o Seleziona Foto' : 'Aggiungi Altra Foto'}
-          </button>
+          {/* Add photo button - only for UPLOADED or new receipts */}
+          {(!receipt || receipt.status === 'uploaded') && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-4 border-2 border-dashed border-primary-300 bg-primary-50 rounded-xl text-primary-600 font-medium hover:bg-primary-100 flex items-center justify-center gap-2"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              {sortedImages.length === 0 ? 'Scatta o Seleziona Foto' : 'Aggiungi Altra Foto'}
+            </button>
+          )}
 
-          {/* Images list */}
-          {images.length > 0 && (
+          {/* Images list from server */}
+          {sortedImages.length > 0 && (
             <div className="card p-4">
-              <h3 className="font-semibold text-gray-900 mb-3">Foto Caricate ({images.length})</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">Foto Salvate ({sortedImages.length})</h3>
 
               <div className="grid grid-cols-3 gap-3">
-                {images.map((img, idx) => (
+                {sortedImages.map((img, idx) => (
                   <div key={img.id} className="relative">
                     <img
-                      src={img.previewUrl}
+                      src={receiptsService.getImageUrl(img.image_path)}
                       alt={`Foto ${idx + 1}`}
                       className="w-full aspect-square object-cover rounded-lg cursor-pointer active:opacity-80"
-                      onClick={() => handleReEditImage(idx)}
+                      onClick={() => receipt?.status === 'uploaded' && handleReEditImage(idx)}
+                      onError={(e) => {
+                        const target = e.currentTarget
+                        target.style.display = 'none'
+                        const placeholder = target.nextElementSibling as HTMLElement
+                        if (placeholder) placeholder.style.display = 'flex'
+                      }}
                     />
+                    <div
+                      className="w-full aspect-square bg-gray-100 rounded-lg items-center justify-center text-gray-400"
+                      style={{ display: 'none' }}
+                    >
+                      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
                     <div className="absolute top-1 left-1 w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs font-bold pointer-events-none">
                       {idx + 1}
                     </div>
@@ -499,26 +498,37 @@ export function ReceiptUpload() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
-                    {/* Edit hint icon */}
-                    <div className="absolute bottom-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center pointer-events-none">
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </div>
+                    {receipt?.status === 'uploaded' && (
+                      <div className="absolute bottom-1 right-1 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center pointer-events-none">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
 
-              <button
-                onClick={handleUploadAndProcess}
-                className="w-full mt-4 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
-              >
-                Elabora Scontrino
-              </button>
+              {receipt?.status === 'uploaded' && (
+                <button
+                  onClick={handleProcess}
+                  className="w-full mt-4 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600"
+                >
+                  Elabora Scontrino
+                </button>
+              )}
+
+              {receipt && receipt.status !== 'uploaded' && (
+                <div className="mt-3 text-center text-xs text-gray-500">
+                  Stato: {receipt.status === 'processed' ? 'Elaborato' :
+                    receipt.status === 'reconciled' ? 'Riconciliato' :
+                    receipt.status === 'error' ? 'Errore' : receipt.status}
+                </div>
+              )}
             </div>
           )}
 
-          {images.length === 0 && (
+          {sortedImages.length === 0 && !receipt && (
             <p className="text-center text-gray-500 text-sm">
               Scatta una foto dello scontrino per iniziare
             </p>
@@ -534,13 +544,11 @@ export function ReceiptUpload() {
         </div>
       )}
 
-      {/* UPLOADING / PROCESSING */}
-      {['uploading', 'processing'].includes(step) && (
+      {/* PROCESSING */}
+      {step === 'processing' && (
         <div className="card p-6 text-center">
           <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-primary-500 border-t-transparent mb-4" />
-          <p className="text-gray-600">
-            {step === 'uploading' ? 'Caricamento...' : 'Elaborazione OCR...'}
-          </p>
+          <p className="text-gray-600">Elaborazione OCR...</p>
         </div>
       )}
 

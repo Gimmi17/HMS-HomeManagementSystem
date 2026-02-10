@@ -10,6 +10,7 @@ import llmService, {
   LLMConnection,
   LLMConnectionCreate,
   LLMPurpose,
+  LLMType,
   LLMTestResult
 } from '@/services/llm'
 
@@ -21,6 +22,7 @@ export function LLMSettings() {
 
   const [connections, setConnections] = useState<LLMConnection[]>([])
   const [purposes, setPurposes] = useState<LLMPurpose[]>([])
+  const [connectionTypes, setConnectionTypes] = useState<LLMType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,11 +34,14 @@ export function LLMSettings() {
     url: '',
     model: '',
     purpose: 'ocr',
+    connection_type: 'openai',
     enabled: true,
     timeout: 30,
     temperature: 0.3,
     max_tokens: 500,
-    api_key: ''
+    api_key: '',
+    docext_auth_user: 'admin',
+    docext_auth_pass: 'admin'
   })
 
   // Test state
@@ -59,12 +64,14 @@ export function LLMSettings() {
 
     try {
       setLoading(true)
-      const [conns, purps] = await Promise.all([
+      const [conns, purps, types] = await Promise.all([
         llmService.getConnections(currentHouseId),
-        llmService.getPurposes()
+        llmService.getPurposes(),
+        llmService.getTypes()
       ])
       setConnections(conns)
       setPurposes(purps)
+      setConnectionTypes(types)
       setError(null)
     } catch (err) {
       setError('Errore nel caricamento delle connessioni')
@@ -83,15 +90,27 @@ export function LLMSettings() {
     setConnectionVerified(false)
 
     try {
-      const result = await llmService.testConnection(formData.url, formData.model || 'default')
+      const result = await llmService.testConnection(
+        formData.url,
+        formData.model || 'default',
+        formData.connection_type || 'openai',
+        formData.docext_auth_user || 'admin',
+        formData.docext_auth_pass || 'admin'
+      )
       setTestResult(result)
 
-      if (result.status === 'ok' && result.models && result.models.length > 0) {
-        setAvailableModels(result.models)
+      if (result.status === 'ok') {
         setConnectionVerified(true)
-        // Se non c'è già un modello selezionato, seleziona il primo
-        if (!formData.model || formData.model === 'default') {
-          setFormData(prev => ({ ...prev, model: result.models![0] }))
+
+        if (formData.connection_type === 'docext') {
+          // DocExt doesn't have model selection, use default
+          setFormData(prev => ({ ...prev, model: 'docext' }))
+        } else if (result.models && result.models.length > 0) {
+          setAvailableModels(result.models)
+          // Se non c'è già un modello selezionato, seleziona il primo
+          if (!formData.model || formData.model === 'default') {
+            setFormData(prev => ({ ...prev, model: result.models![0] }))
+          }
         }
       }
     } catch (err) {
@@ -160,11 +179,14 @@ export function LLMSettings() {
       url: conn.url,
       model: conn.model,
       purpose: conn.purpose,
+      connection_type: conn.connection_type || 'openai',
       enabled: conn.enabled,
       timeout: conn.timeout,
       temperature: conn.temperature,
       max_tokens: conn.max_tokens,
-      api_key: ''  // Don't show existing key
+      api_key: '',  // Don't show existing key
+      docext_auth_user: conn.docext_auth_user || 'admin',
+      docext_auth_pass: ''  // Don't show existing password
     })
     setEditingId(conn.id)
     setMode('edit')
@@ -179,11 +201,14 @@ export function LLMSettings() {
       url: '',
       model: '',
       purpose: 'ocr',
+      connection_type: 'openai',
       enabled: true,
       timeout: 30,
       temperature: 0.3,
       max_tokens: 500,
-      api_key: ''
+      api_key: '',
+      docext_auth_user: 'admin',
+      docext_auth_pass: 'admin'
     })
     setMode('list')
     setEditingId(null)
@@ -197,6 +222,13 @@ export function LLMSettings() {
     const p = purposes.find(p => p.value === purpose)
     return p?.label || purpose
   }
+
+  const getTypeLabel = (connType: string) => {
+    const t = connectionTypes.find(t => t.value === connType)
+    return t?.label || connType
+  }
+
+  const isDocExt = formData.connection_type === 'docext'
 
   const getStatusIcon = (status: 'ok' | 'offline' | 'error' | 'checking') => {
     switch (status) {
@@ -296,7 +328,14 @@ export function LLMSettings() {
                             )}
                           </div>
                           <p className="text-sm text-gray-500 truncate">{conn.url}</p>
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              conn.connection_type === 'docext'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {getTypeLabel(conn.connection_type || 'openai')}
+                            </span>
                             <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
                               {getPurposeLabel(conn.purpose)}
                             </span>
@@ -352,10 +391,41 @@ export function LLMSettings() {
               {mode === 'add' ? 'Nuova Connessione' : 'Modifica Connessione'}
             </h2>
 
-            {/* Step 1: URL and Test */}
+            {/* Step 0: Connection Type */}
             <div className="p-3 bg-gray-50 rounded-lg space-y-3">
               <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">1</span>
+                Tipo di Connessione
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {connectionTypes.map(t => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({ ...prev, connection_type: t.value }))
+                      setConnectionVerified(false)
+                      setTestResult(null)
+                      setAvailableModels([])
+                    }}
+                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                      formData.connection_type === t.value
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-900">{t.label}</div>
+                    <div className="text-xs text-gray-500 mt-1">{t.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 1: URL and Test */}
+            <div className="p-3 bg-gray-50 rounded-lg space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">2</span>
                 Connetti al Server
               </div>
 
@@ -368,14 +438,45 @@ export function LLMSettings() {
                   type="text"
                   value={formData.url}
                   onChange={e => handleUrlChange(e.target.value)}
-                  placeholder="http://192.168.1.100:8080"
+                  placeholder={isDocExt ? "http://192.168.1.100:7860" : "http://192.168.1.100:8080"}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Inserisci l'IP del server MLX (es: http://192.168.1.100:8080)
+                  {isDocExt
+                    ? "URL del server DocExt (es: http://192.168.1.100:7860)"
+                    : "URL del server LLM (es: http://192.168.1.100:8080)"}
                 </p>
               </div>
+
+              {/* DocExt Auth Fields */}
+              {isDocExt && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.docext_auth_user || 'admin'}
+                      onChange={e => setFormData(prev => ({ ...prev, docext_auth_user: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      value={formData.docext_auth_pass || ''}
+                      onChange={e => setFormData(prev => ({ ...prev, docext_auth_pass: e.target.value }))}
+                      placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : 'admin'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Test button */}
               <button
@@ -429,11 +530,11 @@ export function LLMSettings() {
               )}
             </div>
 
-            {/* Step 2: Select Model (only after successful test) */}
-            {connectionVerified && availableModels.length > 0 && (
+            {/* Step 3: Select Model (only after successful test, OpenAI only) */}
+            {connectionVerified && availableModels.length > 0 && !isDocExt && (
               <div className="p-3 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">2</span>
+                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">3</span>
                   Seleziona Modello
                 </div>
 
@@ -457,11 +558,11 @@ export function LLMSettings() {
               </div>
             )}
 
-            {/* Step 3: Configure (only after model selected) */}
+            {/* Step 4: Configure (only after connection verified) */}
             {connectionVerified && (
               <div className="p-3 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">3</span>
+                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">{isDocExt ? '3' : '4'}</span>
                   Configura
                 </div>
 
@@ -593,7 +694,7 @@ export function LLMSettings() {
             </button>
             <button
               type="submit"
-              disabled={!connectionVerified || !formData.name || !formData.model}
+              disabled={!connectionVerified || !formData.name || (!isDocExt && !formData.model)}
               className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {mode === 'add' ? 'Salva Connessione' : 'Aggiorna'}
@@ -605,15 +706,27 @@ export function LLMSettings() {
       {/* Info box */}
       {mode === 'list' && (
         <div className="card p-4 bg-blue-50 border-blue-200">
-          <h3 className="font-medium text-blue-800 mb-2">Come funziona</h3>
-          <ul className="text-sm text-blue-700 space-y-1">
-            <li>• <strong>OCR Scontrini</strong>: Interpreta le abbreviazioni e migliora il matching</li>
-            <li>• <strong>Chat</strong>: Conversazione generale (futuro)</li>
-            <li>• <strong>Suggerimenti</strong>: Suggerisce ricette e pasti (futuro)</li>
+          <h3 className="font-medium text-blue-800 mb-2">Tipi di Connessione</h3>
+          <ul className="text-sm text-blue-700 space-y-2">
+            <li>
+              <strong>OpenAI Compatible</strong>: Server LLM con API OpenAI
+              <br />
+              <span className="text-blue-600 text-xs">MLX, Ollama, LM Studio, vLLM, OpenAI API</span>
+            </li>
+            <li>
+              <strong>DocExt</strong>: Document Intelligence con Vision Models
+              <br />
+              <span className="text-blue-600 text-xs">Estrazione strutturata da documenti (richiede GPU NVIDIA)</span>
+            </li>
           </ul>
-          <p className="text-sm text-blue-600 mt-2">
-            Supporta server OpenAI-compatible: mlx-lm-server, LM Studio, Ollama, ecc.
-          </p>
+          <div className="mt-3 pt-3 border-t border-blue-200">
+            <h4 className="font-medium text-blue-800 mb-1">Utilizzi</h4>
+            <ul className="text-sm text-blue-700 space-y-1">
+              <li>• <strong>OCR Scontrini</strong>: Interpreta le abbreviazioni e migliora il matching</li>
+              <li>• <strong>Chat</strong>: Conversazione generale (futuro)</li>
+              <li>• <strong>Suggerimenti</strong>: Suggerisce ricette e pasti (futuro)</li>
+            </ul>
+          </div>
         </div>
       )}
     </div>

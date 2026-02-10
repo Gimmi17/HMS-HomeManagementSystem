@@ -4,7 +4,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:14-alpine
-    container_name: meal-planner-db
+    container_name: meal-planner-db-scontrini
     environment:
       POSTGRES_USER: meal_planner
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -25,7 +25,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: meal-planner-backend
+    container_name: meal-planner-backend-scontrini
     environment:
       # Database
       DATABASE_URL: postgresql://meal_planner:${DB_PASSWORD}@postgres:5432/meal_planner_db
@@ -51,9 +51,10 @@ services:
       # Python
       PYTHONUNBUFFERED: 1
     ports:
-      - "8847:8000"
+      - "8850:8000"
     volumes:
       - backend_logs:/app/logs
+      - receipts_data:/app/data/receipts
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +68,7 @@ services:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
-    container_name: meal-planner-ocr
+    container_name: meal-planner-ocr-scontrini
     volumes:
       - ocr_logs:/app/logs
     networks:
@@ -92,13 +93,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: meal-planner-frontend
+    container_name: meal-planner-frontend-scontrini
     environment:
       VITE_API_URL: ${VITE_API_URL:-/api/v1}
       VITE_APP_NAME: ${VITE_APP_NAME:-Meal Planner}
     ports:
-      - "5052:3000"
-      - "5053:3443"
+      - "5054:3000"
+      - "5055:3443"
     volumes:
       - ./frontend/ssl:/etc/nginx/ssl:ro
     depends_on:
@@ -114,6 +115,8 @@ volumes:
   backend_logs:
     driver: local
   ocr_logs:
+    driver: local
+  receipts_data:
     driver: local
 
 networks:
