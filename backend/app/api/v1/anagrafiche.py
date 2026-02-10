@@ -681,10 +681,9 @@ def list_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all products in catalog (excluding cancelled and empty barcodes)."""
+    """List all products in catalog (excluding cancelled)."""
     query = db.query(ProductCatalog).filter(
-        ProductCatalog.cancelled == False,
-        ProductCatalog.barcode != '',
+        ProductCatalog.cancelled == False
     )
 
     # Filter by certification status
