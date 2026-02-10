@@ -518,6 +518,13 @@ export function ShoppingListDetail() {
               className="flex items-center gap-3 cursor-pointer"
               onClick={() => openItemModal(item)}
             >
+              {/* Picking sequence number */}
+              {item.store_picking_position && (
+                <span className="w-6 text-xs font-medium text-gray-400 text-center flex-shrink-0">
+                  {item.store_picking_position}
+                </span>
+              )}
+
               {/* Checkbox - separate click handler for toggle */}
               <div
                 onClick={(e) => {

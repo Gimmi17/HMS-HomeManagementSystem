@@ -279,11 +279,14 @@ export interface ShoppingListItem {
   verified_at?: string
   verified_quantity?: number
   verified_unit?: string
+  checked_at?: string
   not_purchased: boolean
   not_purchased_at?: string
+  store_picking_position?: number  // null = mai acquistato in questo negozio
   urgent: boolean
   expiry_date?: string  // formato YYYY-MM-DD dal backend
   category_id?: string
+  catalog_barcode?: string  // EAN noto da acquisti precedenti
   created_at: string
   updated_at: string
 }

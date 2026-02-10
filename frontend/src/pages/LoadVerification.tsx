@@ -31,11 +31,18 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   const [isWeight, setIsWeight] = useState(item.unit === 'kg' || item.unit === 'g')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
   const [catalogCategoryId, setCatalogCategoryId] = useState<string | undefined>(undefined)
-  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
+  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || item.catalog_barcode || '')
   const [productName, setProductName] = useState<string | null>(null)
   const [sourceName, setSourceName] = useState<string | null>(null)
   const [showPhotoScanner, setShowPhotoScanner] = useState(false)
   const [isLookingUp, setIsLookingUp] = useState(false)
+
+  // Auto-lookup barcode if pre-filled from catalog
+  useEffect(() => {
+    if (!item.scanned_barcode && item.catalog_barcode) {
+      lookupBarcode(item.catalog_barcode)
+    }
+  }, [])
 
   // Expiry date state
   const formatDateForDisplay = (dateStr: string | undefined): string => {

@@ -68,7 +68,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
   )
   const [expiryDateInput, setExpiryDateInput] = useState(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
-  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || '')
+  const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || item.catalog_barcode || '')
   const [showPhotoScanner, setShowPhotoScanner] = useState(false)
   const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
 

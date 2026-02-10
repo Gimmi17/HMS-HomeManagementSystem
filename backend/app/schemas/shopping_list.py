@@ -72,9 +72,11 @@ class ShoppingListItemResponse(ShoppingListItemBase):
     verified_unit: Optional[str] = None
     not_purchased: bool = False
     not_purchased_at: Optional[datetime] = None
+    store_picking_position: Optional[int] = None
     urgent: bool = False
     expiry_date: Optional[date] = None
     category_id: Optional[UUID] = None
+    catalog_barcode: Optional[str] = None  # EAN noto da acquisti precedenti
     created_at: datetime
     updated_at: datetime
 

@@ -234,6 +234,27 @@ def get_store_order_map(db: Session, store_id: Optional[UUID], exclude_list_id: 
     return order_map
 
 
+def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -> dict:
+    """Trova i barcode noti dagli item verificati in liste completate precedenti."""
+    items = db.query(ShoppingListItem).join(ShoppingList).filter(
+        ShoppingList.house_id == house_id,
+        ShoppingList.status == ShoppingListStatus.COMPLETED,
+        ShoppingList.id != exclude_list_id,
+        ShoppingListItem.scanned_barcode.isnot(None),
+    ).order_by(ShoppingListItem.checked_at.desc()).all()
+
+    barcode_map = {}
+    for item in items:
+        name_key = item.name.lower().strip()
+        if name_key not in barcode_map:
+            barcode_map[name_key] = item.scanned_barcode
+        if item.grocy_product_id:
+            gkey = f"grocy:{item.grocy_product_id}"
+            if gkey not in barcode_map:
+                barcode_map[gkey] = item.scanned_barcode
+    return barcode_map
+
+
 @router.get("/{list_id}", response_model=ShoppingListResponse)
 def get_shopping_list(
     list_id: UUID,
@@ -272,7 +293,58 @@ def get_shopping_list(
 
         shopping_list.items = sorted(shopping_list.items, key=get_sort_key)
 
-    return build_list_response(shopping_list)
+    # Assign store_picking_position after sort
+    picking_num = 1
+    item_picking_positions = {}
+    for item in shopping_list.items:
+        pos = None
+        if item.grocy_product_id:
+            key = f"grocy:{item.grocy_product_id}"
+            if key in order_map:
+                pos = order_map[key]
+        if pos is None:
+            name_key = item.name.lower().strip()
+            if name_key in order_map:
+                pos = order_map[name_key]
+        if pos is not None:
+            item_picking_positions[item.id] = picking_num
+            picking_num += 1
+        else:
+            item_picking_positions[item.id] = None
+
+    # Build response with picking positions
+    item_responses = []
+    for item in shopping_list.items:
+        item_resp = ShoppingListItemResponse.model_validate(item)
+        item_resp.store_picking_position = item_picking_positions.get(item.id)
+        item_responses.append(item_resp)
+
+    # Auto-fill catalog_barcode from previous completed lists
+    barcode_map = get_known_barcodes_map(db, shopping_list.house_id, list_id)
+    for item_resp in item_responses:
+        if not item_resp.scanned_barcode:  # solo se non ha già un barcode
+            bc = None
+            if item_resp.grocy_product_id:
+                bc = barcode_map.get(f"grocy:{item_resp.grocy_product_id}")
+            if not bc:
+                bc = barcode_map.get(item_resp.name.lower().strip())
+            item_resp.catalog_barcode = bc
+
+    return ShoppingListResponse(
+        id=shopping_list.id,
+        house_id=shopping_list.house_id,
+        store_id=shopping_list.store_id,
+        store_name=shopping_list.store.name if shopping_list.store else None,
+        name=shopping_list.name,
+        created_by=shopping_list.created_by,
+        status=shopping_list.status,
+        verification_status=shopping_list.verification_status,
+        editing_by=shopping_list.editing_by,
+        editing_since=shopping_list.editing_since,
+        items=item_responses,
+        created_at=shopping_list.created_at,
+        updated_at=shopping_list.updated_at
+    )
 
 
 @router.put("/{list_id}", response_model=ShoppingListResponse)
