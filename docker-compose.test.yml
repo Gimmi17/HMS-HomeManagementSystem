@@ -1,13 +1,13 @@
 version: '3.8'
 
-# Test configuration - runs separately from main dev environment
+# meal-planner2 test environment
 # Usage: docker-compose -f docker-compose.test.yml up --build
 
 services:
-  # PostgreSQL Database - Test instance
+  # PostgreSQL Database - meal-planner2
   postgres-test:
     image: postgres:14-alpine
-    container_name: meal-planner-db-test
+    container_name: meal-planner2-db
     environment:
       POSTGRES_USER: meal_planner
       POSTGRES_PASSWORD: testpassword123
@@ -15,19 +15,19 @@ services:
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
     networks:
-      - meal-network-test
+      - meal-planner2-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U meal_planner"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # FastAPI Backend - Test instance
+  # FastAPI Backend - meal-planner2
   backend-test:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: meal-planner-backend-test
+    container_name: meal-planner2-backend
     environment:
       DATABASE_URL: postgresql://meal_planner:testpassword123@postgres-test:5432/meal_planner_test_db
       SECRET_KEY: test-secret-key-for-development-only
@@ -46,18 +46,18 @@ services:
       postgres-test:
         condition: service_healthy
     networks:
-      meal-network-test:
+      meal-planner2-network:
         aliases:
           - backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
 
-  # React Frontend - Test instance
+  # React Frontend - meal-planner2
   frontend-test:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: meal-planner-frontend-test
+    container_name: meal-planner2-frontend
     environment:
       NODE_ENV: development
       VITE_API_URL: http://192.168.1.52:8848/api/v1
@@ -75,7 +75,7 @@ services:
     depends_on:
       - backend-test
     networks:
-      - meal-network-test
+      - meal-planner2-network
     command: npm run dev -- --host 0.0.0.0 --port 3000
 
 volumes:
@@ -83,5 +83,5 @@ volumes:
     driver: local
 
 networks:
-  meal-network-test:
+  meal-planner2-network:
     driver: bridge
