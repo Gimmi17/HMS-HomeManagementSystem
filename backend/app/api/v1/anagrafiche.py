@@ -681,9 +681,10 @@ def list_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all products in catalog (excluding cancelled)."""
+    """List all products in catalog (excluding cancelled and empty barcodes)."""
     query = db.query(ProductCatalog).filter(
-        ProductCatalog.cancelled == False
+        ProductCatalog.cancelled == False,
+        ProductCatalog.barcode != '',
     )
 
     # Filter by certification status
@@ -857,11 +858,12 @@ def get_unnamed_products_with_descriptions(
     searches for all shopping list items with the same barcode and returns
     the distinct descriptions found (grocy_product_name or name).
     """
-    # Get all unnamed products
+    # Get all unnamed products (exclude empty barcodes)
     unnamed_products = db.query(ProductCatalog).filter(
         ProductCatalog.cancelled == False,
         ProductCatalog.source == "not_found",
-        or_(ProductCatalog.name.is_(None), ProductCatalog.name == "")
+        or_(ProductCatalog.name.is_(None), ProductCatalog.name == ""),
+        ProductCatalog.barcode != '',
     ).all()
 
     result = []

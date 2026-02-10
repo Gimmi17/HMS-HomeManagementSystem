@@ -241,6 +241,7 @@ def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -
         ShoppingList.status == ShoppingListStatus.COMPLETED,
         ShoppingList.id != exclude_list_id,
         ShoppingListItem.scanned_barcode.isnot(None),
+        ShoppingListItem.scanned_barcode != '',
     ).order_by(ShoppingListItem.checked_at.desc()).all()
 
     barcode_map = {}
@@ -508,6 +509,10 @@ def update_item(
 
     try:
         update_data = data.model_dump(exclude_unset=True)
+        # Normalize empty barcode to None
+        if 'scanned_barcode' in update_data:
+            bc = update_data['scanned_barcode']
+            update_data['scanned_barcode'] = bc.strip() if bc and bc.strip() else None
         for field, value in update_data.items():
             setattr(item, field, value)
 
@@ -684,8 +689,8 @@ def verify_item(
             detail="Articolo non trovato"
         )
 
-    # Set barcode and verification timestamp
-    item.scanned_barcode = barcode
+    # Set barcode and verification timestamp (normalize empty to None)
+    item.scanned_barcode = barcode.strip() if barcode and barcode.strip() else None
     item.verified_at = datetime.now(timezone.utc)
     # Mark as checked/purchased when verified
     item.checked = True
@@ -788,8 +793,12 @@ def verify_item_with_quantity(
         )
 
     try:
+        # Normalize empty barcode to None
+        barcode = data.barcode.strip() if data.barcode else None
+        barcode = barcode or None  # Convert '' to None
+
         # Save verification data immediately
-        item.scanned_barcode = data.barcode
+        item.scanned_barcode = barcode
         item.verified_quantity = data.quantity
         item.verified_unit = data.unit
         item.verified_at = datetime.now(timezone.utc)
@@ -805,14 +814,15 @@ def verify_item_with_quantity(
             item.grocy_product_name = data.product_name
 
             # Also update ProductCatalog if it exists as "not_found" with no name
-            existing_product = db.query(ProductCatalog).filter(
-                ProductCatalog.barcode == data.barcode
-            ).first()
-            if existing_product and existing_product.source == "not_found" and not existing_product.name:
-                existing_product.name = data.product_name
-                verification_logger.info(
-                    f"VERIFY_ITEM_CATALOG_UPDATE | barcode={data.barcode} | name={data.product_name}"
-                )
+            if barcode:
+                existing_product = db.query(ProductCatalog).filter(
+                    ProductCatalog.barcode == barcode
+                ).first()
+                if existing_product and existing_product.source == "not_found" and not existing_product.name:
+                    existing_product.name = data.product_name
+                    verification_logger.info(
+                        f"VERIFY_ITEM_CATALOG_UPDATE | barcode={barcode} | name={data.product_name}"
+                    )
 
         db.commit()
         db.refresh(item)
@@ -853,10 +863,11 @@ def verify_item_with_quantity(
             detail=f"Errore durante la verifica: {str(e)}"
         )
 
-    # Trigger background task to enrich product data
+    # Trigger background task to enrich product data (only if barcode is non-empty)
     # This will check local DB, then Open Food Facts, and save product info
     # Pass item_id so the item can be updated with product name once enriched
-    enrich_product_background(SessionLocal, data.barcode, item_id=item_id, list_id=list_id)
+    if barcode:
+        enrich_product_background(SessionLocal, barcode, item_id=item_id, list_id=list_id)
 
     return item
 

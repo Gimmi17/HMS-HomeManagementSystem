@@ -393,6 +393,11 @@ def enrich_product_background(db_session_factory: Callable, barcode: str, item_i
         item_id: Optional shopping list item ID to update with product info
         list_id: Optional shopping list ID (for logging)
     """
+    # Skip empty barcodes
+    if not barcode or not barcode.strip():
+        logger.info(f"[Enrichment] Skipping empty barcode, not queuing for enrichment")
+        return
+
     # Ensure worker is running
     start_enrichment_worker(db_session_factory)
 
