@@ -127,6 +127,7 @@ function ErrorsSection({ errors }: { errors: ImportError[] }) {
 
 export function DatabaseImport() {
   const token = localStorage.getItem('access_token')
+  // SQL state
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -134,6 +135,15 @@ export function DatabaseImport() {
   const [error, setError] = useState<string | null>(null)
   const [exportSuccess, setExportSuccess] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // JSON v2 state
+  const [jsonFile, setJsonFile] = useState<File | null>(null)
+  const [isJsonUploading, setIsJsonUploading] = useState(false)
+  const [isJsonExporting, setIsJsonExporting] = useState(false)
+  const [jsonResult, setJsonResult] = useState<ImportResult | null>(null)
+  const [jsonError, setJsonError] = useState<string | null>(null)
+  const [jsonExportSuccess, setJsonExportSuccess] = useState(false)
+  const jsonFileInputRef = useRef<HTMLInputElement>(null)
 
   const handleExport = async () => {
     setIsExporting(true)
@@ -252,6 +262,125 @@ export function DatabaseImport() {
     setError(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
+    }
+  }
+
+  // --- JSON v2 handlers ---
+
+  const handleJsonExport = async () => {
+    setIsJsonExporting(true)
+    setJsonError(null)
+    setJsonExportSuccess(false)
+
+    try {
+      const response = await fetch('/api/v1/admin/export-database-json', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Errore durante l\'export JSON')
+      }
+
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = 'backup_v2.json'
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/)
+        if (match) {
+          filename = match[1]
+        }
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      setJsonExportSuccess(true)
+      setTimeout(() => setJsonExportSuccess(false), 5000)
+    } catch (err) {
+      setJsonError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setIsJsonExporting(false)
+    }
+  }
+
+  const handleJsonFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      if (!selectedFile.name.endsWith('.json')) {
+        setJsonError('Seleziona un file .json')
+        return
+      }
+      setJsonFile(selectedFile)
+      setJsonError(null)
+      setJsonResult(null)
+    }
+  }
+
+  const handleJsonUpload = async () => {
+    if (!jsonFile) {
+      setJsonError('Seleziona un file prima')
+      return
+    }
+
+    setIsJsonUploading(true)
+    setJsonError(null)
+    setJsonResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', jsonFile)
+
+      const response = await fetch('/api/v1/admin/import-database-json', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Errore durante l\'import JSON')
+      }
+
+      console.log('=== JSON IMPORT RESULT ===')
+      console.log('Executed:', data.executed)
+      console.log('Skipped:', data.skipped)
+      if (data.errors && data.errors.length > 0) {
+        console.log('=== ERRORS ===')
+        data.errors.forEach((err: ImportError, i: number) => {
+          console.log(`\n--- Error ${i + 1} ---`)
+          console.log('Statement:', err.statement)
+          console.log('Error:', err.error)
+        })
+      }
+      console.log('==========================')
+
+      setJsonResult(data)
+    } catch (err) {
+      setJsonError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setIsJsonUploading(false)
+    }
+  }
+
+  const handleJsonReset = () => {
+    setJsonFile(null)
+    setJsonResult(null)
+    setJsonError(null)
+    if (jsonFileInputRef.current) {
+      jsonFileInputRef.current.value = ''
     }
   }
 
@@ -410,6 +539,162 @@ export function DatabaseImport() {
                 </div>
                 {result.errors.length > 0 && (
                   <ErrorsSection errors={result.errors} />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-gray-200" />
+        </div>
+        <div className="relative flex justify-center">
+          <span className="bg-gray-50 px-3 text-sm text-gray-500">Backup JSON (v2)</span>
+        </div>
+      </div>
+
+      {/* JSON Export Section */}
+      <div className="card p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📤</span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Export JSON</h2>
+            <p className="text-sm text-gray-500">Backup portabile, compatibile con migrazioni di schema</p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleJsonExport}
+          disabled={isJsonExporting}
+          className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isJsonExporting ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Esportazione in corso...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Scarica Backup JSON
+            </span>
+          )}
+        </button>
+
+        {jsonExportSuccess && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex gap-2">
+              <span className="text-green-600">✅</span>
+              <p className="text-sm text-green-800">Backup JSON scaricato con successo!</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* JSON Import Section */}
+      <div className="card p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📥</span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Import JSON</h2>
+            <p className="text-sm text-gray-500">Ripristina dati da un backup JSON v2</p>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex gap-2">
+            <span className="text-blue-600">ℹ️</span>
+            <div className="text-sm text-blue-800">
+              <p className="font-medium">Schema-indipendente</p>
+              <p>Colonne extra nel backup vengono ignorate, colonne mancanti restano a NULL. Duplicati vengono saltati.</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            File JSON
+          </label>
+          <input
+            ref={jsonFileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleJsonFileChange}
+            className="block w-full text-sm text-gray-500
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-lg file:border-0
+              file:text-sm file:font-semibold
+              file:bg-blue-50 file:text-blue-700
+              hover:file:bg-blue-100
+              cursor-pointer"
+          />
+          {jsonFile && (
+            <p className="mt-2 text-sm text-gray-600">
+              File selezionato: <span className="font-medium">{jsonFile.name}</span> ({(jsonFile.size / 1024).toFixed(1)} KB)
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={handleJsonUpload}
+            disabled={!jsonFile || isJsonUploading}
+            className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isJsonUploading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Importazione...
+              </span>
+            ) : (
+              'Importa da JSON'
+            )}
+          </button>
+          {(jsonFile || jsonResult) && (
+            <button onClick={handleJsonReset} className="btn-secondary">
+              Reset
+            </button>
+          )}
+        </div>
+
+        {jsonError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="flex gap-2">
+              <span className="text-red-600">❌</span>
+              <p className="text-sm text-red-800">{jsonError}</p>
+            </div>
+          </div>
+        )}
+
+        {jsonResult && (
+          <div className={`border rounded-lg p-4 ${jsonResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <div className="flex items-start gap-2">
+              <span className="text-xl">{jsonResult.success ? '✅' : '❌'}</span>
+              <div className="flex-1">
+                <p className={`font-medium ${jsonResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                  {jsonResult.message}
+                </p>
+                <div className="mt-2 text-sm space-y-1">
+                  <p className="text-gray-600">
+                    Righe inserite: <span className="font-medium text-green-700">{jsonResult.executed}</span>
+                  </p>
+                  <p className="text-gray-600">
+                    Righe saltate: <span className="font-medium text-yellow-700">{jsonResult.skipped}</span>
+                  </p>
+                </div>
+                {jsonResult.errors.length > 0 && (
+                  <ErrorsSection errors={jsonResult.errors} />
                 )}
               </div>
             </div>
