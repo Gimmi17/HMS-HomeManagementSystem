@@ -5,8 +5,11 @@ Local cache of product data from Open Food Facts and other sources.
 Stores product information for faster lookups and offline access.
 """
 
-from sqlalchemy import Column, String, Text, Float, JSON
+from sqlalchemy import Column, String, Text, Float, JSON, ForeignKey, Boolean
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
+from app.models.product_category_tag import product_category_association
 
 
 class ProductCatalog(BaseModel):
@@ -55,6 +58,25 @@ class ProductCatalog(BaseModel):
 
     # Raw data from API (for future use)
     raw_data = Column(JSON, nullable=True)
+
+    # Local category (assigned by user during load verification)
+    category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Soft delete flag
+    cancelled = Column(Boolean, default=False, nullable=False, index=True)
+
+    # Relationships
+    category = relationship("Category")
+    category_tags = relationship(
+        "ProductCategoryTag",
+        secondary=product_category_association,
+        back_populates="products"
+    )
 
     def __repr__(self):
         return f"<ProductCatalog(barcode={self.barcode}, name='{self.name}')>"
