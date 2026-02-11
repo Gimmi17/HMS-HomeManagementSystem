@@ -21,6 +21,15 @@ const anagrafiche: AnagraficaItem[] = [
     implemented: true,
   },
   {
+    id: 'houses',
+    label: 'Case',
+    description: 'Gestisci case, membri e inviti',
+    icon: '🏠',
+    path: '/anagrafiche/houses',
+    color: 'bg-indigo-500',
+    implemented: true,
+  },
+  {
     id: 'categories',
     label: 'Categorie',
     description: 'Categorie per organizzare prodotti e articoli',
@@ -63,15 +72,6 @@ const anagrafiche: AnagraficaItem[] = [
     icon: '📖',
     path: '/recipes',
     color: 'bg-rose-500',
-    implemented: true,
-  },
-  {
-    id: 'barcode-sources',
-    label: 'Sorgenti Barcode',
-    description: 'Siti API per la ricerca prodotti tramite codice a barre',
-    icon: '🌐',
-    path: '/anagrafiche/barcode-sources',
-    color: 'bg-teal-500',
     implemented: true,
   },
 ]

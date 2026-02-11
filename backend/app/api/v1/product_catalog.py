@@ -105,8 +105,8 @@ def suggest_products(
             ProductCatalog.house_id.is_(None),
         ),
         ProductCatalog.cancelled == False,
-        ProductCatalog.source != "not_found",
         ProductCatalog.name.isnot(None),
+        ProductCatalog.name != "",
     ).filter(
         or_(
             ProductCatalog.name.ilike(f"{q}%"),
@@ -302,12 +302,6 @@ def get_product_by_barcode(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Prodotto non trovato nel catalogo locale"
-        )
-
-    if product.source == "not_found":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prodotto non disponibile in Open Food Facts"
         )
 
     return product

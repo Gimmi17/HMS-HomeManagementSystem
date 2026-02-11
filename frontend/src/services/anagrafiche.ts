@@ -172,6 +172,12 @@ export interface ProductListItem {
   nutriscore: string | null
   ecoscore: string | null
   nova_group: string | null
+  // Images
+  image_url: string | null
+  image_small_url: string | null
+  // House ownership
+  house_id: string | null
+  house_name: string | null
   // Meta
   source: string
   created_at: string
@@ -359,8 +365,13 @@ export const anagraficheService = {
     return response.data
   },
 
-  async refetchProduct(productId: string): Promise<ProductListItem> {
-    const response = await api.post(`/anagrafiche/products/${productId}/refetch`)
+  async updateProductHouse(productId: string, houseId: string | null): Promise<ProductListItem> {
+    const response = await api.patch(`/anagrafiche/products/${productId}/house`, { house_id: houseId })
+    return response.data
+  },
+
+  async refetchProduct(productId: string, barcode?: string): Promise<ProductListItem> {
+    const response = await api.post(`/anagrafiche/products/${productId}/refetch`, barcode ? { barcode } : {})
     return response.data
   },
 

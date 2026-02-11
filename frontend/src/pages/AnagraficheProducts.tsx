@@ -19,6 +19,8 @@ export function AnagraficheProducts() {
 
   // Detail modal
   const [viewingProduct, setViewingProduct] = useState<ProductListItem | null>(null)
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
+  const [imageLoaded, setImageLoaded] = useState(false)
 
   // Edit modal states
   const [showEditModal, setShowEditModal] = useState(false)
@@ -33,6 +35,10 @@ export function AnagraficheProducts() {
   })
   const [isSaving, setIsSaving] = useState(false)
   const [isFetching, setIsFetching] = useState(false)
+
+  // Bulk scan uncertified
+  const [isScanning, setIsScanning] = useState(false)
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, found: 0 })
 
   // Name recovery from receipts
   const [isRecoveringNames, setIsRecoveringNames] = useState(false)
@@ -161,7 +167,7 @@ export function AnagraficheProducts() {
     if (!editingProduct) return
     setIsFetching(true)
     try {
-      const updated = await anagraficheService.refetchProduct(editingProduct.id)
+      const updated = await anagraficheService.refetchProduct(editingProduct.id, formData.barcode)
       // Update form with fetched data
       setFormData({
         barcode: updated.barcode,
@@ -287,6 +293,50 @@ export function AnagraficheProducts() {
     return `${value}${unit}`
   }
 
+  const getSourceLabel = (source: string) => {
+    switch (source) {
+      case 'openfoodfacts': return 'Open Food Facts'
+      case 'openproductsfacts': return 'Open Products Facts'
+      case 'openbeautyfacts': return 'Open Beauty Facts'
+      case 'not_found': return 'Non certificato'
+      default: return source
+    }
+  }
+
+  const startBulkScan = async () => {
+    // Get all uncertified products (need full list, not just current page)
+    try {
+      setIsScanning(true)
+      const response = await anagraficheService.getProducts({ certified: false, limit: 500 })
+      const uncertified = response.products
+      if (uncertified.length === 0) {
+        showToast('Nessun prodotto non certificato da scansionare', 'success')
+        setIsScanning(false)
+        return
+      }
+      setScanProgress({ current: 0, total: uncertified.length, found: 0 })
+      let found = 0
+      for (let i = 0; i < uncertified.length; i++) {
+        setScanProgress(prev => ({ ...prev, current: i + 1 }))
+        try {
+          const updated = await anagraficheService.refetchProduct(uncertified[i].id)
+          if (updated.source !== 'not_found') found++
+        } catch {
+          // Product not found on any source, continue
+        }
+      }
+      setScanProgress(prev => ({ ...prev, found }))
+      showToast(`Scansione completata: ${found}/${uncertified.length} prodotti certificati`, found > 0 ? 'success' : 'error')
+      fetchProducts()
+    } catch (err) {
+      console.error('Bulk scan failed:', err)
+      showToast('Errore durante la scansione', 'error')
+    } finally {
+      setIsScanning(false)
+      setScanProgress({ current: 0, total: 0, found: 0 })
+    }
+  }
+
   return (
     <div className="space-y-4 pb-20">
       {/* Toast */}
@@ -313,8 +363,26 @@ export function AnagraficheProducts() {
           <p className="text-sm text-gray-500">{total} prodotti (mostrando {products.length})</p>
         </div>
         <button
+          onClick={startBulkScan}
+          disabled={isScanning || isRecoveringNames}
+          className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium disabled:opacity-50 flex items-center gap-1"
+          title="Scansiona tutti i prodotti non certificati"
+        >
+          {isScanning ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          )}
+          <span className="hidden sm:inline">{isScanning ? `${scanProgress.current}/${scanProgress.total}` : 'Scansiona'}</span>
+        </button>
+        <button
           onClick={startNameRecovery}
-          disabled={isRecoveringNames}
+          disabled={isRecoveringNames || isScanning}
           className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium disabled:opacity-50 flex items-center gap-1"
           title="Recupera nomi prodotti dagli scontrini"
         >
@@ -330,6 +398,22 @@ export function AnagraficheProducts() {
           + Nuovo
         </button>
       </div>
+
+      {/* Scan Progress */}
+      {isScanning && scanProgress.total > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-blue-800 font-medium">Scansione prodotti non certificati...</span>
+            <span className="text-blue-600">{scanProgress.current}/{scanProgress.total} {scanProgress.found > 0 && `(${scanProgress.found} trovati)`}</span>
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-2">
+            <div
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(scanProgress.current / scanProgress.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Search and Filter */}
       <div className="space-y-2">
@@ -401,7 +485,7 @@ export function AnagraficheProducts() {
               className={`card p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${
                 !isProductCertified(product) ? 'border-l-4 border-l-amber-400 bg-amber-50/50' : ''
               }`}
-              onClick={() => setViewingProduct(product)}
+              onClick={() => { setImageLoaded(false); setViewingProduct(product) }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -435,7 +519,7 @@ export function AnagraficheProducts() {
 
       {/* Detail Modal */}
       {viewingProduct && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => setViewingProduct(null)}>
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}>
           <div
             className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
@@ -460,7 +544,7 @@ export function AnagraficheProducts() {
                 )}
               </div>
               <button
-                onClick={() => setViewingProduct(null)}
+                onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}
                 className="p-1 hover:bg-gray-100 rounded-lg"
               >
                 <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -471,6 +555,26 @@ export function AnagraficheProducts() {
 
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Product Image */}
+              {viewingProduct.image_url && (
+                <div className="flex justify-center">
+                  {!imageLoaded && (
+                    <div className="w-32 h-40 rounded-lg bg-gray-100 animate-pulse flex items-center justify-center">
+                      <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  )}
+                  <img
+                    src={viewingProduct.image_small_url || viewingProduct.image_url}
+                    alt={viewingProduct.name || 'Prodotto'}
+                    className={`max-h-48 rounded-lg object-contain cursor-pointer hover:opacity-80 transition-opacity ${!imageLoaded ? 'hidden' : ''}`}
+                    onLoad={() => setImageLoaded(true)}
+                    onClick={() => setFullscreenImage(viewingProduct.image_url)}
+                  />
+                </div>
+              )}
+
               {/* Warning for uncertified products */}
               {!isProductCertified(viewingProduct) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
@@ -497,7 +601,7 @@ export function AnagraficheProducts() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Fonte dati</span>
-                    <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">{viewingProduct.source}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${viewingProduct.source === 'not_found' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-700'}`}>{getSourceLabel(viewingProduct.source)}</span>
                   </div>
                 </div>
               </div>
@@ -792,6 +896,29 @@ export function AnagraficheProducts() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Viewer */}
+      {fullscreenImage && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4"
+          onClick={() => setFullscreenImage(null)}
+        >
+          <button
+            onClick={() => setFullscreenImage(null)}
+            className="absolute top-4 right-4 p-2 text-white/70 hover:text-white"
+          >
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <img
+            src={fullscreenImage}
+            alt="Prodotto"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>

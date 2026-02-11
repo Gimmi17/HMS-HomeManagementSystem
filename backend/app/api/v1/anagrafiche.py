@@ -635,6 +635,12 @@ class ProductListItem(BaseModel):
     nutriscore: Optional[str] = None
     ecoscore: Optional[str] = None
     nova_group: Optional[str] = None
+    # Images
+    image_url: Optional[str] = None
+    image_small_url: Optional[str] = None
+    # House ownership
+    house_id: Optional[UUID] = None
+    house_name: Optional[str] = None
     # Meta
     source: str
     created_at: datetime
@@ -685,7 +691,9 @@ def list_products(
     current_user: User = Depends(get_current_user)
 ):
     """List all products in catalog (excluding cancelled)."""
-    query = db.query(ProductCatalog).filter(
+    query = db.query(ProductCatalog, House.name.label("house_name")).outerjoin(
+        House, ProductCatalog.house_id == House.id
+    ).filter(
         ProductCatalog.cancelled == False
     )
 
@@ -715,7 +723,7 @@ def list_products(
         )
 
     total = query.count()
-    products = query.order_by(ProductCatalog.created_at.desc()).offset(offset).limit(limit).all()
+    rows = query.order_by(ProductCatalog.created_at.desc()).offset(offset).limit(limit).all()
 
     return ProductListResponse(
         products=[
@@ -737,10 +745,14 @@ def list_products(
                 nutriscore=p.nutriscore,
                 ecoscore=p.ecoscore,
                 nova_group=p.nova_group,
+                image_url=p.image_url,
+                image_small_url=p.image_small_url,
+                house_id=p.house_id,
+                house_name=house_name,
                 source=p.source,
                 created_at=p.created_at
             )
-            for p in products
+            for p, house_name in rows
         ],
         total=total
     )
@@ -766,17 +778,7 @@ def create_product(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem(
-        id=product.id,
-        barcode=product.barcode,
-        name=product.name,
-        brand=product.brand,
-        quantity_text=product.quantity_text,
-        energy_kcal=product.energy_kcal,
-        nutriscore=product.nutriscore,
-        source=product.source,
-        created_at=product.created_at
-    )
+    return ProductListItem.model_validate(product)
 
 
 @router.put("/products/{product_id}", response_model=ProductListItem)
@@ -798,17 +800,7 @@ def update_product(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem(
-        id=product.id,
-        barcode=product.barcode,
-        name=product.name,
-        brand=product.brand,
-        quantity_text=product.quantity_text,
-        energy_kcal=product.energy_kcal,
-        nutriscore=product.nutriscore,
-        source=product.source,
-        created_at=product.created_at
-    )
+    return ProductListItem.model_validate(product)
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -824,6 +816,45 @@ def delete_product(
 
     product.cancelled = True
     db.commit()
+
+
+# ============================================================
+# PRODUCT HOUSE ASSIGNMENT
+# ============================================================
+
+class UpdateProductHouseRequest(BaseModel):
+    house_id: Optional[UUID] = None
+
+
+@router.patch("/products/{product_id}/house", response_model=ProductListItem)
+def update_product_house(
+    product_id: UUID,
+    data: UpdateProductHouseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the house_id of a product. Set to null to make it generic (visible to all)."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    if data.house_id is not None:
+        house = db.query(House).filter(House.id == data.house_id).first()
+        if not house:
+            raise HTTPException(status_code=404, detail="Casa non trovata")
+
+    product.house_id = data.house_id
+    db.commit()
+    db.refresh(product)
+
+    house_name = None
+    if product.house_id:
+        house = db.query(House).filter(House.id == product.house_id).first()
+        house_name = house.name if house else None
+
+    item = ProductListItem.model_validate(product)
+    item.house_name = house_name
+    return item
 
 
 # ============================================================
@@ -918,48 +949,40 @@ def set_product_name(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem(
-        id=product.id,
-        barcode=product.barcode,
-        name=product.name,
-        brand=product.brand,
-        quantity_text=product.quantity_text,
-        categories=product.categories,
-        energy_kcal=product.energy_kcal,
-        proteins_g=product.proteins_g,
-        carbs_g=product.carbs_g,
-        sugars_g=product.sugars_g,
-        fats_g=product.fats_g,
-        saturated_fats_g=product.saturated_fats_g,
-        fiber_g=product.fiber_g,
-        salt_g=product.salt_g,
-        nutriscore=product.nutriscore,
-        ecoscore=product.ecoscore,
-        nova_group=product.nova_group,
-        source=product.source,
-        created_at=product.created_at
-    )
+    return ProductListItem.model_validate(product)
+
+
+class RefetchRequest(BaseModel):
+    barcode: Optional[str] = None
 
 
 @router.post("/products/{product_id}/refetch", response_model=ProductListItem)
 async def refetch_product_from_api(
     product_id: UUID,
+    body: RefetchRequest = RefetchRequest(),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Re-fetch product data from web APIs (barcode lookup chain with fallback).
     Updates the existing ProductCatalog entry with fresh data from the sources.
+    Accepts an optional barcode in the body to use instead of the DB barcode.
     """
     product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Prodotto non trovato")
 
-    if not product.barcode or not product.barcode.strip():
+    # Use barcode from request body if provided, otherwise from DB
+    lookup_barcode = (body.barcode.strip() if body.barcode else None) or (product.barcode.strip() if product.barcode else None)
+    if not lookup_barcode:
         raise HTTPException(status_code=400, detail="Prodotto senza barcode, impossibile cercare nelle API")
 
+    # Update product barcode if a new one was provided
+    if body.barcode and body.barcode.strip() and body.barcode.strip() != product.barcode:
+        product.barcode = body.barcode.strip()
+
     # Call the barcode lookup chain (same used during verification)
-    result = await lookup_barcode_chain(db, product.barcode)
+    result = await lookup_barcode_chain(db, lookup_barcode)
 
     if not result.get("found"):
         raise HTTPException(status_code=404, detail="Prodotto non trovato in nessuna sorgente API")
@@ -969,9 +992,13 @@ async def refetch_product_from_api(
     product.brand = result.get("brand") or product.brand
     product.quantity_text = result.get("quantity") or product.quantity_text
     product.categories = result.get("categories") or product.categories
-    product.nutriscore = result.get("nutriscore") or product.nutriscore
-    product.ecoscore = result.get("ecoscore") or product.ecoscore
-    product.nova_group = result.get("nova_group") or product.nova_group
+    # Score fields are varchar(1) — only store single-char values (e.g. "a", "b", "4")
+    _nutriscore = result.get("nutriscore")
+    _ecoscore = result.get("ecoscore")
+    _nova_group = result.get("nova_group")
+    product.nutriscore = _nutriscore if _nutriscore and len(_nutriscore) == 1 else product.nutriscore
+    product.ecoscore = _ecoscore if _ecoscore and len(_ecoscore) == 1 else product.ecoscore
+    product.nova_group = _nova_group if _nova_group and len(_nova_group) == 1 else product.nova_group
     product.image_url = result.get("image_url") or product.image_url
     product.image_small_url = result.get("image_small_url") or product.image_small_url
     product.source = result.get("source_code", product.source)
@@ -997,27 +1024,7 @@ async def refetch_product_from_api(
     categories_str = result.get("categories")
     parse_and_save_category_tags(db, product, categories_str, categories_tags)
 
-    return ProductListItem(
-        id=product.id,
-        barcode=product.barcode,
-        name=product.name,
-        brand=product.brand,
-        quantity_text=product.quantity_text,
-        categories=product.categories,
-        energy_kcal=product.energy_kcal,
-        proteins_g=product.proteins_g,
-        carbs_g=product.carbs_g,
-        sugars_g=product.sugars_g,
-        fats_g=product.fats_g,
-        saturated_fats_g=product.saturated_fats_g,
-        fiber_g=product.fiber_g,
-        salt_g=product.salt_g,
-        nutriscore=product.nutriscore,
-        ecoscore=product.ecoscore,
-        nova_group=product.nova_group,
-        source=product.source,
-        created_at=product.created_at
-    )
+    return ProductListItem.model_validate(product)
 
 
 # ============================================================

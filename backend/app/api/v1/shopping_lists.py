@@ -7,7 +7,7 @@ CRUD operations for shopping lists with Grocy integration.
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, or_
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, timezone
@@ -235,7 +235,8 @@ def get_store_order_map(db: Session, store_id: Optional[UUID], exclude_list_id: 
 
 
 def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -> dict:
-    """Trova i barcode noti dagli item verificati in liste completate precedenti."""
+    """Trova i barcode noti dagli item verificati in liste completate precedenti e dal catalogo prodotti."""
+    # 1. Barcode da liste completate della stessa casa
     items = db.query(ShoppingListItem).join(ShoppingList).filter(
         ShoppingList.house_id == house_id,
         ShoppingList.status == ShoppingListStatus.COMPLETED,
@@ -253,6 +254,25 @@ def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -
             gkey = f"grocy:{item.grocy_product_id}"
             if gkey not in barcode_map:
                 barcode_map[gkey] = item.scanned_barcode
+
+    # 2. Fallback: barcode dal catalogo prodotti (della casa + template globali)
+    from app.models.product_catalog import ProductCatalog
+    catalog_products = db.query(ProductCatalog).filter(
+        or_(
+            ProductCatalog.house_id == house_id,
+            ProductCatalog.house_id.is_(None),
+        ),
+        ProductCatalog.cancelled == False,
+        ProductCatalog.name.isnot(None),
+        ProductCatalog.name != '',
+        ProductCatalog.barcode.isnot(None),
+        ProductCatalog.barcode != '',
+    ).all()
+    for p in catalog_products:
+        name_key = p.name.lower().strip()
+        if name_key not in barcode_map:
+            barcode_map[name_key] = p.barcode
+
     return barcode_map
 
 
