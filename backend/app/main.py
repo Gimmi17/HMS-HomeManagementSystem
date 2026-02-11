@@ -8,6 +8,7 @@ sets up middleware, and defines the health check endpoint.
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+import os
 
 from app.core.config import settings
 from app.middleware.cors import setup_cors
@@ -136,6 +137,18 @@ async def startup_event():
     # Configure error logging system
     configure_error_logging(SessionLocal)
     print(f"✓ Error logging system configured")
+
+    # Check receipts directory persistence
+    receipts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "receipts")
+    os.makedirs(receipts_dir, exist_ok=True)
+    marker = os.path.join(receipts_dir, ".volume_check")
+    if os.path.exists(marker):
+        print(f"✓ Receipts storage is persistent")
+    else:
+        with open(marker, "w") as f:
+            f.write("volume persistence marker")
+        print(f"⚠ WARNING: Receipts directory may not be on a persistent volume!")
+        print(f"  If this message appears after every restart, mount a volume at /app/data/receipts")
 
     print(f"✓ API documentation available at http://localhost:8000/docs")
 

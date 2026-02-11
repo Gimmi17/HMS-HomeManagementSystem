@@ -10,6 +10,7 @@ FROM python:3.11-slim AS base
 WORKDIR /app
 
 # Install system dependencies required for PostgreSQL and cryptography
+# Note: PaddleOCR is now in separate ocr-service container
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     gcc \
@@ -47,6 +48,7 @@ FROM python:3.11-slim AS production
 WORKDIR /app
 
 # Install only runtime dependencies (not build tools)
+# Note: PaddleOCR is now in separate ocr-service container
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     libpq5 \

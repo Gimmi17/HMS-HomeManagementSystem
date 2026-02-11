@@ -24,6 +24,7 @@ from app.models.shopping_list import ShoppingList, ShoppingListItem, ShoppingLis
 from app.models.store import Store
 from app.models.product_catalog import ProductCatalog
 from app.models.error_log import ErrorLog
+from app.models.receipt import Receipt, ReceiptImage, ReceiptItem, ReceiptStatus, ReceiptItemMatchStatus
 from app.models.category import Category
 from app.models.dispensa import DispensaItem
 from app.models.product_nutrition import ProductNutrition
@@ -52,6 +53,11 @@ __all__ = [
     "Store",
     "ProductCatalog",
     "ErrorLog",
+    "Receipt",
+    "ReceiptImage",
+    "ReceiptItem",
+    "ReceiptStatus",
+    "ReceiptItemMatchStatus",
     "Category",
     "DispensaItem",
     "ProductNutrition",

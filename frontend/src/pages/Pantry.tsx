@@ -2,8 +2,21 @@ import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import dispensaService from '@/services/dispensa'
 import grocyService from '@/services/grocy'
+import { StockActionModal } from '@/components/Grocy'
 import shoppingListsService from '@/services/shoppingLists'
-import type { DispensaItem, DispensaStats, GrocyStockItem, Category, ShoppingListSummary } from '@/types'
+import type {
+  DispensaItem,
+  DispensaStats,
+  GrocyStockItem,
+  GrocyStockActionType,
+  GrocyLocation,
+  GrocyConsumeStockParams,
+  GrocyOpenProductParams,
+  GrocyTransferStockParams,
+  GrocyInventoryCorrectionParams,
+  Category,
+  ShoppingListSummary,
+} from '@/types'
 import categoriesService from '@/services/categories'
 
 type FilterMode = 'all' | 'expiring' | 'expired' | 'consumed'
@@ -25,6 +38,10 @@ export function Pantry() {
   const [stats, setStats] = useState<DispensaStats>({ total: 0, expiring_soon: 0, expired: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedItem, setSelectedItem] = useState<GrocyStockItem | null>(null)
+  const [actionType, setActionType] = useState<GrocyStockActionType | null>(null)
+  const [isActionLoading, setIsActionLoading] = useState(false)
+  const [locations, setLocations] = useState<GrocyLocation[]>([])
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
   const [categories, setCategories] = useState<Category[]>([])
 
@@ -118,13 +135,17 @@ export function Pantry() {
     loadCategories()
   }, [])
 
-  // Load Grocy stock on demand
+  // Load Grocy stock on demand (also load locations for action modal)
   useEffect(() => {
     if (!showGrocy) return
     const fetchGrocy = async () => {
       try {
-        const data = await grocyService.getStock()
+        const [data, locs] = await Promise.all([
+          grocyService.getStock(),
+          grocyService.getLocations().catch(() => []),
+        ])
         setGrocyStock(data)
+        setLocations(locs)
         setGrocyError(false)
       } catch {
         setGrocyError(true)
@@ -132,6 +153,60 @@ export function Pantry() {
     }
     fetchGrocy()
   }, [showGrocy])
+
+  // Grocy stock action handlers
+  const handleAction = (item: GrocyStockItem, action: GrocyStockActionType) => {
+    setSelectedItem(item)
+    setActionType(action)
+  }
+
+  const handleActionConfirm = async (
+    action: GrocyStockActionType,
+    params: GrocyConsumeStockParams | GrocyOpenProductParams | GrocyTransferStockParams | GrocyInventoryCorrectionParams
+  ) => {
+    if (!selectedItem) return
+
+    setIsActionLoading(true)
+    try {
+      const productId = Number(selectedItem.product_id)
+      let result
+
+      switch (action) {
+        case 'consume':
+          result = await grocyService.consumeStock(productId, params as GrocyConsumeStockParams)
+          break
+        case 'open':
+          result = await grocyService.openProduct(productId, params as GrocyOpenProductParams)
+          break
+        case 'transfer':
+          result = await grocyService.transferStock(productId, params as GrocyTransferStockParams)
+          break
+        case 'inventory':
+          result = await grocyService.inventoryCorrection(productId, params as GrocyInventoryCorrectionParams)
+          break
+      }
+
+      if (result?.success) {
+        showToast(result.message, 'success')
+        // Refresh Grocy stock
+        const newStock = await grocyService.getStock()
+        setGrocyStock(newStock)
+        setSelectedItem(null)
+        setActionType(null)
+      } else {
+        showToast(result?.error || 'Operazione fallita', 'error')
+      }
+    } catch (err) {
+      showToast('Errore durante l\'operazione', 'error')
+    } finally {
+      setIsActionLoading(false)
+    }
+  }
+
+  const handleActionClose = () => {
+    setSelectedItem(null)
+    setActionType(null)
+  }
 
   const isExpiringSoon = (dateStr: string | null) => {
     if (!dateStr) return false
@@ -741,6 +816,7 @@ export function Pantry() {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Prodotto</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Scadenza</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Azioni</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -756,6 +832,37 @@ export function Pantry() {
                           ) : (
                             <span className="text-gray-400">-</span>
                           )}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              onClick={() => handleAction(item, 'consume')}
+                              className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                              title="Consuma"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleAction(item, 'open')}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Apri"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleAction(item, 'inventory')}
+                              className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Correggi"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1259,6 +1366,29 @@ export function Pantry() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-80 p-4 rounded-lg shadow-lg z-50 ${
+            toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Stock Action Modal */}
+      {selectedItem && actionType && (
+        <StockActionModal
+          item={selectedItem}
+          action={actionType}
+          locations={locations}
+          onConfirm={handleActionConfirm}
+          onClose={handleActionClose}
+          isLoading={isActionLoading}
+        />
       )}
     </div>
   )

@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -254,11 +254,31 @@ function App() {
         }
       />
       <Route
+        path="/shopping-lists/:listId/receipt"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <ReceiptUpload />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/settings/import-database"
         element={
           <PrivateRoute>
             <MainLayout>
               <DatabaseImport />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings/llm"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <LLMSettings />
             </MainLayout>
           </PrivateRoute>
         }

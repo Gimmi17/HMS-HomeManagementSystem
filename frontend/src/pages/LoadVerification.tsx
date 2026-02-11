@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
+import { grocyHouseService } from '@/services/grocy'
+import { useHouse } from '@/context/HouseContext'
 import categoriesService from '@/services/categories'
 import dispensaService from '@/services/dispensa'
 import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
-import type { ShoppingList, ShoppingListItem, Category } from '@/types'
+import type { ShoppingList, ShoppingListItem, GrocyBulkAddItem, GrocyBulkAddStockResponse, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
 
@@ -369,8 +371,13 @@ export function LoadVerification() {
   const [isLoading, setIsLoading] = useState(true)
   const [verifyingItem, setVerifyingItem] = useState<ShoppingListItem | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
-  const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
+  const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null) // Item being edited
+  const [showGrocySyncModal, setShowGrocySyncModal] = useState(false) // Grocy sync modal
+  const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const { currentHouse } = useHouse()
   const [categories, setCategories] = useState<Category[]>([])
+
 
   // Initial load
   useEffect(() => {
@@ -564,12 +571,70 @@ export function LoadVerification() {
         verification_status: 'completed',
         status: 'completed'
       })
-      // Show dispensa dialog instead of alert
-      setShowDispensaDialog(true)
+
+      // Check if there are items with grocy_product_id to sync
+      const itemsToSync = list.items.filter(
+        item => item.grocy_product_id && item.verified_at && !item.not_purchased
+      )
+
+      if (itemsToSync.length > 0 && currentHouse) {
+        // Show Grocy sync modal
+        setShowGrocySyncModal(true)
+      } else {
+        // Show dispensa dialog instead of alert
+        setShowDispensaDialog(true)
+      }
     } catch (error) {
       console.error('Failed to complete verification:', error)
       showToast('Errore durante il completamento', 'error')
     }
+  }
+
+  const getItemsToSync = (): GrocyBulkAddItem[] => {
+    if (!list) return []
+
+    return list.items
+      .filter(item => item.grocy_product_id && item.verified_at && !item.not_purchased)
+      .map(item => ({
+        product_id: item.grocy_product_id!,
+        amount: item.verified_quantity ?? item.quantity,
+        // Note: In a real scenario, you might want to capture expiration dates during verification
+      }))
+  }
+
+  const handleGrocySync = async () => {
+    if (!currentHouse || !list) return
+
+    const itemsToSync = getItemsToSync()
+    if (itemsToSync.length === 0) {
+      setShowGrocySyncModal(false)
+      navigate('/shopping-lists')
+      return
+    }
+
+    setIsSyncing(true)
+    try {
+      const result = await grocyHouseService.bulkAddStock(currentHouse.id, itemsToSync)
+      setGrocySyncResult(result)
+    } catch (error) {
+      console.error('Failed to sync with Grocy:', error)
+      showToast('Errore durante la sincronizzazione con Grocy', 'error')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const handleSkipGrocySync = () => {
+    setShowGrocySyncModal(false)
+    showToast('Controllo carico completato!', 'success')
+    navigate('/shopping-lists')
+  }
+
+  const handleGrocySyncComplete = () => {
+    setShowGrocySyncModal(false)
+    setGrocySyncResult(null)
+    showToast('Prodotti aggiunti alla dispensa!', 'success')
+    navigate('/shopping-lists')
   }
 
   const handleSendToDispensa = async () => {
@@ -860,6 +925,132 @@ export function LoadVerification() {
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
         />
+      )}
+
+      {/* Grocy Sync Modal */}
+      {showGrocySyncModal && list && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="p-4 border-b">
+              <h3 className="font-semibold text-lg">Sincronizza con Grocy</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Aggiungere i prodotti verificati alla dispensa?
+              </p>
+            </div>
+
+            <div className="p-4">
+              {!grocySyncResult ? (
+                <>
+                  {/* Items preview */}
+                  <div className="bg-gray-50 rounded-lg p-3 mb-4 max-h-60 overflow-y-auto">
+                    <p className="text-sm font-medium text-gray-700 mb-2">
+                      {getItemsToSync().length} prodotti da aggiungere:
+                    </p>
+                    <ul className="space-y-1">
+                      {list.items
+                        .filter(item => item.grocy_product_id && item.verified_at && !item.not_purchased)
+                        .map(item => (
+                          <li key={item.id} className="text-sm text-gray-600 flex justify-between">
+                            <span>{item.grocy_product_name || item.name}</span>
+                            <span className="text-gray-400">
+                              {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit || 'pz'}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSkipGrocySync}
+                      disabled={isSyncing}
+                      className="flex-1 py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      Salta
+                    </button>
+                    <button
+                      onClick={handleGrocySync}
+                      disabled={isSyncing}
+                      className="flex-1 py-3 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isSyncing ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Sincronizzazione...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Sincronizza
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Sync results */}
+                  <div className="mb-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                        grocySyncResult.failed === 0 ? 'bg-green-100' : 'bg-yellow-100'
+                      }`}>
+                        {grocySyncResult.failed === 0 ? (
+                          <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <svg className="w-6 h-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-medium">
+                          {grocySyncResult.failed === 0
+                            ? 'Sincronizzazione completata!'
+                            : 'Sincronizzazione parziale'}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {grocySyncResult.successful}/{grocySyncResult.total} prodotti aggiunti
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Show failed items if any */}
+                    {grocySyncResult.failed > 0 && (
+                      <div className="bg-red-50 rounded-lg p-3 mb-4">
+                        <p className="text-sm font-medium text-red-700 mb-2">Errori:</p>
+                        <ul className="space-y-1">
+                          {grocySyncResult.results
+                            .filter(r => !r.success)
+                            .map(r => (
+                              <li key={r.product_id} className="text-sm text-red-600">
+                                Prodotto #{r.product_id}: {r.message}
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleGrocySyncComplete}
+                    className="w-full py-3 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-600"
+                  >
+                    Chiudi
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Dispensa Dialog */}

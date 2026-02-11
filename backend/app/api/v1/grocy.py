@@ -25,8 +25,20 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.house import House
-from app.integrations.grocy import grocy_client
-from app.schemas.grocy import GrocyStockResponse
+from app.integrations.grocy import grocy_client, GrocyAPIError
+from app.schemas.grocy import (
+    GrocyStockResponse,
+    GrocyAddStockRequest,
+    GrocyConsumeStockRequest,
+    GrocyOpenProductRequest,
+    GrocyTransferStockRequest,
+    GrocyInventoryCorrectionRequest,
+    GrocyBulkAddStockRequest,
+    GrocyWriteOperationResponse,
+    GrocyBulkAddStockResponse,
+    GrocyBulkAddResult,
+    GrocyLocation,
+)
 
 
 class GrocyTestConnectionRequest(BaseModel):
@@ -477,3 +489,612 @@ async def get_house_products(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Errore: {str(e)}"
         )
+
+
+# ============================================================================
+# Stock Write Operations - Global (uses env config)
+# ============================================================================
+
+@router.get(
+    "/locations",
+    response_model=List[GrocyLocation],
+    summary="Get Locations",
+    description="Fetch all storage locations from Grocy."
+)
+async def get_locations():
+    """Retrieve all locations from Grocy."""
+    try:
+        locations = await grocy_client.get_locations()
+        return [
+            GrocyLocation(
+                id=loc.get("id"),
+                name=loc.get("name", "Unknown"),
+                description=loc.get("description"),
+                is_freezer=loc.get("is_freezer", 0) == 1
+            )
+            for loc in locations
+        ]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/{product_id}/add",
+    response_model=GrocyWriteOperationResponse,
+    summary="Add Stock",
+    description="Add stock to a product in Grocy."
+)
+async def add_stock(product_id: int, request: GrocyAddStockRequest):
+    """Add stock to a product."""
+    try:
+        await grocy_client.add_stock(
+            product_id=product_id,
+            amount=request.amount,
+            best_before_date=request.best_before_date,
+            price=request.price,
+            location_id=request.location_id,
+            note=request.note
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Aggiunte {request.amount} unità al prodotto"
+        )
+    except GrocyAPIError as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante l'aggiunta dello stock",
+            error=str(e.details) if e.details else e.message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/{product_id}/consume",
+    response_model=GrocyWriteOperationResponse,
+    summary="Consume Stock",
+    description="Consume stock from a product in Grocy."
+)
+async def consume_stock(product_id: int, request: GrocyConsumeStockRequest):
+    """Consume stock from a product."""
+    try:
+        await grocy_client.consume_stock(
+            product_id=product_id,
+            amount=request.amount,
+            spoiled=request.spoiled,
+            location_id=request.location_id
+        )
+        action = "Scartate" if request.spoiled else "Consumate"
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"{action} {request.amount} unità"
+        )
+    except GrocyAPIError as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante il consumo",
+            error=str(e.details) if e.details else e.message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/{product_id}/open",
+    response_model=GrocyWriteOperationResponse,
+    summary="Open Product",
+    description="Mark a product as opened in Grocy."
+)
+async def open_product(product_id: int, request: GrocyOpenProductRequest):
+    """Mark a product as opened."""
+    try:
+        await grocy_client.open_product(
+            product_id=product_id,
+            amount=request.amount
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Prodotto aperto ({request.amount} unità)"
+        )
+    except GrocyAPIError as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante l'apertura",
+            error=str(e.details) if e.details else e.message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/{product_id}/transfer",
+    response_model=GrocyWriteOperationResponse,
+    summary="Transfer Stock",
+    description="Transfer stock between locations in Grocy."
+)
+async def transfer_stock(product_id: int, request: GrocyTransferStockRequest):
+    """Transfer stock between locations."""
+    try:
+        await grocy_client.transfer_stock(
+            product_id=product_id,
+            amount=request.amount,
+            location_id_from=request.location_id_from,
+            location_id_to=request.location_id_to
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Trasferite {request.amount} unità"
+        )
+    except GrocyAPIError as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante il trasferimento",
+            error=str(e.details) if e.details else e.message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/{product_id}/inventory",
+    response_model=GrocyWriteOperationResponse,
+    summary="Inventory Correction",
+    description="Perform inventory correction for a product in Grocy."
+)
+async def inventory_correction(product_id: int, request: GrocyInventoryCorrectionRequest):
+    """Perform inventory correction."""
+    try:
+        await grocy_client.inventory_correction(
+            product_id=product_id,
+            new_amount=request.new_amount,
+            best_before_date=request.best_before_date,
+            location_id=request.location_id
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Inventario corretto a {request.new_amount} unità"
+        )
+    except GrocyAPIError as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante la correzione",
+            error=str(e.details) if e.details else e.message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Grocy non raggiungibile: {str(e)}"
+        )
+
+
+@router.post(
+    "/stock/bulk-add",
+    response_model=GrocyBulkAddStockResponse,
+    summary="Bulk Add Stock",
+    description="Add multiple products to stock at once."
+)
+async def bulk_add_stock(request: GrocyBulkAddStockRequest):
+    """Bulk add products to stock."""
+    results = []
+    successful = 0
+    failed = 0
+
+    for item in request.items:
+        try:
+            await grocy_client.add_stock(
+                product_id=item.product_id,
+                amount=item.amount,
+                best_before_date=item.best_before_date,
+                price=item.price,
+                location_id=item.location_id,
+                note=item.note
+            )
+            results.append(GrocyBulkAddResult(
+                product_id=item.product_id,
+                success=True,
+                message=f"Aggiunte {item.amount} unità"
+            ))
+            successful += 1
+        except GrocyAPIError as e:
+            results.append(GrocyBulkAddResult(
+                product_id=item.product_id,
+                success=False,
+                message=str(e.details) if e.details else e.message
+            ))
+            failed += 1
+        except Exception as e:
+            results.append(GrocyBulkAddResult(
+                product_id=item.product_id,
+                success=False,
+                message=str(e)
+            ))
+            failed += 1
+
+    return GrocyBulkAddStockResponse(
+        total=len(request.items),
+        successful=successful,
+        failed=failed,
+        results=results
+    )
+
+
+# ============================================================================
+# Stock Write Operations - House-based (uses house.settings config)
+# ============================================================================
+
+async def _house_grocy_request(
+    db: Session,
+    house_id: UUID,
+    method: str,
+    endpoint: str,
+    payload: dict = None
+) -> dict:
+    """
+    Make a request to the house-configured Grocy instance.
+
+    Args:
+        db: Database session
+        house_id: House UUID
+        method: HTTP method (GET, POST)
+        endpoint: API endpoint (without /api prefix)
+        payload: Request body for POST requests
+
+    Returns:
+        dict: Grocy API response
+
+    Raises:
+        HTTPException: On connection or API errors
+    """
+    grocy_url, grocy_api_key = get_house_grocy_settings(db, house_id)
+
+    headers = {
+        "GROCY-API-KEY": grocy_api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if method == "GET":
+                response = await client.get(
+                    f"{grocy_url}/api{endpoint}",
+                    headers=headers
+                )
+            else:
+                response = await client.post(
+                    f"{grocy_url}/api{endpoint}",
+                    headers=headers,
+                    json=payload
+                )
+
+            if response.status_code >= 400:
+                error_detail = response.text
+                try:
+                    error_detail = response.json()
+                except:
+                    pass
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=str(error_detail)
+                )
+
+            return response.json() if response.text else {"success": True}
+
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Impossibile raggiungere il server Grocy"
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Timeout connessione a Grocy"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Errore: {str(e)}"
+        )
+
+
+@router.get(
+    "/house-locations",
+    response_model=List[GrocyLocation],
+    summary="Get House Grocy Locations",
+    description="Fetch locations from the house-configured Grocy instance."
+)
+async def get_house_locations(
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Fetch locations from house-configured Grocy."""
+    grocy_url, grocy_api_key = get_house_grocy_settings(db, house_id)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{grocy_url}/api/objects/locations",
+                headers={
+                    "GROCY-API-KEY": grocy_api_key,
+                    "Accept": "application/json"
+                }
+            )
+            response.raise_for_status()
+            locations = response.json()
+
+            return [
+                GrocyLocation(
+                    id=loc.get("id"),
+                    name=loc.get("name", "Unknown"),
+                    description=loc.get("description"),
+                    is_freezer=loc.get("is_freezer", 0) == 1
+                )
+                for loc in locations
+            ]
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Errore Grocy: {e.response.status_code}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Errore: {str(e)}"
+        )
+
+
+@router.post(
+    "/house-stock/{product_id}/add",
+    response_model=GrocyWriteOperationResponse,
+    summary="Add Stock (House)",
+    description="Add stock using the house-configured Grocy instance."
+)
+async def add_house_stock(
+    product_id: int,
+    request: GrocyAddStockRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add stock to house-configured Grocy."""
+    payload = {
+        "amount": request.amount,
+        "best_before_date": request.best_before_date or "2999-12-31",
+        "transaction_type": "purchase"
+    }
+    if request.price is not None:
+        payload["price"] = request.price
+    if request.location_id is not None:
+        payload["location_id"] = request.location_id
+    if request.note:
+        payload["note"] = request.note
+
+    try:
+        await _house_grocy_request(
+            db, house_id, "POST",
+            f"/stock/products/{product_id}/add",
+            payload
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Aggiunte {request.amount} unità al prodotto"
+        )
+    except HTTPException as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante l'aggiunta dello stock",
+            error=e.detail
+        )
+
+
+@router.post(
+    "/house-stock/{product_id}/consume",
+    response_model=GrocyWriteOperationResponse,
+    summary="Consume Stock (House)",
+    description="Consume stock using the house-configured Grocy instance."
+)
+async def consume_house_stock(
+    product_id: int,
+    request: GrocyConsumeStockRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Consume stock from house-configured Grocy."""
+    payload = {
+        "amount": request.amount,
+        "spoiled": request.spoiled,
+        "transaction_type": "consume"
+    }
+    if request.location_id is not None:
+        payload["location_id"] = request.location_id
+
+    try:
+        await _house_grocy_request(
+            db, house_id, "POST",
+            f"/stock/products/{product_id}/consume",
+            payload
+        )
+        action = "Scartate" if request.spoiled else "Consumate"
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"{action} {request.amount} unità"
+        )
+    except HTTPException as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante il consumo",
+            error=e.detail
+        )
+
+
+@router.post(
+    "/house-stock/{product_id}/open",
+    response_model=GrocyWriteOperationResponse,
+    summary="Open Product (House)",
+    description="Mark a product as opened using the house-configured Grocy instance."
+)
+async def open_house_product(
+    product_id: int,
+    request: GrocyOpenProductRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Open product in house-configured Grocy."""
+    payload = {"amount": request.amount}
+
+    try:
+        await _house_grocy_request(
+            db, house_id, "POST",
+            f"/stock/products/{product_id}/open",
+            payload
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Prodotto aperto ({request.amount} unità)"
+        )
+    except HTTPException as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante l'apertura",
+            error=e.detail
+        )
+
+
+@router.post(
+    "/house-stock/{product_id}/inventory",
+    response_model=GrocyWriteOperationResponse,
+    summary="Inventory Correction (House)",
+    description="Perform inventory correction using the house-configured Grocy instance."
+)
+async def house_inventory_correction(
+    product_id: int,
+    request: GrocyInventoryCorrectionRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Inventory correction in house-configured Grocy."""
+    payload = {"new_amount": request.new_amount}
+    if request.best_before_date:
+        payload["best_before_date"] = request.best_before_date
+    if request.location_id is not None:
+        payload["location_id"] = request.location_id
+
+    try:
+        await _house_grocy_request(
+            db, house_id, "POST",
+            f"/stock/products/{product_id}/inventory",
+            payload
+        )
+        return GrocyWriteOperationResponse(
+            success=True,
+            message=f"Inventario corretto a {request.new_amount} unità"
+        )
+    except HTTPException as e:
+        return GrocyWriteOperationResponse(
+            success=False,
+            message="Errore durante la correzione",
+            error=e.detail
+        )
+
+
+@router.post(
+    "/house-stock/bulk-add",
+    response_model=GrocyBulkAddStockResponse,
+    summary="Bulk Add Stock (House)",
+    description="Add multiple products to stock using the house-configured Grocy instance."
+)
+async def bulk_add_house_stock(
+    request: GrocyBulkAddStockRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Bulk add products to house-configured Grocy."""
+    grocy_url, grocy_api_key = get_house_grocy_settings(db, house_id)
+
+    headers = {
+        "GROCY-API-KEY": grocy_api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    results = []
+    successful = 0
+    failed = 0
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for item in request.items:
+            payload = {
+                "amount": item.amount,
+                "best_before_date": item.best_before_date or "2999-12-31",
+                "transaction_type": "purchase"
+            }
+            if item.price is not None:
+                payload["price"] = item.price
+            if item.location_id is not None:
+                payload["location_id"] = item.location_id
+            if item.note:
+                payload["note"] = item.note
+
+            try:
+                response = await client.post(
+                    f"{grocy_url}/api/stock/products/{item.product_id}/add",
+                    headers=headers,
+                    json=payload
+                )
+
+                if response.status_code >= 400:
+                    error_detail = response.text
+                    try:
+                        error_detail = response.json()
+                    except:
+                        pass
+                    results.append(GrocyBulkAddResult(
+                        product_id=item.product_id,
+                        success=False,
+                        message=str(error_detail)
+                    ))
+                    failed += 1
+                else:
+                    results.append(GrocyBulkAddResult(
+                        product_id=item.product_id,
+                        success=True,
+                        message=f"Aggiunte {item.amount} unità"
+                    ))
+                    successful += 1
+
+            except Exception as e:
+                results.append(GrocyBulkAddResult(
+                    product_id=item.product_id,
+                    success=False,
+                    message=str(e)
+                ))
+                failed += 1
+
+    return GrocyBulkAddStockResponse(
+        total=len(request.items),
+        successful=successful,
+        failed=failed,
+        results=results
+    )

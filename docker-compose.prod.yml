@@ -28,6 +28,8 @@ services:
       PYTHONUNBUFFERED: "1"
     ports:
       - "8847:8000"
+    volumes:
+      - hms_receipts_data:/app/data/receipts
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +50,7 @@ services:
 
 volumes:
   hms_postgres_data:
+  hms_receipts_data:
 
 networks:
   hms-network:

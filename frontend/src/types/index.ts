@@ -176,6 +176,74 @@ export interface GrocyStockItem {
   best_before_date?: string
 }
 
+// Grocy Write Operation Types
+export interface GrocyAddStockParams {
+  amount: number
+  best_before_date?: string
+  price?: number
+  location_id?: number
+  note?: string
+}
+
+export interface GrocyConsumeStockParams {
+  amount: number
+  spoiled?: boolean
+  location_id?: number
+}
+
+export interface GrocyOpenProductParams {
+  amount?: number
+}
+
+export interface GrocyTransferStockParams {
+  amount: number
+  location_id_from: number
+  location_id_to: number
+}
+
+export interface GrocyInventoryCorrectionParams {
+  new_amount: number
+  best_before_date?: string
+  location_id?: number
+}
+
+export interface GrocyBulkAddItem {
+  product_id: number
+  amount: number
+  best_before_date?: string
+  price?: number
+  location_id?: number
+  note?: string
+}
+
+export interface GrocyWriteOperationResponse {
+  success: boolean
+  message: string
+  error?: string
+}
+
+export interface GrocyBulkAddResult {
+  product_id: number
+  success: boolean
+  message: string
+}
+
+export interface GrocyBulkAddStockResponse {
+  total: number
+  successful: number
+  failed: number
+  results: GrocyBulkAddResult[]
+}
+
+export interface GrocyLocation {
+  id: number
+  name: string
+  description?: string
+  is_freezer: boolean
+}
+
+export type GrocyStockActionType = 'consume' | 'open' | 'transfer' | 'inventory'
+
 // Auth types
 export interface AuthTokens {
   access_token: string
@@ -364,6 +432,28 @@ export interface GrocyProductSimple {
   barcode?: string
 }
 
+// Receipt types
+export type ReceiptStatus = 'uploaded' | 'processing' | 'processed' | 'reconciled' | 'error'
+export type ReceiptItemMatchStatus = 'unmatched' | 'matched' | 'extra' | 'ignored'
+
+export interface ReceiptItem {
+  id: string
+  receipt_id: string
+  position: number
+  raw_text: string
+  parsed_name?: string
+  parsed_quantity?: number
+  parsed_unit_price?: number
+  parsed_total_price?: number
+  match_status: ReceiptItemMatchStatus
+  shopping_list_item_id?: string
+  user_corrected_name?: string
+  user_confirmed: boolean
+  match_confidence?: number
+  created_at: string
+  updated_at: string
+}
+
 // Category types
 export interface Category {
   id: string
@@ -374,6 +464,33 @@ export interface Category {
   color?: string  // Hex color code (e.g., #FF5733)
   sort_order: number
   created_by?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ReceiptImage {
+  id: string
+  receipt_id: string
+  position: number
+  image_path: string
+  raw_ocr_text?: string
+  ocr_confidence?: number
+  created_at: string
+}
+
+export interface Receipt {
+  id: string
+  shopping_list_id: string
+  uploaded_by?: string
+  status: ReceiptStatus
+  raw_ocr_text?: string
+  ocr_confidence?: number
+  store_name_detected?: string
+  total_amount_detected?: number
+  processed_at?: string
+  error_message?: string
+  images: ReceiptImage[]
+  items: ReceiptItem[]
   created_at: string
   updated_at: string
 }
@@ -414,6 +531,49 @@ export interface DispensaItem {
   notes: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ReceiptSummary {
+  id: string
+  shopping_list_id: string
+  status: ReceiptStatus
+  store_name_detected?: string
+  total_amount_detected?: number
+  image_count: number
+  item_count: number
+  matched_count: number
+  first_image_path?: string
+  created_at: string
+}
+
+export interface ReconciliationResult {
+  receipt_item_id: string
+  shopping_list_item_id?: string
+  match_status: ReceiptItemMatchStatus
+  confidence: number
+  matched_name?: string
+}
+
+export interface ReconciliationSummary {
+  total_receipt_items: number
+  total_shopping_items: number
+  matched_count: number
+  suggested_count: number
+  extra_count: number
+  missing_count: number
+  match_rate: number
+}
+
+export interface ReconciliationResponse {
+  receipt_id: string
+  results: ReconciliationResult[]
+  summary: ReconciliationSummary
+  missing_items: {
+    id: string
+    name: string
+    quantity: number
+    unit?: string
+  }[]
 }
 
 export interface DispensaStats {

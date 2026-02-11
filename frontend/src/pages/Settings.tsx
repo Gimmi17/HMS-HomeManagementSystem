@@ -17,6 +17,12 @@ const settingsLinks: SettingsLink[] = [
     description: 'Sincronizza la dispensa con Grocy',
     icon: '🥫',
   },
+  {
+    to: '/settings/llm',
+    title: 'LLM / AI',
+    description: 'Configura server AI per OCR e chat',
+    icon: '🤖',
+  },
 ]
 
 export function Settings() {

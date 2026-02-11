@@ -10,6 +10,7 @@ from sqlalchemy import Column, String, Text, Float, JSON, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
+from app.models.product_category_tag import product_category_association
 
 
 class ProductCatalog(BaseModel):
@@ -81,10 +82,11 @@ class ProductCatalog(BaseModel):
     # Soft delete flag
     cancelled = Column(Boolean, default=False, nullable=False, index=True)
 
-    # Relationship to normalized category tags
+    # Relationships
+    category = relationship("Category")
     category_tags = relationship(
         "ProductCategoryTag",
-        secondary="product_category_associations",
+        secondary=product_category_association,
         back_populates="products"
     )
 

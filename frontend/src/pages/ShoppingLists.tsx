@@ -5,7 +5,7 @@ import shoppingListsService from '@/services/shoppingLists'
 import dispensaService from '@/services/dispensa'
 import type { ShoppingListSummary, ShoppingListStatus } from '@/types'
 
-type ListAction = 'view' | 'edit' | 'verify' | 'delete' | 'cancel' | 'reactivate'
+type ListAction = 'view' | 'edit' | 'receipt' | 'verify' | 'delete' | 'cancel' | 'reactivate'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
   active: 'Attiva',
@@ -58,6 +58,8 @@ export function ShoppingLists() {
       navigate(`/shopping-lists/${selectedList.id}/verify`)
     } else if (action === 'edit') {
       navigate(`/shopping-lists/${selectedList.id}/edit`)
+    } else if (action === 'receipt') {
+      navigate(`/shopping-lists/${selectedList.id}/receipt`)
     } else {
       navigate(`/shopping-lists/${selectedList.id}`)
     }
@@ -349,6 +351,21 @@ export function ShoppingLists() {
                     <div className="text-left">
                       <div className="font-medium">Modifica Lista</div>
                       <div className="text-xs text-gray-500">Aggiungi o modifica articoli</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => handleAction('receipt')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div className="text-left">
+                      <div className="font-medium">Scontrini d'acquisto</div>
+                      <div className="text-xs text-gray-500">Foto scontrini e riconciliazione OCR</div>
                     </div>
                   </button>
 
