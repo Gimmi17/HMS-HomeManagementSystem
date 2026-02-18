@@ -33,7 +33,7 @@ class ShoppingListItemBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Item name")
     grocy_product_id: Optional[int] = Field(None, description="Grocy product ID if linked")
     grocy_product_name: Optional[str] = Field(None, description="Grocy product name if linked")
-    quantity: int = Field(1, ge=1, description="Quantity")
+    quantity: float = Field(1, ge=0, description="Quantity")
     unit: Optional[str] = Field(None, max_length=50, description="Unit of measurement")
 
 
@@ -49,7 +49,7 @@ class ShoppingListItemUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     grocy_product_id: Optional[int] = None
     grocy_product_name: Optional[str] = None
-    quantity: Optional[int] = Field(None, ge=1)
+    quantity: Optional[float] = Field(None, ge=0)
     unit: Optional[str] = Field(None, max_length=50)
     checked: Optional[bool] = None
     scanned_barcode: Optional[str] = Field(None, max_length=100)
@@ -77,6 +77,7 @@ class ShoppingListItemResponse(ShoppingListItemBase):
     expiry_date: Optional[date] = None
     category_id: Optional[UUID] = None
     catalog_barcode: Optional[str] = None  # EAN noto da acquisti precedenti
+    product_notes: Optional[str] = None  # User notes from product catalog
     created_at: datetime
     updated_at: datetime
 

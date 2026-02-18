@@ -79,6 +79,9 @@ class ProductCatalog(BaseModel):
         comment="Local category assigned by user"
     )
 
+    # User notes (free text comment, e.g. "Buona Marca", "Evitare")
+    user_notes = Column(Text, nullable=True)
+
     # Soft delete flag
     cancelled = Column(Boolean, default=False, nullable=False, index=True)
 

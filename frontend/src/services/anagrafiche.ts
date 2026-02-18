@@ -178,6 +178,8 @@ export interface ProductListItem {
   // House ownership
   house_id: string | null
   house_name: string | null
+  // User notes
+  user_notes: string | null
   // Meta
   source: string
   created_at: string
@@ -228,6 +230,24 @@ export interface ProductCategoryTag {
   name: string | null
   lang: string | null
   product_count: number
+}
+
+// ============================================================
+// PRODUCT REPORTS
+// ============================================================
+
+export interface ProductReport {
+  id: string
+  product_id: string
+  product_name: string | null
+  product_barcode: string
+  product_brand: string | null
+  reporter_name: string | null
+  status: 'open' | 'resolved' | 'dismissed'
+  reason: string | null
+  resolution_notes: string | null
+  created_at: string
+  resolved_at: string | null
 }
 
 // ============================================================
@@ -375,6 +395,15 @@ export const anagraficheService = {
     return response.data
   },
 
+  async updateProductNotes(productId: string, userNotes: string | null): Promise<ProductListItem> {
+    const response = await api.patch(`/anagrafiche/products/${productId}/notes`, { user_notes: userNotes })
+    return response.data
+  },
+
+  async updateProductNotesByBarcode(barcode: string, userNotes: string | null): Promise<void> {
+    await api.patch(`/anagrafiche/products/by-barcode/${barcode}/notes`, { user_notes: userNotes })
+  },
+
   // Product Categories
   async getProductCategories(params?: { search?: string; lang?: string; min_products?: number; limit?: number; offset?: number }): Promise<{ categories: ProductCategoryTag[]; total: number }> {
     const response = await api.get('/anagrafiche/product-categories', { params })
@@ -418,6 +447,27 @@ export const anagraficheService = {
 
   async reorderBarcodeSources(sourceIds: string[]): Promise<void> {
     await api.put('/anagrafiche/barcode-sources/reorder', { source_ids: sourceIds })
+  },
+
+  // Product Reports
+  async reportProduct(productId: string, reason?: string): Promise<void> {
+    await api.post(`/anagrafiche/products/${productId}/report`, reason ? { reason } : {})
+  },
+
+  async getProductReports(status?: string): Promise<{ reports: ProductReport[]; total: number }> {
+    const params = status ? { status } : {}
+    const response = await api.get('/anagrafiche/product-reports', { params })
+    return response.data
+  },
+
+  async resolveReport(reportId: string, notes?: string): Promise<ProductReport> {
+    const response = await api.put(`/anagrafiche/product-reports/${reportId}/resolve`, notes ? { resolution_notes: notes } : {})
+    return response.data
+  },
+
+  async dismissReport(reportId: string): Promise<ProductReport> {
+    const response = await api.put(`/anagrafiche/product-reports/${reportId}/dismiss`)
+    return response.data
   },
 
   // Migration

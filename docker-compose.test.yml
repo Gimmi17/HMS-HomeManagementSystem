@@ -62,7 +62,7 @@ services:
       NODE_ENV: development
       VITE_API_URL: http://192.168.1.52:8848/api/v1
     ports:
-      - "5054:3000"
+      - "5056:3000"
     volumes:
       - ./frontend/src:/app/src:ro
       - ./frontend/public:/app/public:ro

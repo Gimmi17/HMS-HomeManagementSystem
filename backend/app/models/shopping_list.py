@@ -141,7 +141,7 @@ class ShoppingListItem(BaseModel):
     grocy_product_name = Column(String(255), nullable=True)
 
     # Quantity (optional) - can be integer for pieces or float for weight
-    quantity = Column(Integer, default=1, nullable=False)  # Store as int, frontend handles decimals for weight
+    quantity = Column(Float, default=1, nullable=False)  # Supports decimals for weight-based items (e.g. 0.5 kg)
     unit = Column(String(50), nullable=True)  # 'pz' for pieces, 'kg' for weight
 
     # Checked/purchased status

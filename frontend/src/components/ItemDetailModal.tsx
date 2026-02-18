@@ -71,6 +71,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
   const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || item.catalog_barcode || '')
   const [showPhotoScanner, setShowPhotoScanner] = useState(false)
   const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
+  const [expiryError, setExpiryError] = useState('')
 
   const parseQuantity = (text: string): number => {
     const normalized = text.replace(',', '.')
@@ -93,15 +94,32 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
       return
     }
 
-    const parsedDate = expiryDateInput.trim() ? parseDateFromInput(expiryDateInput.trim()) : undefined
-    onSave({
-      name: name.trim(),
-      quantity,
-      unit: isWeight ? 'kg' : 'pz',
-      expiryDate: parsedDate || undefined,
-      categoryId: selectedCategoryId,
-      barcode: barcodeInput.trim() || undefined,
-    })
+    const trimmedExpiry = expiryDateInput.trim()
+    if (trimmedExpiry) {
+      const parsedDate = parseDateFromInput(trimmedExpiry)
+      if (!parsedDate) {
+        setExpiryError('Formato data non valido. Usa DDMMYY o DD/MM/YYYY')
+        return
+      }
+      setExpiryError('')
+      onSave({
+        name: name.trim(),
+        quantity,
+        unit: isWeight ? 'kg' : 'pz',
+        expiryDate: parsedDate,
+        categoryId: selectedCategoryId,
+        barcode: barcodeInput.trim() || undefined,
+      })
+    } else {
+      setExpiryError('')
+      onSave({
+        name: name.trim(),
+        quantity,
+        unit: isWeight ? 'kg' : 'pz',
+        categoryId: selectedCategoryId,
+        barcode: barcodeInput.trim() || undefined,
+      })
+    }
   }
 
   const handlePhotoBarcodeScanned = (barcode: string) => {
@@ -262,11 +280,12 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
           <input
             type="text"
             value={expiryDateInput}
-            onChange={(e) => setExpiryDateInput(e.target.value)}
+            onChange={(e) => { setExpiryDateInput(e.target.value); setExpiryError('') }}
             placeholder="DDMMYY (es: 150226)"
-            className="w-full px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`w-full px-3 py-2.5 border rounded-lg text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${expiryError ? 'border-red-500' : ''}`}
             inputMode="numeric"
           />
+          {expiryError && <p className="text-red-500 text-xs mt-1">{expiryError}</p>}
         </div>
 
         {/* Classe / Categoria */}

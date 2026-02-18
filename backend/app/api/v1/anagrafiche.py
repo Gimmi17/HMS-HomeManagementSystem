@@ -17,11 +17,13 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User, UserRole
 from app.models.house import House
+from app.models.user_house import UserHouse
 from app.models.food import Food
 from app.models.product_catalog import ProductCatalog
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
 from app.models.shopping_list import ShoppingListItem
 from app.models.barcode_source import BarcodeLookupSource
+from app.models.product_report import ProductReport, ReportStatus
 from app.services.auth_service import hash_password
 from app.services.barcode_source_service import lookup_barcode_chain
 from app.services.product_enrichment import parse_and_save_category_tags
@@ -301,6 +303,15 @@ def create_house(
     )
 
     db.add(house)
+    db.flush()
+
+    # Add owner as house member
+    membership = UserHouse(
+        user_id=house_data.owner_id,
+        house_id=house.id,
+        role="OWNER"
+    )
+    db.add(membership)
     db.commit()
     db.refresh(house)
 
@@ -311,7 +322,7 @@ def create_house(
         location=house.location,
         owner_id=house.owner_id,
         owner_name=owner.full_name,
-        member_count=0,
+        member_count=1,
         created_at=house.created_at
     )
 
@@ -641,6 +652,8 @@ class ProductListItem(BaseModel):
     # House ownership
     house_id: Optional[UUID] = None
     house_name: Optional[str] = None
+    # User notes
+    user_notes: Optional[str] = None
     # Meta
     source: str
     created_at: datetime
@@ -678,6 +691,7 @@ class ProductUpdateRequest(BaseModel):
     carbs_g: Optional[float] = None
     fats_g: Optional[float] = None
     nutriscore: Optional[str] = None
+    user_notes: Optional[str] = None
 
 
 @router.get("/products", response_model=ProductListResponse)
@@ -749,6 +763,7 @@ def list_products(
                 image_small_url=p.image_small_url,
                 house_id=p.house_id,
                 house_name=house_name,
+                user_notes=p.user_notes,
                 source=p.source,
                 created_at=p.created_at
             )
@@ -816,6 +831,74 @@ def delete_product(
 
     product.cancelled = True
     db.commit()
+
+
+# ============================================================
+# PRODUCT USER NOTES
+# ============================================================
+
+class UpdateProductNotesRequest(BaseModel):
+    user_notes: Optional[str] = None
+
+
+@router.patch("/products/{product_id}/notes", response_model=ProductListItem)
+def update_product_notes(
+    product_id: UUID,
+    data: UpdateProductNotesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the user_notes of a product."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    product.user_notes = data.user_notes or None
+    db.commit()
+    db.refresh(product)
+
+    return ProductListItem.model_validate(product)
+
+
+@router.patch("/products/by-barcode/{barcode}/notes")
+def update_product_notes_by_barcode(
+    barcode: str,
+    data: UpdateProductNotesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update user_notes of a product found by barcode. Creates a minimal catalog entry if not found."""
+    # Find user's house
+    membership = db.query(UserHouse).filter(UserHouse.user_id == current_user.id).first()
+    house_id = membership.house_id if membership else None
+
+    product = db.query(ProductCatalog).filter(
+        ProductCatalog.barcode == barcode,
+        ProductCatalog.cancelled == False,
+        or_(
+            ProductCatalog.house_id == house_id,
+            ProductCatalog.house_id.is_(None)
+        )
+    ).first()
+
+    if product:
+        product.user_notes = data.user_notes or None
+        db.commit()
+        return {"success": True}
+
+    # No catalog product with this barcode - create a minimal entry
+    if house_id:
+        new_product = ProductCatalog(
+            house_id=house_id,
+            barcode=barcode,
+            source="manual",
+            user_notes=data.user_notes or None,
+        )
+        db.add(new_product)
+        db.commit()
+        return {"success": True}
+
+    raise HTTPException(status_code=404, detail="Prodotto non trovato nel catalogo")
 
 
 # ============================================================
@@ -1478,4 +1561,196 @@ def link_orphan_data_to_house(
         products_linked=products_count,
         total_linked=categories_count + stores_count + foods_count + products_count,
         house_name=house.name
+    )
+
+
+# ============================================================
+# PRODUCT REPORTS
+# ============================================================
+
+class ProductReportItem(BaseModel):
+    id: UUID
+    product_id: UUID
+    product_name: Optional[str] = None
+    product_barcode: str = ""
+    product_brand: Optional[str] = None
+    reporter_name: Optional[str] = None
+    status: str
+    reason: Optional[str] = None
+    resolution_notes: Optional[str] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ProductReportListResponse(BaseModel):
+    reports: List[ProductReportItem]
+    total: int
+
+
+class CreateReportRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class ResolveReportRequest(BaseModel):
+    resolution_notes: Optional[str] = None
+
+
+@router.post("/products/{product_id}/report", status_code=status.HTTP_201_CREATED)
+def report_product(
+    product_id: UUID,
+    data: CreateReportRequest = CreateReportRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Report a product with incorrect data."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    existing = db.query(ProductReport).filter(
+        ProductReport.product_id == product_id,
+        ProductReport.reporter_id == current_user.id,
+        ProductReport.status == ReportStatus.OPEN
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Hai gia segnalato questo prodotto")
+
+    report = ProductReport(
+        product_id=product_id,
+        reporter_id=current_user.id,
+        status=ReportStatus.OPEN,
+        reason=data.reason
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    return {
+        "id": report.id,
+        "product_id": report.product_id,
+        "status": report.status.value,
+        "created_at": report.created_at
+    }
+
+
+@router.get("/product-reports", response_model=ProductReportListResponse)
+def list_product_reports(
+    report_status: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all product reports, optionally filtered by status."""
+    from sqlalchemy import func as sa_func
+
+    query = db.query(ProductReport)
+
+    if report_status:
+        try:
+            status_enum = ReportStatus(report_status)
+            query = query.filter(ProductReport.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Stato non valido")
+
+    total = query.count()
+    reports = query.order_by(ProductReport.created_at.desc()).all()
+
+    result = []
+    for r in reports:
+        product = db.query(ProductCatalog).filter(ProductCatalog.id == r.product_id).first()
+        reporter = db.query(User).filter(User.id == r.reporter_id).first() if r.reporter_id else None
+        result.append(ProductReportItem(
+            id=r.id,
+            product_id=r.product_id,
+            product_name=product.name if product else None,
+            product_barcode=product.barcode if product else "",
+            product_brand=product.brand if product else None,
+            reporter_name=reporter.full_name if reporter else None,
+            status=r.status.value,
+            reason=r.reason,
+            resolution_notes=r.resolution_notes,
+            created_at=r.created_at,
+            resolved_at=r.resolved_at
+        ))
+
+    return ProductReportListResponse(reports=result, total=total)
+
+
+@router.put("/product-reports/{report_id}/resolve", response_model=ProductReportItem)
+def resolve_report(
+    report_id: UUID,
+    data: ResolveReportRequest = ResolveReportRequest(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Resolve a product report."""
+    from datetime import timezone
+
+    report = db.query(ProductReport).filter(ProductReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Segnalazione non trovata")
+
+    report.status = ReportStatus.RESOLVED
+    report.resolved_at = datetime.now(timezone.utc)
+    report.resolved_by = current_user.id
+    report.resolution_notes = data.resolution_notes
+
+    db.commit()
+    db.refresh(report)
+
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == report.product_id).first()
+    reporter = db.query(User).filter(User.id == report.reporter_id).first() if report.reporter_id else None
+
+    return ProductReportItem(
+        id=report.id,
+        product_id=report.product_id,
+        product_name=product.name if product else None,
+        product_barcode=product.barcode if product else "",
+        product_brand=product.brand if product else None,
+        reporter_name=reporter.full_name if reporter else None,
+        status=report.status.value,
+        reason=report.reason,
+        resolution_notes=report.resolution_notes,
+        created_at=report.created_at,
+        resolved_at=report.resolved_at
+    )
+
+
+@router.put("/product-reports/{report_id}/dismiss", response_model=ProductReportItem)
+def dismiss_report(
+    report_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Dismiss a product report."""
+    from datetime import timezone
+
+    report = db.query(ProductReport).filter(ProductReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Segnalazione non trovata")
+
+    report.status = ReportStatus.DISMISSED
+    report.resolved_at = datetime.now(timezone.utc)
+    report.resolved_by = current_user.id
+
+    db.commit()
+    db.refresh(report)
+
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == report.product_id).first()
+    reporter = db.query(User).filter(User.id == report.reporter_id).first() if report.reporter_id else None
+
+    return ProductReportItem(
+        id=report.id,
+        product_id=report.product_id,
+        product_name=product.name if product else None,
+        product_barcode=product.barcode if product else "",
+        product_brand=product.brand if product else None,
+        reporter_name=reporter.full_name if reporter else None,
+        status=report.status.value,
+        reason=report.reason,
+        resolution_notes=report.resolution_notes,
+        created_at=report.created_at,
+        resolved_at=report.resolved_at
     )

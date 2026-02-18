@@ -19,6 +19,7 @@ export interface ProductSuggestion {
   name: string
   brand: string | null
   barcode: string
+  user_notes: string | null
 }
 
 export interface ProductSuggestResponse {

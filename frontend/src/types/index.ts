@@ -4,6 +4,7 @@ export interface User {
   email: string
   full_name: string
   avatar_url?: string
+  role: 'admin' | 'basic'
   preferences: UserPreferences
   created_at: string
 }
@@ -355,6 +356,7 @@ export interface ShoppingListItem {
   expiry_date?: string  // formato YYYY-MM-DD dal backend
   category_id?: string
   catalog_barcode?: string  // EAN noto da acquisti precedenti
+  product_notes?: string  // Commento utente dal catalogo prodotti
   created_at: string
   updated_at: string
 }

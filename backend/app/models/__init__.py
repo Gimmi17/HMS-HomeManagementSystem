@@ -30,6 +30,7 @@ from app.models.dispensa import DispensaItem
 from app.models.product_nutrition import ProductNutrition
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
 from app.models.barcode_source import BarcodeLookupSource
+from app.models.product_report import ProductReport, ReportStatus
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -64,4 +65,6 @@ __all__ = [
     "ProductCategoryTag",
     "product_category_association",
     "BarcodeLookupSource",
+    "ProductReport",
+    "ReportStatus",
 ]

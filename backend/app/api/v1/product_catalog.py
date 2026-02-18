@@ -73,6 +73,7 @@ class ProductSuggestion(BaseModel):
     name: str
     brand: Optional[str] = None
     barcode: str
+    user_notes: Optional[str] = None
 
 
 class ProductSuggestResponse(BaseModel):
@@ -125,7 +126,7 @@ def suggest_products(
 
     return ProductSuggestResponse(
         suggestions=[
-            ProductSuggestion(name=p.name, brand=p.brand, barcode=p.barcode)
+            ProductSuggestion(name=p.name, brand=p.brand, barcode=p.barcode, user_notes=p.user_notes)
             for p in products
         ]
     )

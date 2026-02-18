@@ -40,6 +40,17 @@ export function AnagraficheProducts() {
   const [isScanning, setIsScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, found: 0 })
 
+  // Product notes (inline edit in detail modal)
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [notesValue, setNotesValue] = useState('')
+  const [isSavingNotes, setIsSavingNotes] = useState(false)
+
+  // Report product
+  const [reportingId, setReportingId] = useState<string | null>(null)
+  const [reportModalProduct, setReportModalProduct] = useState<ProductListItem | null>(null)
+  const [reportReason, setReportReason] = useState('')
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false)
+
   // Name recovery from receipts
   const [isRecoveringNames, setIsRecoveringNames] = useState(false)
   const [nameRecoveryProducts, setNameRecoveryProducts] = useState<UnnamedProductWithDescriptions[]>([])
@@ -49,6 +60,50 @@ export function AnagraficheProducts() {
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
+  }
+
+  const openReportModal = (e: React.MouseEvent, product: ProductListItem) => {
+    e.stopPropagation()
+    setReportModalProduct(product)
+    setReportReason('')
+  }
+
+  const submitReport = async () => {
+    if (!reportModalProduct) return
+    setIsSubmittingReport(true)
+    setReportingId(reportModalProduct.id)
+    try {
+      await anagraficheService.reportProduct(reportModalProduct.id, reportReason.trim() || undefined)
+      showToast('Prodotto segnalato', 'success')
+      setReportModalProduct(null)
+      setReportReason('')
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        showToast('Prodotto gia segnalato', 'error')
+        setReportModalProduct(null)
+      } else {
+        showToast(err.response?.data?.detail || 'Errore nella segnalazione', 'error')
+      }
+    } finally {
+      setIsSubmittingReport(false)
+      setReportingId(null)
+    }
+  }
+
+  const handleSaveNotes = async () => {
+    if (!viewingProduct) return
+    setIsSavingNotes(true)
+    try {
+      const updated = await anagraficheService.updateProductNotes(viewingProduct.id, notesValue.trim() || null)
+      setViewingProduct(updated)
+      setProducts(prev => prev.map(p => p.id === updated.id ? updated : p))
+      setEditingNotes(false)
+      showToast('Commento salvato', 'success')
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore nel salvataggio', 'error')
+    } finally {
+      setIsSavingNotes(false)
+    }
   }
 
   const fetchProducts = async () => {
@@ -485,7 +540,7 @@ export function AnagraficheProducts() {
               className={`card p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${
                 !isProductCertified(product) ? 'border-l-4 border-l-amber-400 bg-amber-50/50' : ''
               }`}
-              onClick={() => { setImageLoaded(false); setViewingProduct(product) }}
+              onClick={() => { setImageLoaded(false); setEditingNotes(false); setNotesValue(product.user_notes || ''); setViewingProduct(product) }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -508,8 +563,28 @@ export function AnagraficheProducts() {
                 {!product.name && product.brand && (
                   <p className="text-sm text-gray-500">{product.brand}</p>
                 )}
+                {product.user_notes && (
+                  <p className="text-xs text-blue-600 italic truncate">{product.user_notes}</p>
+                )}
               </div>
-              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <button
+                onClick={(e) => openReportModal(e, product)}
+                disabled={reportingId === product.id}
+                className="p-2 text-orange-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+                title="Segnala dati errati"
+              >
+                {reportingId === product.id ? (
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2z" />
+                  </svg>
+                )}
+              </button>
+              <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </div>
@@ -604,6 +679,55 @@ export function AnagraficheProducts() {
                     <span className={`text-xs px-1.5 py-0.5 rounded ${viewingProduct.source === 'not_found' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-700'}`}>{getSourceLabel(viewingProduct.source)}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Commento utente */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Commento</h4>
+                  {!editingNotes && (
+                    <button
+                      onClick={() => { setNotesValue(viewingProduct.user_notes || ''); setEditingNotes(true) }}
+                      className="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      {viewingProduct.user_notes ? 'Modifica' : 'Aggiungi'}
+                    </button>
+                  )}
+                </div>
+                {editingNotes ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={notesValue}
+                      onChange={(e) => setNotesValue(e.target.value)}
+                      placeholder="Es: Buona marca, Evitare, Preferito..."
+                      className="input w-full text-sm"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNotes(); if (e.key === 'Escape') setEditingNotes(false) }}
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingNotes(false)}
+                        className="px-3 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-md"
+                      >
+                        Annulla
+                      </button>
+                      <button
+                        onClick={handleSaveNotes}
+                        disabled={isSavingNotes}
+                        className="px-3 py-1 text-xs text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {isSavingNotes ? 'Salvo...' : 'Salva'}
+                      </button>
+                    </div>
+                  </div>
+                ) : viewingProduct.user_notes ? (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-800 italic">{viewingProduct.user_notes}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">Nessun commento</p>
+                )}
               </div>
 
               {/* Punteggi */}
@@ -893,6 +1017,51 @@ export function AnagraficheProducts() {
                 className="flex-1 py-2.5 rounded-lg bg-gray-200 text-gray-700 font-medium hover:bg-gray-300"
               >
                 Salta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {reportModalProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setReportModalProduct(null); setReportReason('') }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b bg-orange-50">
+              <h3 className="font-semibold text-lg text-gray-900">Segnala Prodotto</h3>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-700">
+                Stai segnalando l'articolo <strong>{reportModalProduct.name || reportModalProduct.barcode}</strong>, per quale motivo?
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Inserisci una breve descrizione
+                </label>
+                <input
+                  type="text"
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  placeholder="Es: nome prodotto errato, dati nutrizionali sbagliati..."
+                  className="input w-full"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter' && reportReason.trim()) submitReport() }}
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-3">
+              <button
+                onClick={() => { setReportModalProduct(null); setReportReason('') }}
+                className="flex-1 py-2.5 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={submitReport}
+                disabled={!reportReason.trim() || isSubmittingReport}
+                className="flex-1 py-2.5 rounded-lg bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50"
+              >
+                {isSubmittingReport ? 'Invio...' : 'Segnala'}
               </button>
             </div>
           </div>

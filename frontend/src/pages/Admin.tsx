@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import anagraficheService, { ProductListItem, HouseListItem } from '@/services/anagrafiche'
+import anagraficheService, { ProductListItem, HouseListItem, ProductReport } from '@/services/anagrafiche'
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -83,6 +83,17 @@ export function Admin() {
   const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
+  // Product reports
+  const [showReports, setShowReports] = useState(false)
+  const [reports, setReports] = useState<ProductReport[]>([])
+  const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportFilter, setReportFilter] = useState<'open' | 'resolved' | 'dismissed'>('open')
+  const [isLoadingReports, setIsLoadingReports] = useState(false)
+  const [openReportsCount, setOpenReportsCount] = useState<number | null>(null)
+  const [resolvingId, setResolvingId] = useState<string | null>(null)
+  const [resolveNotes, setResolveNotes] = useState('')
+  const [showNotesFor, setShowNotesFor] = useState<string | null>(null)
+
   // Bulk association
   const [showBulk, setShowBulk] = useState(false)
   const [orphanStats, setOrphanStats] = useState<OrphanStats | null>(null)
@@ -152,6 +163,66 @@ export function Admin() {
       setMigrationResult(`Errore: ${error.response?.data?.detail || 'Associazione fallita'}`)
     } finally {
       setIsMigrating(false)
+    }
+  }
+
+  const loadReports = useCallback(async (status: string) => {
+    setIsLoadingReports(true)
+    try {
+      const res = await anagraficheService.getProductReports(status)
+      setReports(res.reports)
+      setReportsTotal(res.total)
+    } catch (error) {
+      console.error('Failed to load reports:', error)
+    } finally {
+      setIsLoadingReports(false)
+    }
+  }, [])
+
+  const loadOpenReportsCount = useCallback(async () => {
+    try {
+      const res = await anagraficheService.getProductReports('open')
+      setOpenReportsCount(res.total)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    loadOpenReportsCount()
+  }, [loadOpenReportsCount])
+
+  useEffect(() => {
+    if (showReports) {
+      loadReports(reportFilter)
+    }
+  }, [showReports, reportFilter, loadReports])
+
+  const handleResolve = async (reportId: string, notes?: string) => {
+    setResolvingId(reportId)
+    try {
+      await anagraficheService.resolveReport(reportId, notes)
+      setShowNotesFor(null)
+      setResolveNotes('')
+      loadReports(reportFilter)
+      loadOpenReportsCount()
+    } catch (error) {
+      console.error('Failed to resolve report:', error)
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
+  const handleDismiss = async (reportId: string) => {
+    setResolvingId(reportId)
+    try {
+      await anagraficheService.dismissReport(reportId)
+      loadReports(reportFilter)
+      loadOpenReportsCount()
+    } catch (error) {
+      console.error('Failed to dismiss report:', error)
+    } finally {
+      setResolvingId(null)
     }
   }
 
@@ -283,6 +354,140 @@ export function Admin() {
                     : 'bg-green-50 text-green-700'
                 }`}>
                   {migrationResult}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Segnalazioni Prodotti */}
+          <button
+            onClick={() => setShowReports(!showReports)}
+            className="card p-4 flex items-center gap-3 hover:shadow-md transition-shadow w-full text-left"
+          >
+            <span className="text-2xl">🚩</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-900">Segnalazioni Prodotti</h3>
+                {openReportsCount !== null && openReportsCount > 0 && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                    {openReportsCount} aperte
+                  </span>
+                )}
+              </div>
+              <p className="text-gray-500 text-xs truncate">Prodotti segnalati con dati errati</p>
+            </div>
+            <svg
+              className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform ${showReports ? 'rotate-90' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {showReports && (
+            <div className="card p-4 space-y-4">
+              {/* Filter tabs */}
+              <div className="flex gap-2">
+                {(['open', 'resolved', 'dismissed'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setReportFilter(s)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      reportFilter === s
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {s === 'open' ? 'Aperte' : s === 'resolved' ? 'Risolte' : 'Respinte'}
+                  </button>
+                ))}
+              </div>
+
+              {isLoadingReports ? (
+                <p className="text-sm text-gray-500">Caricamento segnalazioni...</p>
+              ) : reports.length === 0 ? (
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-500">Nessuna segnalazione {reportFilter === 'open' ? 'aperta' : reportFilter === 'resolved' ? 'risolta' : 'respinta'}.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">{reportsTotal} segnalazion{reportsTotal === 1 ? 'e' : 'i'}</p>
+                  {reports.map((report) => (
+                    <div key={report.id} className="border rounded-lg p-3 space-y-2">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {report.product_name || 'Senza nome'}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {report.product_barcode}
+                            {report.product_brand && ` · ${report.product_brand}`}
+                          </p>
+                          {report.reason && (
+                            <p className="text-xs text-orange-700 bg-orange-50 rounded px-2 py-1 mt-1">Motivo: {report.reason}</p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-1">
+                            Segnalato da: {report.reporter_name || 'Sconosciuto'} · {new Date(report.created_at).toLocaleDateString('it-IT')}
+                          </p>
+                          {report.resolution_notes && (
+                            <p className="text-xs text-gray-600 mt-1 italic">Note: {report.resolution_notes}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => navigate(`/anagrafiche/products?search=${encodeURIComponent(report.product_barcode)}`)}
+                          className="text-xs text-blue-600 hover:text-blue-800 flex-shrink-0 underline"
+                        >
+                          Vedi
+                        </button>
+                      </div>
+
+                      {reportFilter === 'open' && (
+                        <div className="flex gap-2">
+                          {showNotesFor === report.id ? (
+                            <div className="flex-1 flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Note di risoluzione (opzionale)"
+                                value={resolveNotes}
+                                onChange={(e) => setResolveNotes(e.target.value)}
+                                className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-green-500"
+                              />
+                              <button
+                                onClick={() => handleResolve(report.id, resolveNotes || undefined)}
+                                disabled={resolvingId === report.id}
+                                className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Conferma
+                              </button>
+                              <button
+                                onClick={() => { setShowNotesFor(null); setResolveNotes('') }}
+                                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Annulla
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setShowNotesFor(report.id)}
+                                disabled={resolvingId === report.id}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Risolvi
+                              </button>
+                              <button
+                                onClick={() => handleDismiss(report.id)}
+                                disabled={resolvingId === report.id}
+                                className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50"
+                              >
+                                Respingi
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

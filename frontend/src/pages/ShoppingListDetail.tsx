@@ -6,6 +6,8 @@ import type { ProductSuggestion } from '@/services/products'
 import categoriesService from '@/services/categories'
 import dispensaService from '@/services/dispensa'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
+import ItemActionMenu from '@/components/ItemActionMenu'
+import ProductNoteModal from '@/components/ProductNoteModal'
 import type { ShoppingList, ShoppingListItem, ShoppingListStatus, Category } from '@/types'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
@@ -25,6 +27,8 @@ export function ShoppingListDetail() {
   const [scanResult, setScanResult] = useState<{ success: boolean; message: string } | null>(null)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
+  const [actionMenuItem, setActionMenuItem] = useState<ShoppingListItem | null>(null)
+  const [noteEditItem, setNoteEditItem] = useState<ShoppingListItem | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
 
 
@@ -36,6 +40,7 @@ export function ShoppingListDetail() {
   const [newItemName, setNewItemName] = useState('')
   const [newItemQuantity, setNewItemQuantity] = useState(1)
   const [newItemUnit, setNewItemUnit] = useState('')
+  const [newItemBarcode, setNewItemBarcode] = useState('')
   const [isSavingNewItem, setIsSavingNewItem] = useState(false)
 
   // Autocomplete state
@@ -139,9 +144,9 @@ export function ShoppingListDetail() {
     setEditingItem(item)
   }
 
-  // Open modal to view/edit item data (called from row click)
+  // Open action menu (called from row click)
   const openItemModal = (item: ShoppingListItem) => {
-    setEditingItem(item)
+    setActionMenuItem(item)
   }
 
   // Handle save from modal - saves data and checks the item
@@ -192,6 +197,26 @@ export function ShoppingListDetail() {
       })
       setTimeout(() => setScanResult(null), 3000)
     }
+  }
+
+  // Handle note save from ProductNoteModal
+  const handleNoteSave = async (note: string) => {
+    if (!list || !noteEditItem) return
+
+    // Refresh list to show updated note
+    try {
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
+    } catch (error) {
+      console.error('Failed to refresh list:', error)
+    }
+
+    setNoteEditItem(null)
+    setScanResult({
+      success: true,
+      message: note ? 'Nota salvata' : 'Nota rimossa',
+    })
+    setTimeout(() => setScanResult(null), 3000)
   }
 
   const handleStatusChange = async (newStatus: ShoppingListStatus) => {
@@ -296,6 +321,7 @@ export function ShoppingListDetail() {
       ? `${suggestion.name} (${suggestion.brand})`
       : suggestion.name
     setNewItemName(displayName)
+    setNewItemBarcode(suggestion.barcode)
     setNewItemSuggestions([])
     setNewItemSuggestionIndex(-1)
   }
@@ -306,6 +332,7 @@ export function ShoppingListDetail() {
     setNewItemName('')
     setNewItemQuantity(1)
     setNewItemUnit('')
+    setNewItemBarcode('')
   }
 
   const cancelNewItem = () => {
@@ -313,6 +340,7 @@ export function ShoppingListDetail() {
     setNewItemName('')
     setNewItemQuantity(1)
     setNewItemUnit('')
+    setNewItemBarcode('')
     setNewItemSuggestions([])
     setNewItemSuggestionIndex(-1)
   }
@@ -328,14 +356,16 @@ export function ShoppingListDetail() {
         unit: newItemUnit.trim() || undefined,
       })
 
-      setList((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: [...prev.items, newItem],
-            }
-          : null
-      )
+      // If we have a barcode from autocomplete, attach it to the item
+      if (newItemBarcode) {
+        await shoppingListsService.updateItem(list.id, newItem.id, {
+          scanned_barcode: newItemBarcode,
+        })
+      }
+
+      // Re-fetch list from backend (populates catalog_barcode, product_notes, etc.)
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
 
       cancelNewItem()
       setScanResult({
@@ -613,6 +643,9 @@ export function ShoppingListDetail() {
                     ) : null
                   })()}
                 </div>
+                {item.product_notes && (
+                  <p className="text-xs text-blue-600 italic truncate">{item.product_notes}</p>
+                )}
               </div>
 
               {/* Verified icon */}
@@ -688,9 +721,14 @@ export function ShoppingListDetail() {
                           selectNewItemSuggestion(suggestion)
                         }}
                       >
-                        <span className="font-medium">{suggestion.name}</span>
-                        {suggestion.brand && (
-                          <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                        <div>
+                          <span className="font-medium">{suggestion.name}</span>
+                          {suggestion.brand && (
+                            <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                          )}
+                        </div>
+                        {suggestion.user_notes && (
+                          <div className="text-xs text-blue-600 italic mt-0.5">{suggestion.user_notes}</div>
                         )}
                       </button>
                     ))}
@@ -758,6 +796,22 @@ export function ShoppingListDetail() {
         )}
       </div>
 
+      {/* Item Action Menu (bottom sheet) */}
+      {actionMenuItem && (
+        <ItemActionMenu
+          item={actionMenuItem}
+          onEdit={() => {
+            setEditingItem(actionMenuItem)
+            setActionMenuItem(null)
+          }}
+          onEditNote={() => {
+            setNoteEditItem(actionMenuItem)
+            setActionMenuItem(null)
+          }}
+          onClose={() => setActionMenuItem(null)}
+        />
+      )}
+
       {/* Item Details Modal */}
       {editingItem && (
         <ItemDetailModal
@@ -766,6 +820,15 @@ export function ShoppingListDetail() {
           mode="view"
           onSave={handleModalSave}
           onCancel={() => setEditingItem(null)}
+        />
+      )}
+
+      {/* Product Note Modal */}
+      {noteEditItem && (
+        <ProductNoteModal
+          item={noteEditItem}
+          onSave={handleNoteSave}
+          onCancel={() => setNoteEditItem(null)}
         />
       )}
 

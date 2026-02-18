@@ -165,6 +165,10 @@ class UserResponse(BaseModel):
         default_factory=dict,
         description="User preferences (allergies, goals, etc.)"
     )
+    role: str = Field(
+        default="basic",
+        description="User role (admin, basic)"
+    )
     created_at: datetime = Field(
         ...,
         description="Account creation timestamp"

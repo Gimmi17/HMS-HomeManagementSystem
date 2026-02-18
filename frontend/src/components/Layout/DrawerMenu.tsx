@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 
-const navItems = [
+const baseNavItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
   { to: '/meals', label: 'Pasti', icon: '🍽️' },
   { to: '/recipes', label: 'Ricette', icon: '📖' },
@@ -10,18 +10,23 @@ const navItems = [
   { to: '/pantry', label: 'Dispensa', icon: '🏠' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
-  { to: '/admin', label: 'Admin', icon: '🛠️' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
 ]
+
+const adminNavItem = { to: '/admin', label: 'Admin', icon: '🛠️' }
 
 interface DrawerMenuProps {
   isOpen: boolean
   onClose: () => void
   userName: string | null
+  isAdmin?: boolean
   onLogout: () => void
 }
 
-export function DrawerMenu({ isOpen, onClose, userName, onLogout }: DrawerMenuProps) {
+export function DrawerMenu({ isOpen, onClose, userName, isAdmin, onLogout }: DrawerMenuProps) {
+  const navItems = isAdmin
+    ? [...baseNavItems.slice(0, -1), adminNavItem, baseNavItems[baseNavItems.length - 1]]
+    : baseNavItems
   // Lock body scroll when drawer is open
   useEffect(() => {
     if (isOpen) {

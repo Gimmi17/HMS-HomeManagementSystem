@@ -8,6 +8,8 @@ import categoriesService from '@/services/categories'
 import dispensaService from '@/services/dispensa'
 import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
+import ItemActionMenu from '@/components/ItemActionMenu'
+import ProductNoteModal from '@/components/ProductNoteModal'
 import type { ShoppingList, ShoppingListItem, GrocyBulkAddItem, GrocyBulkAddStockResponse, Category } from '@/types'
 
 type VerificationState = 'pending' | 'not_purchased' | 'verified_no_info' | 'verified_with_info'
@@ -55,6 +57,7 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   const [expiryDateInput, setExpiryDateInput] = useState(
     item.expiry_date ? formatDateForDisplay(item.expiry_date) : ''
   )
+  const [expiryError, setExpiryError] = useState('')
 
   // Parse expiry date from various formats to YYYY-MM-DD
   const parseExpiryDate = (input: string): string | null => {
@@ -149,15 +152,33 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   }
 
   const handleConfirm = () => {
-    const parsedExpiry = expiryDateInput.trim() ? parseExpiryDate(expiryDateInput.trim()) : null
-    onConfirm({
-      quantity,
-      isWeight,
-      expiryDate: parsedExpiry,
-      categoryId: selectedCategoryId,
-      barcode: barcodeInput.trim() || undefined,
-      productName: productName || undefined,
-    })
+    const trimmedExpiry = expiryDateInput.trim()
+    if (trimmedExpiry) {
+      const parsedExpiry = parseExpiryDate(trimmedExpiry)
+      if (!parsedExpiry) {
+        setExpiryError('Formato data non valido. Usa DDMMYY o DD/MM/YYYY')
+        return
+      }
+      setExpiryError('')
+      onConfirm({
+        quantity,
+        isWeight,
+        expiryDate: parsedExpiry,
+        categoryId: selectedCategoryId,
+        barcode: barcodeInput.trim() || undefined,
+        productName: productName || undefined,
+      })
+    } else {
+      setExpiryError('')
+      onConfirm({
+        quantity,
+        isWeight,
+        expiryDate: null,
+        categoryId: selectedCategoryId,
+        barcode: barcodeInput.trim() || undefined,
+        productName: productName || undefined,
+      })
+    }
   }
 
   // Show photo scanner
@@ -294,10 +315,11 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
               type="text"
               inputMode="numeric"
               value={expiryDateInput}
-              onChange={(e) => setExpiryDateInput(e.target.value)}
+              onChange={(e) => { setExpiryDateInput(e.target.value); setExpiryError('') }}
               placeholder="DDMMYY (es: 150226)"
-              className="w-full px-4 py-3 border rounded-lg text-center text-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              className={`w-full px-4 py-3 border rounded-lg text-center text-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${expiryError ? 'border-red-500' : ''}`}
             />
+            {expiryError && <p className="text-red-500 text-xs mt-1">{expiryError}</p>}
           </div>
 
           {/* Category */}
@@ -372,6 +394,8 @@ export function LoadVerification() {
   const [verifyingItem, setVerifyingItem] = useState<ShoppingListItem | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null) // Item being edited
+  const [actionMenuItem, setActionMenuItem] = useState<ShoppingListItem | null>(null)
+  const [noteEditItem, setNoteEditItem] = useState<ShoppingListItem | null>(null)
   const [showGrocySyncModal, setShowGrocySyncModal] = useState(false) // Grocy sync modal
   const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -421,7 +445,7 @@ export function LoadVerification() {
 
   // Live polling
   useEffect(() => {
-    if (!id || isLoading || verifyingItem || editingItem) return
+    if (!id || isLoading || verifyingItem || editingItem || actionMenuItem || noteEditItem) return
 
     const pollInterval = setInterval(async () => {
       try {
@@ -433,7 +457,7 @@ export function LoadVerification() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [id, isLoading, verifyingItem, editingItem])
+  }, [id, isLoading, verifyingItem, editingItem, actionMenuItem, noteEditItem])
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
@@ -668,7 +692,7 @@ export function LoadVerification() {
   const handleEditItem = (item: ShoppingListItem) => {
     const state = getItemState(item)
     if (state === 'verified_no_info' || state === 'verified_with_info') {
-      setEditingItem(item)
+      setActionMenuItem(item)
     }
   }
 
@@ -714,6 +738,21 @@ export function LoadVerification() {
       console.error('Failed to update item:', error)
       showToast('Errore durante il salvataggio', 'error')
     }
+  }
+
+  // Handle note save from ProductNoteModal
+  const handleNoteSave = async (note: string) => {
+    if (!list || !noteEditItem) return
+
+    try {
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
+    } catch (error) {
+      console.error('Failed to refresh list:', error)
+    }
+
+    setNoteEditItem(null)
+    showToast(note ? 'Nota salvata' : 'Nota rimossa', 'success')
   }
 
   const handleDeleteItem = async (item: ShoppingListItem) => {
@@ -870,6 +909,9 @@ export function LoadVerification() {
                       Scad: {item.expiry_date.split('-').reverse().join('/')}
                     </div>
                   )}
+                  {item.product_notes && (
+                    <p className="text-xs text-blue-600 italic truncate">{item.product_notes}</p>
+                  )}
                 </div>
 
                 {/* Edit button for verified items */}
@@ -916,6 +958,22 @@ export function LoadVerification() {
         />
       )}
 
+      {/* Item Action Menu (bottom sheet) */}
+      {actionMenuItem && (
+        <ItemActionMenu
+          item={actionMenuItem}
+          onEdit={() => {
+            setEditingItem(actionMenuItem)
+            setActionMenuItem(null)
+          }}
+          onEditNote={() => {
+            setNoteEditItem(actionMenuItem)
+            setActionMenuItem(null)
+          }}
+          onClose={() => setActionMenuItem(null)}
+        />
+      )}
+
       {/* Edit Modal */}
       {editingItem && (
         <ItemDetailModal
@@ -924,6 +982,15 @@ export function LoadVerification() {
           mode="verify"
           onSave={handleSaveEdit}
           onCancel={() => setEditingItem(null)}
+        />
+      )}
+
+      {/* Product Note Modal */}
+      {noteEditItem && (
+        <ProductNoteModal
+          item={noteEditItem}
+          onSave={handleNoteSave}
+          onCancel={() => setNoteEditItem(null)}
         />
       )}
 

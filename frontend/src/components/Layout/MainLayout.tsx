@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { useHouse } from '@/context/HouseContext'
 import Header from './Header'
 import DrawerMenu from './DrawerMenu'
 
@@ -10,9 +11,10 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
+  const { isLoading: isHouseLoading } = useHouse()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
-  if (isLoading) {
+  if (isLoading || isHouseLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-gray-500">Caricamento...</div>
@@ -37,6 +39,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
         userName={user?.full_name || user?.email || null}
+        isAdmin={user?.role === 'admin'}
         onLogout={logout}
       />
     </div>

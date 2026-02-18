@@ -351,6 +351,52 @@ def get_shopping_list(
                 bc = barcode_map.get(item_resp.name.lower().strip())
             item_resp.catalog_barcode = bc
 
+    # Populate product_notes from product_catalog
+    # Step 1: Match by barcode
+    all_barcodes = set()
+    for item_resp in item_responses:
+        bc = item_resp.scanned_barcode or item_resp.catalog_barcode
+        if bc:
+            all_barcodes.add(bc)
+    if all_barcodes:
+        products_with_notes = db.query(ProductCatalog.barcode, ProductCatalog.user_notes).filter(
+            ProductCatalog.barcode.in_(all_barcodes),
+            ProductCatalog.user_notes.isnot(None),
+            ProductCatalog.cancelled == False
+        ).all()
+        notes_map = {p.barcode: p.user_notes for p in products_with_notes}
+        for item_resp in item_responses:
+            bc = item_resp.scanned_barcode or item_resp.catalog_barcode
+            if bc and bc in notes_map:
+                item_resp.product_notes = notes_map[bc]
+
+    # Step 2: For items still without notes, try matching by product name
+    items_without_notes = [r for r in item_responses if not r.product_notes]
+    if items_without_notes:
+        item_names = set()
+        for r in items_without_notes:
+            item_names.add(r.name.lower().strip())
+            if r.grocy_product_name:
+                item_names.add(r.grocy_product_name.lower().strip())
+        if item_names:
+            products_by_name = db.query(
+                func.lower(ProductCatalog.name), ProductCatalog.user_notes
+            ).filter(
+                func.lower(ProductCatalog.name).in_(item_names),
+                ProductCatalog.user_notes.isnot(None),
+                ProductCatalog.cancelled == False,
+                or_(
+                    ProductCatalog.house_id == shopping_list.house_id,
+                    ProductCatalog.house_id.is_(None)
+                )
+            ).all()
+            name_notes_map = {name: notes for name, notes in products_by_name}
+            for r in items_without_notes:
+                if r.name.lower().strip() in name_notes_map:
+                    r.product_notes = name_notes_map[r.name.lower().strip()]
+                elif r.grocy_product_name and r.grocy_product_name.lower().strip() in name_notes_map:
+                    r.product_notes = name_notes_map[r.grocy_product_name.lower().strip()]
+
     return ShoppingListResponse(
         id=shopping_list.id,
         house_id=shopping_list.house_id,

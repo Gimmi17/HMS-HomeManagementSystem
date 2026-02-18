@@ -7,7 +7,8 @@ import categoriesService from '@/services/categories'
 import { grocyHouseService } from '@/services/grocy'
 import productsService from '@/services/products'
 import type { ProductSuggestion } from '@/services/products'
-import type { ShoppingListItemCreate, GrocyProductSimple, Store, Category } from '@/types'
+import anagraficheService from '@/services/anagrafiche'
+import type { ShoppingListItem, ShoppingListItemCreate, GrocyProductSimple, Store, Category } from '@/types'
 
 interface ItemRow {
   id: string
@@ -18,6 +19,9 @@ interface ItemRow {
   unit: string
   categoryId?: string
   urgent?: boolean
+  productNotes?: string
+  catalogBarcode?: string
+  scannedBarcode?: string
   isNew?: boolean  // Track if item needs to be saved to backend
 }
 
@@ -56,6 +60,9 @@ export function ShoppingListForm() {
   const [isLoadingGrocy, setIsLoadingGrocy] = useState(false)
   const [grocyError, setGrocyError] = useState<string | null>(null)
   const [focusItemId, setFocusItemId] = useState<string | null>(null)
+  const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null)
+  const [savingNoteItemId, setSavingNoteItemId] = useState<string | null>(null)
+  const [noteSaveResult, setNoteSaveResult] = useState<{ itemId: string; success: boolean } | null>(null)
   const [lockError, setLockError] = useState<string | null>(null)
   const [hasLock, setHasLock] = useState(false)
   const [originalItemIds, setOriginalItemIds] = useState<Set<string>>(new Set())
@@ -161,6 +168,9 @@ export function ShoppingListForm() {
                 unit: item.unit || 'pz',
                 categoryId: item.category_id,
                 urgent: item.urgent,
+                productNotes: item.product_notes,
+                catalogBarcode: item.catalog_barcode,
+                scannedBarcode: item.scanned_barcode,
                 isNew: false,  // Items from backend are already saved
               }))
             )
@@ -273,7 +283,13 @@ export function ShoppingListForm() {
     const displayName = suggestion.brand
       ? `${suggestion.name} (${suggestion.brand})`
       : suggestion.name
-    handleItemChange(itemId, 'name', displayName)
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, name: displayName, catalogBarcode: suggestion.barcode, productNotes: suggestion.user_notes || item.productNotes }
+          : item
+      )
+    )
     setSuggestions([])
     setActiveAutocompleteId(null)
     setSelectedSuggestionIndex(-1)
@@ -367,6 +383,13 @@ export function ShoppingListForm() {
               urgent: currentItem.urgent,
             })
 
+            // If item has a barcode from catalog suggestion, attach it
+            if (currentItem.catalogBarcode) {
+              await shoppingListsService.updateItem(id, savedItem.id, {
+                scanned_barcode: currentItem.catalogBarcode,
+              })
+            }
+
             // Create new item and update state in one operation
             const newItem: ItemRow = {
               id: generateId(),
@@ -457,6 +480,28 @@ export function ShoppingListForm() {
     setSelectedItemId(null)
   }
 
+  const saveItemNote = async (item: ItemRow) => {
+    const barcode = item.scannedBarcode || item.catalogBarcode
+    if (!barcode) {
+      // No barcode — just close, note will only live locally
+      setEditingNoteItemId(null)
+      return
+    }
+
+    setSavingNoteItemId(item.id)
+    try {
+      await anagraficheService.updateProductNotesByBarcode(barcode, item.productNotes?.trim() || null)
+      setNoteSaveResult({ itemId: item.id, success: true })
+    } catch (e) {
+      console.warn('Failed to save product note:', e)
+      setNoteSaveResult({ itemId: item.id, success: false })
+    } finally {
+      setSavingNoteItemId(null)
+      setEditingNoteItemId(null)
+      setTimeout(() => setNoteSaveResult(null), 2000)
+    }
+  }
+
   const handleSave = async () => {
     if (!currentHouse) return
 
@@ -507,7 +552,7 @@ export function ShoppingListForm() {
         for (const item of validItems) {
           if (item.isNew) {
             // Add new item
-            await shoppingListsService.addItem(id, {
+            const savedItem = await shoppingListsService.addItem(id, {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
@@ -516,9 +561,15 @@ export function ShoppingListForm() {
               category_id: item.categoryId,
               urgent: item.urgent,
             })
+            // If item has a barcode from catalog suggestion, attach it
+            if (item.catalogBarcode) {
+              await shoppingListsService.updateItem(id, savedItem.id, {
+                scanned_barcode: item.catalogBarcode,
+              })
+            }
           } else {
             // Update existing item (preserves checked status from backend)
-            await shoppingListsService.updateItem(id, item.id, {
+            const updateData: Partial<ShoppingListItem> = {
               name: item.name.trim(),
               grocy_product_id: item.grocyProductId,
               grocy_product_name: item.grocyProductName,
@@ -526,7 +577,11 @@ export function ShoppingListForm() {
               unit: item.unit,
               category_id: item.categoryId,
               urgent: item.urgent,
-            })
+            }
+            if (item.catalogBarcode) {
+              updateData.scanned_barcode = item.catalogBarcode
+            }
+            await shoppingListsService.updateItem(id, item.id, updateData)
           }
         }
       } else {
@@ -707,9 +762,14 @@ export function ShoppingListForm() {
                             selectSuggestion(item.id, suggestion)
                           }}
                         >
-                          <span className="font-medium">{suggestion.name}</span>
-                          {suggestion.brand && (
-                            <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                          <div>
+                            <span className="font-medium">{suggestion.name}</span>
+                            {suggestion.brand && (
+                              <span className="text-gray-400 ml-1">({suggestion.brand})</span>
+                            )}
+                          </div>
+                          {suggestion.user_notes && (
+                            <div className="text-xs text-blue-600 italic mt-0.5">{suggestion.user_notes}</div>
                           )}
                         </button>
                       ))}
@@ -721,10 +781,14 @@ export function ShoppingListForm() {
               {/* Quantity, Grocy button, actions */}
               <div className="flex items-center gap-2 ml-8">
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={item.quantity || ''}
-                  onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value))}
-                  min={1}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.,]/g, '')
+                    const parsed = parseFloat(raw.replace(',', '.'))
+                    handleItemChange(item.id, 'quantity', isNaN(parsed) ? 0 : parsed)
+                  }}
                   className="w-16 px-2 py-1.5 border border-gray-300 rounded-md text-base text-center"
                 />
                 <select
@@ -797,6 +861,22 @@ export function ShoppingListForm() {
                   </svg>
                 </button>
 
+                {/* Note button */}
+                <button
+                  type="button"
+                  onClick={() => setEditingNoteItemId(editingNoteItemId === item.id ? null : item.id)}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    item.productNotes
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                  title={item.productNotes ? 'Modifica nota articolo' : 'Aggiungi nota articolo'}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                  </svg>
+                </button>
+
                 {/* Remove button */}
                 <button
                   type="button"
@@ -809,8 +889,52 @@ export function ShoppingListForm() {
                 </button>
               </div>
 
-              {/* Badges (Grocy + Category) */}
-              {(item.grocyProductId || item.categoryId) && (
+              {/* Note input (toggleable) */}
+              {editingNoteItemId === item.id && (
+                <div className="ml-8 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={item.productNotes || ''}
+                    onChange={(e) => handleItemChange(item.id, 'productNotes', e.target.value)}
+                    placeholder="Es: Buona marca, Evitare..."
+                    className="flex-1 px-3 py-1.5 border border-blue-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        saveItemNote(item)
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => saveItemNote(item)}
+                    disabled={savingNoteItemId === item.id}
+                    className="px-3 py-1.5 bg-green-500 text-white text-sm font-medium rounded-md hover:bg-green-600 disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {savingNoteItemId === item.id ? (
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                    Salva
+                  </button>
+                </div>
+              )}
+              {/* Note save feedback */}
+              {noteSaveResult?.itemId === item.id && (
+                <div className={`ml-8 text-xs ${noteSaveResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                  {noteSaveResult.success ? 'Nota salvata!' : 'Errore nel salvataggio nota'}
+                </div>
+              )}
+
+              {/* Badges (Grocy + Category + Product Notes) */}
+              {(item.grocyProductId || item.categoryId || item.productNotes) && (
                 <div className="ml-8 flex flex-wrap gap-1">
                   {item.grocyProductId && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
@@ -831,6 +955,11 @@ export function ShoppingListForm() {
                       </span>
                     ) : null
                   })()}
+                  {item.productNotes && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 italic">
+                      {item.productNotes}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
