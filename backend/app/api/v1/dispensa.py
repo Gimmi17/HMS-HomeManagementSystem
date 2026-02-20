@@ -35,6 +35,7 @@ def get_dispensa_items(
     expired: bool = Query(False, description="Show only expired"),
     consumed: bool = Query(False, description="Show consumed items"),
     show_all: bool = Query(False, description="Show all items regardless of consumed status"),
+    environment_id: Optional[UUID] = Query(None, description="Filter by environment"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -47,8 +48,9 @@ def get_dispensa_items(
         expired=expired,
         consumed=consumed,
         show_all=show_all,
+        environment_id=environment_id,
     )
-    stats_data = DispensaService.get_stats(db, house_id)
+    stats_data = DispensaService.get_stats(db, house_id, environment_id=environment_id)
     total = len(items)
 
     return DispensaItemListResponse(
@@ -75,23 +77,26 @@ def create_dispensa_item(
 @router.get("/stats", response_model=DispensaStatsResponse)
 def get_dispensa_stats(
     house_id: UUID = Query(..., description="House ID"),
+    environment_id: Optional[UUID] = Query(None, description="Filter by environment"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get dispensa statistics (totals, expiring, expired)."""
-    return DispensaService.get_stats(db, house_id)
+    return DispensaService.get_stats(db, house_id, environment_id=environment_id)
 
 
 @router.post("/from-shopping-list")
 def send_from_shopping_list(
     data: SendToDispensaRequest,
     house_id: UUID = Query(..., description="House ID"),
+    environment_id: Optional[UUID] = Query(None, description="Target environment"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Send verified items from a shopping list to the dispensa."""
     result = DispensaService.send_from_shopping_list(
-        db, house_id, current_user.id, data.shopping_list_id
+        db, house_id, current_user.id, data.shopping_list_id,
+        environment_id=environment_id
     )
 
     if "error" in result:

@@ -20,6 +20,8 @@ class DispensaItemCreate(BaseModel):
     grocy_product_id: Optional[int] = Field(None, description="Grocy product ID")
     grocy_product_name: Optional[str] = Field(None, max_length=255, description="Grocy product name")
     source_item_id: Optional[UUID] = Field(None, description="Source shopping list item ID")
+    environment_id: Optional[UUID] = Field(None, description="Environment ID")
+    purchase_price: Optional[float] = Field(None, ge=0, description="Purchase price")
     notes: Optional[str] = Field(None, max_length=500, description="Notes")
 
 
@@ -33,6 +35,8 @@ class DispensaItemUpdate(BaseModel):
     barcode: Optional[str] = Field(None, max_length=100)
     grocy_product_id: Optional[int] = None
     grocy_product_name: Optional[str] = Field(None, max_length=255)
+    environment_id: Optional[UUID] = None
+    purchase_price: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = Field(None, max_length=500)
 
 
@@ -51,6 +55,8 @@ class DispensaItemResponse(BaseModel):
     source_list_id: Optional[UUID] = None
     source_item_id: Optional[UUID] = None
     added_by: Optional[UUID] = None
+    environment_id: Optional[UUID] = None
+    purchase_price: Optional[float] = None
     is_consumed: bool
     consumed_at: Optional[datetime] = None
     notes: Optional[str] = None

@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Environments, EnvironmentDetail } from './pages'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -139,6 +139,26 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <Pantry />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/environments"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Environments />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/environments/:id"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <EnvironmentDetail />
             </MainLayout>
           </PrivateRoute>
         }

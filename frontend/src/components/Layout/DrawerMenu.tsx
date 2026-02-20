@@ -8,6 +8,7 @@ const baseNavItems = [
   { to: '/recipes', label: 'Ricette', icon: '📖' },
   { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
   { to: '/pantry', label: 'Dispensa', icon: '🏠' },
+  { to: '/environments', label: 'Ambienti', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },

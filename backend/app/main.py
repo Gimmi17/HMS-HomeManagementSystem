@@ -134,6 +134,27 @@ async def startup_event():
     finally:
         db.close()
 
+    # Seed default environments for houses that don't have any
+    from app.models.house import House
+    from app.models.environment import Environment
+    from app.services.environment_service import EnvironmentService
+    db = SessionLocal()
+    try:
+        houses_without_envs = db.query(House).filter(
+            ~House.id.in_(
+                db.query(Environment.house_id).distinct()
+            )
+        ).all()
+        for house in houses_without_envs:
+            env_count = EnvironmentService.seed_defaults(db, house.id)
+            orphan_count = EnvironmentService.assign_orphaned_items(db, house.id)
+            if env_count or orphan_count:
+                print(f"  + House '{house.name}': {env_count} environments seeded, {orphan_count} orphaned items assigned")
+        db.commit()
+        print(f"✓ Default environments seeded")
+    finally:
+        db.close()
+
     # Configure error logging system
     configure_error_logging(SessionLocal)
     print(f"✓ Error logging system configured")
