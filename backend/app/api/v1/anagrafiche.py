@@ -20,6 +20,7 @@ from app.models.house import House
 from app.models.user_house import UserHouse
 from app.models.food import Food
 from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
 from app.models.shopping_list import ShoppingListItem
 from app.models.barcode_source import BarcodeLookupSource
@@ -30,6 +31,16 @@ from app.services.product_enrichment import parse_and_save_category_tags
 
 
 router = APIRouter(prefix="/anagrafiche", tags=["Anagrafiche"])
+
+
+def _get_product_by_barcode(db, barcode: str, include_cancelled: bool = False):
+    """Lookup ProductCatalog via ProductBarcode table."""
+    q = db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(ProductBarcode.barcode == barcode)
+    if not include_cancelled:
+        q = q.filter(ProductCatalog.cancelled == False)
+    return q.first()
 
 
 # ============================================================
@@ -628,7 +639,7 @@ def delete_food(
 
 class ProductListItem(BaseModel):
     id: UUID
-    barcode: str
+    barcode: Optional[str] = None
     name: Optional[str] = None
     brand: Optional[str] = None
     quantity_text: Optional[str] = None
@@ -654,6 +665,11 @@ class ProductListItem(BaseModel):
     house_name: Optional[str] = None
     # User notes
     user_notes: Optional[str] = None
+    # Linked food
+    food_id: Optional[UUID] = None
+    food_name: Optional[str] = None
+    # Composition
+    composition: Optional[list] = None
     # Meta
     source: str
     created_at: datetime
@@ -667,8 +683,26 @@ class ProductListResponse(BaseModel):
     total: int
 
 
+def _get_display_barcode(product: ProductCatalog) -> Optional[str]:
+    """Get the display barcode: primary from product_barcodes, or first, or legacy column."""
+    if product.barcodes:
+        primary = next((pb for pb in product.barcodes if pb.is_primary), None)
+        if primary:
+            return primary.barcode
+        return product.barcodes[0].barcode
+    return product.barcode  # legacy fallback
+
+
+def _product_to_list_item(product: ProductCatalog) -> ProductListItem:
+    """Convert a ProductCatalog model to ProductListItem, including food_name from relationship."""
+    item = ProductListItem.model_validate(product)
+    item.barcode = _get_display_barcode(product)
+    item.food_name = product.food.name if product.food else None
+    return item
+
+
 class ProductCreateRequest(BaseModel):
-    barcode: str
+    barcode: Optional[str] = None
     name: Optional[str] = None
     brand: Optional[str] = None
     quantity_text: Optional[str] = None
@@ -705,8 +739,14 @@ def list_products(
     current_user: User = Depends(get_current_user)
 ):
     """List all products in catalog (excluding cancelled)."""
-    query = db.query(ProductCatalog, House.name.label("house_name")).outerjoin(
+    query = db.query(
+        ProductCatalog,
+        House.name.label("house_name"),
+        Food.name.label("food_name"),
+    ).outerjoin(
         House, ProductCatalog.house_id == House.id
+    ).outerjoin(
+        Food, ProductCatalog.food_id == Food.id
     ).filter(
         ProductCatalog.cancelled == False
     )
@@ -719,11 +759,14 @@ def list_products(
 
     if search:
         search_term = f"%{search}%"
+        barcode_subq = db.query(ProductBarcode.product_id).filter(
+            ProductBarcode.barcode.ilike(search_term)
+        ).subquery()
         query = query.filter(
             or_(
                 ProductCatalog.name.ilike(search_term),
                 ProductCatalog.brand.ilike(search_term),
-                ProductCatalog.barcode.ilike(search_term)
+                ProductCatalog.id.in_(barcode_subq)
             )
         )
 
@@ -739,11 +782,23 @@ def list_products(
     total = query.count()
     rows = query.order_by(ProductCatalog.created_at.desc()).offset(offset).limit(limit).all()
 
+    # Batch load primary barcodes to avoid N+1 queries
+    product_ids = [p.id for p, _, _ in rows]
+    bc_map: dict = {}
+    if product_ids:
+        barcodes = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id.in_(product_ids)
+        ).all()
+        for pb in barcodes:
+            pid = str(pb.product_id)
+            if pid not in bc_map or pb.is_primary:
+                bc_map[pid] = pb.barcode
+
     return ProductListResponse(
         products=[
             ProductListItem(
                 id=p.id,
-                barcode=p.barcode,
+                barcode=bc_map.get(str(p.id), p.barcode),
                 name=p.name,
                 brand=p.brand,
                 quantity_text=p.quantity_text,
@@ -764,10 +819,13 @@ def list_products(
                 house_id=p.house_id,
                 house_name=house_name,
                 user_notes=p.user_notes,
+                food_id=p.food_id,
+                food_name=food_name,
+                composition=p.composition,
                 source=p.source,
                 created_at=p.created_at
             )
-            for p, house_name in rows
+            for p, house_name, food_name in rows
         ],
         total=total
     )
@@ -780,20 +838,43 @@ def create_product(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new product entry."""
-    # Check if barcode already exists
-    existing = db.query(ProductCatalog).filter(ProductCatalog.barcode == product_data.barcode).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Barcode gia esistente")
+    # Check if barcode already exists in product_barcodes
+    if product_data.barcode:
+        existing_bc = db.query(ProductBarcode).filter(
+            ProductBarcode.barcode == product_data.barcode
+        ).first()
+        if existing_bc:
+            raise HTTPException(status_code=400, detail="Barcode gia esistente")
 
     product = ProductCatalog(
-        **product_data.model_dump(),
+        barcode=product_data.barcode,
+        name=product_data.name,
+        brand=product_data.brand,
+        quantity_text=product_data.quantity_text,
+        categories=product_data.categories,
+        energy_kcal=product_data.energy_kcal,
+        proteins_g=product_data.proteins_g,
+        carbs_g=product_data.carbs_g,
+        fats_g=product_data.fats_g,
+        nutriscore=product_data.nutriscore,
         source="manual"
     )
     db.add(product)
+    db.flush()
+
+    # Create ProductBarcode entry if barcode provided
+    if product_data.barcode:
+        db.add(ProductBarcode(
+            product_id=product.id,
+            barcode=product_data.barcode,
+            is_primary=True,
+            source="manual"
+        ))
+
     db.commit()
     db.refresh(product)
 
-    return ProductListItem.model_validate(product)
+    return _product_to_list_item(product)
 
 
 @router.put("/products/{product_id}", response_model=ProductListItem)
@@ -815,7 +896,7 @@ def update_product(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem.model_validate(product)
+    return _product_to_list_item(product)
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -857,7 +938,7 @@ def update_product_notes(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem.model_validate(product)
+    return _product_to_list_item(product)
 
 
 @router.patch("/products/by-barcode/{barcode}/notes")
@@ -872,8 +953,10 @@ def update_product_notes_by_barcode(
     membership = db.query(UserHouse).filter(UserHouse.user_id == current_user.id).first()
     house_id = membership.house_id if membership else None
 
-    product = db.query(ProductCatalog).filter(
-        ProductCatalog.barcode == barcode,
+    product = db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(
+        ProductBarcode.barcode == barcode,
         ProductCatalog.cancelled == False,
         or_(
             ProductCatalog.house_id == house_id,
@@ -895,6 +978,13 @@ def update_product_notes_by_barcode(
             user_notes=data.user_notes or None,
         )
         db.add(new_product)
+        db.flush()
+        db.add(ProductBarcode(
+            product_id=new_product.id,
+            barcode=barcode,
+            is_primary=True,
+            source="manual"
+        ))
         db.commit()
         return {"success": True}
 
@@ -935,9 +1025,136 @@ def update_product_house(
         house = db.query(House).filter(House.id == product.house_id).first()
         house_name = house.name if house else None
 
-    item = ProductListItem.model_validate(product)
+    item = _product_to_list_item(product)
     item.house_name = house_name
     return item
+
+
+# ============================================================
+# PRODUCT BARCODES CRUD
+# ============================================================
+
+class ProductBarcodeItem(BaseModel):
+    id: UUID
+    barcode: str
+    is_primary: bool
+    source: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AddBarcodeRequest(BaseModel):
+    barcode: str
+    source: Optional[str] = "manual"
+
+
+@router.get("/products/{product_id}/barcodes", response_model=List[ProductBarcodeItem])
+def list_product_barcodes(
+    product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all barcodes for a product."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+    barcodes = db.query(ProductBarcode).filter(
+        ProductBarcode.product_id == product_id
+    ).order_by(ProductBarcode.is_primary.desc(), ProductBarcode.created_at).all()
+    return [ProductBarcodeItem.model_validate(pb) for pb in barcodes]
+
+
+@router.post("/products/{product_id}/barcodes", response_model=ProductBarcodeItem, status_code=status.HTTP_201_CREATED)
+def add_product_barcode(
+    product_id: UUID,
+    data: AddBarcodeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add a barcode to a product."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    # Check if barcode already exists globally
+    existing = db.query(ProductBarcode).filter(ProductBarcode.barcode == data.barcode).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Barcode gia associato ad un altro prodotto")
+
+    # Check if this product already has any barcodes (first one will be primary)
+    existing_count = db.query(ProductBarcode).filter(
+        ProductBarcode.product_id == product_id
+    ).count()
+
+    pb = ProductBarcode(
+        product_id=product_id,
+        barcode=data.barcode,
+        is_primary=(existing_count == 0),
+        source=data.source or "manual"
+    )
+    db.add(pb)
+    db.commit()
+    db.refresh(pb)
+    return ProductBarcodeItem.model_validate(pb)
+
+
+@router.delete("/products/{product_id}/barcodes/{barcode_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_barcode(
+    product_id: UUID,
+    barcode_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a barcode from a product."""
+    pb = db.query(ProductBarcode).filter(
+        ProductBarcode.id == barcode_id,
+        ProductBarcode.product_id == product_id
+    ).first()
+    if not pb:
+        raise HTTPException(status_code=404, detail="Barcode non trovato")
+
+    was_primary = pb.is_primary
+    db.delete(pb)
+    db.flush()
+
+    # If deleted barcode was primary, promote another one
+    if was_primary:
+        next_pb = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id == product_id
+        ).first()
+        if next_pb:
+            next_pb.is_primary = True
+
+    db.commit()
+
+
+@router.patch("/products/{product_id}/barcodes/{barcode_id}/set-primary", response_model=ProductBarcodeItem)
+def set_barcode_primary(
+    product_id: UUID,
+    barcode_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Set a barcode as the primary barcode for a product."""
+    pb = db.query(ProductBarcode).filter(
+        ProductBarcode.id == barcode_id,
+        ProductBarcode.product_id == product_id
+    ).first()
+    if not pb:
+        raise HTTPException(status_code=404, detail="Barcode non trovato")
+
+    # Unset current primary
+    db.query(ProductBarcode).filter(
+        ProductBarcode.product_id == product_id,
+        ProductBarcode.is_primary == True
+    ).update({"is_primary": False})
+
+    pb.is_primary = True
+    db.commit()
+    db.refresh(pb)
+    return ProductBarcodeItem.model_validate(pb)
 
 
 # ============================================================
@@ -974,20 +1191,36 @@ def get_unnamed_products_with_descriptions(
     searches for all shopping list items with the same barcode and returns
     the distinct descriptions found (grocy_product_name or name).
     """
-    # Get all unnamed products (exclude empty barcodes)
-    unnamed_products = db.query(ProductCatalog).filter(
+    # Get all unnamed products that have at least one barcode
+    unnamed_products = db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(
         ProductCatalog.cancelled == False,
         ProductCatalog.source == "not_found",
         or_(ProductCatalog.name.is_(None), ProductCatalog.name == ""),
-        ProductCatalog.barcode != '',
-    ).all()
+    ).distinct().all()
 
     result = []
     for product in unnamed_products:
-        # Find all shopping list items with this barcode
-        items = db.query(ShoppingListItem).filter(
-            ShoppingListItem.scanned_barcode == product.barcode
+        # Get all barcodes for this product from product_barcodes
+        product_barcodes = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id == product.id
         ).all()
+        barcodes_for_product = [pb.barcode for pb in product_barcodes]
+        if not barcodes_for_product:
+            # Fallback to legacy barcode column
+            if product.barcode:
+                barcodes_for_product = [product.barcode]
+            else:
+                continue
+
+        # Find all shopping list items with any of this product's barcodes
+        items = db.query(ShoppingListItem).filter(
+            ShoppingListItem.scanned_barcode.in_(barcodes_for_product)
+        ).all()
+
+        # Use the primary barcode (or first) for display
+        primary_barcode = barcodes_for_product[0]
 
         # Collect distinct descriptions
         descriptions_set = set()
@@ -1003,7 +1236,7 @@ def get_unnamed_products_with_descriptions(
         if descriptions:
             result.append(UnnamedProductWithDescriptions(
                 id=product.id,
-                barcode=product.barcode,
+                barcode=primary_barcode,
                 descriptions=descriptions
             ))
 
@@ -1032,7 +1265,7 @@ def set_product_name(
     db.commit()
     db.refresh(product)
 
-    return ProductListItem.model_validate(product)
+    return _product_to_list_item(product)
 
 
 class RefetchRequest(BaseModel):
@@ -1055,14 +1288,34 @@ async def refetch_product_from_api(
     if not product:
         raise HTTPException(status_code=404, detail="Prodotto non trovato")
 
-    # Use barcode from request body if provided, otherwise from DB
-    lookup_barcode = (body.barcode.strip() if body.barcode else None) or (product.barcode.strip() if product.barcode else None)
+    # Use barcode from request body if provided, otherwise from product_barcodes or legacy column
+    legacy_barcode = product.barcode
+    if not legacy_barcode:
+        primary_pb = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id == product.id,
+            ProductBarcode.is_primary == True
+        ).first() or db.query(ProductBarcode).filter(
+            ProductBarcode.product_id == product.id
+        ).first()
+        if primary_pb:
+            legacy_barcode = primary_pb.barcode
+    lookup_barcode = (body.barcode.strip() if body.barcode else None) or (legacy_barcode.strip() if legacy_barcode else None)
     if not lookup_barcode:
         raise HTTPException(status_code=400, detail="Prodotto senza barcode, impossibile cercare nelle API")
 
     # Update product barcode if a new one was provided
-    if body.barcode and body.barcode.strip() and body.barcode.strip() != product.barcode:
-        product.barcode = body.barcode.strip()
+    if body.barcode and body.barcode.strip() and body.barcode.strip() != legacy_barcode:
+        new_bc = body.barcode.strip()
+        product.barcode = new_bc
+        # Also add to product_barcodes if not already there
+        existing_pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == new_bc).first()
+        if not existing_pb:
+            db.add(ProductBarcode(
+                product_id=product.id,
+                barcode=new_bc,
+                is_primary=True,
+                source="manual"
+            ))
 
     # Call the barcode lookup chain (same used during verification)
     result = await lookup_barcode_chain(db, lookup_barcode)
@@ -1107,7 +1360,7 @@ async def refetch_product_from_api(
     categories_str = result.get("categories")
     parse_and_save_category_tags(db, product, categories_str, categories_tags)
 
-    return ProductListItem.model_validate(product)
+    return _product_to_list_item(product)
 
 
 # ============================================================
@@ -1120,6 +1373,8 @@ class ProductCategoryTagItem(BaseModel):
     name: Optional[str] = None
     lang: Optional[str] = None
     product_count: int = 0
+    default_environment_id: Optional[UUID] = None
+    default_environment_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -1145,15 +1400,20 @@ def list_product_categories(
     Categories are from OpenFoodFacts taxonomy.
     """
     from sqlalchemy import func
+    from app.models.environment import Environment
 
-    # Base query with product count
+    # Base query with product count and environment name
     query = db.query(
         ProductCategoryTag,
-        func.count(product_category_association.c.product_id).label('product_count')
+        func.count(product_category_association.c.product_id).label('product_count'),
+        Environment.name.label('env_name')
     ).outerjoin(
         product_category_association,
         ProductCategoryTag.id == product_category_association.c.category_tag_id
-    ).group_by(ProductCategoryTag.id)
+    ).outerjoin(
+        Environment,
+        ProductCategoryTag.default_environment_id == Environment.id
+    ).group_by(ProductCategoryTag.id, Environment.name)
 
     # Search filter
     if search:
@@ -1189,9 +1449,11 @@ def list_product_categories(
                 tag_id=cat.tag_id,
                 name=cat.name,
                 lang=cat.lang,
-                product_count=count
+                product_count=count,
+                default_environment_id=cat.default_environment_id,
+                default_environment_name=env_name
             )
-            for cat, count in results
+            for cat, count, env_name in results
         ],
         total=total
     )
@@ -1205,27 +1467,93 @@ def get_product_category(
 ):
     """Get a single product category tag by ID."""
     from sqlalchemy import func
+    from app.models.environment import Environment
 
     result = db.query(
         ProductCategoryTag,
-        func.count(product_category_association.c.product_id).label('product_count')
+        func.count(product_category_association.c.product_id).label('product_count'),
+        Environment.name.label('env_name')
     ).outerjoin(
         product_category_association,
         ProductCategoryTag.id == product_category_association.c.category_tag_id
+    ).outerjoin(
+        Environment,
+        ProductCategoryTag.default_environment_id == Environment.id
     ).filter(
         ProductCategoryTag.id == category_id
-    ).group_by(ProductCategoryTag.id).first()
+    ).group_by(ProductCategoryTag.id, Environment.name).first()
 
     if not result:
         raise HTTPException(status_code=404, detail="Categoria non trovata")
 
-    cat, count = result
+    cat, count, env_name = result
     return ProductCategoryTagItem(
         id=cat.id,
         tag_id=cat.tag_id,
         name=cat.name,
         lang=cat.lang,
-        product_count=count
+        product_count=count,
+        default_environment_id=cat.default_environment_id,
+        default_environment_name=env_name
+    )
+
+
+# ============================================================
+# PRODUCT CATEGORY DEFAULT ENVIRONMENT
+# ============================================================
+
+class UpdateCategoryDefaultEnvironmentRequest(BaseModel):
+    environment_id: Optional[UUID] = None
+
+
+@router.patch("/product-categories/{category_id}/default-environment", response_model=ProductCategoryTagItem)
+def update_category_default_environment(
+    category_id: UUID,
+    data: UpdateCategoryDefaultEnvironmentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the default environment for a product category tag."""
+    from sqlalchemy import func
+    from app.models.environment import Environment
+
+    cat = db.query(ProductCategoryTag).filter(ProductCategoryTag.id == category_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoria non trovata")
+
+    if data.environment_id is not None:
+        env = db.query(Environment).filter(Environment.id == data.environment_id).first()
+        if not env:
+            raise HTTPException(status_code=404, detail="Ambiente non trovato")
+
+    cat.default_environment_id = data.environment_id
+    db.commit()
+    db.refresh(cat)
+
+    # Return full item with product count and env name
+    result = db.query(
+        ProductCategoryTag,
+        func.count(product_category_association.c.product_id).label('product_count'),
+        Environment.name.label('env_name')
+    ).outerjoin(
+        product_category_association,
+        ProductCategoryTag.id == product_category_association.c.category_tag_id
+    ).outerjoin(
+        Environment,
+        ProductCategoryTag.default_environment_id == Environment.id
+    ).filter(
+        ProductCategoryTag.id == category_id
+    ).group_by(ProductCategoryTag.id, Environment.name).first()
+
+    cat, count, env_name = result
+    return ProductCategoryTagItem(
+        id=cat.id,
+        tag_id=cat.tag_id,
+        name=cat.name,
+        lang=cat.lang,
+        product_count=count,
+        default_environment_id=cat.default_environment_id,
+        default_environment_name=env_name
     )
 
 
@@ -1665,7 +1993,7 @@ def list_product_reports(
             id=r.id,
             product_id=r.product_id,
             product_name=product.name if product else None,
-            product_barcode=product.barcode if product else "",
+            product_barcode=(product.barcode or "") if product else "",
             product_brand=product.brand if product else None,
             reporter_name=reporter.full_name if reporter else None,
             status=r.status.value,
@@ -1753,4 +2081,129 @@ def dismiss_report(
         resolution_notes=report.resolution_notes,
         created_at=report.created_at,
         resolved_at=report.resolved_at
+    )
+
+
+# ============================================================
+# PRODUCT COMPOSITION
+# ============================================================
+
+class CompositionItem(BaseModel):
+    food_id: UUID
+    food_name: str
+    percentage: float  # 0-100, grams per 100g of product
+
+
+class SaveCompositionRequest(BaseModel):
+    items: List[CompositionItem]
+
+
+class CompositionResponse(BaseModel):
+    items: List[CompositionItem]
+    total_percentage: float
+    calculated_nutrition: Optional[dict] = None
+
+
+@router.get("/products/{product_id}/composition", response_model=CompositionResponse)
+def get_product_composition(
+    product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the composition of a product with calculated nutrition."""
+    from app.services.nutrition import calculate_nutrition_from_percentages
+
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    composition = product.composition or []
+    items = [CompositionItem(**item) for item in composition]
+    total_pct = sum(item.percentage for item in items)
+
+    calculated_nutrition = None
+    if composition:
+        calculated_nutrition = calculate_nutrition_from_percentages(
+            [{"food_id": str(item.food_id), "percentage": item.percentage} for item in items],
+            db
+        )
+
+    return CompositionResponse(
+        items=items,
+        total_percentage=round(total_pct, 2),
+        calculated_nutrition=calculated_nutrition
+    )
+
+
+@router.put("/products/{product_id}/composition", response_model=CompositionResponse)
+def save_product_composition(
+    product_id: UUID,
+    data: SaveCompositionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Save the composition of a product and update linked Food nutritional values.
+
+    If the product has no linked Food, a new one is created automatically.
+    """
+    from app.services.nutrition import calculate_nutrition_from_percentages
+
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    # Validate all food_ids exist
+    for item in data.items:
+        food = db.query(Food).filter(Food.id == item.food_id).first()
+        if not food:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Alimento non trovato: {item.food_name} ({item.food_id})"
+            )
+
+    # Validate percentages
+    for item in data.items:
+        if item.percentage <= 0:
+            raise HTTPException(status_code=400, detail=f"Percentuale deve essere > 0 per {item.food_name}")
+
+    total_pct = sum(item.percentage for item in data.items)
+    if total_pct > 100:
+        raise HTTPException(status_code=400, detail=f"Totale percentuali ({total_pct}%) supera 100%")
+
+    # Save composition JSONB
+    composition_json = [item.model_dump(mode="json") for item in data.items]
+    product.composition = composition_json
+
+    # Calculate combined nutrition
+    calculated_nutrition = calculate_nutrition_from_percentages(
+        [{"food_id": str(item.food_id), "percentage": item.percentage} for item in data.items],
+        db
+    )
+
+    # Update or create linked Food
+    if product.food_id:
+        linked_food = db.query(Food).filter(Food.id == product.food_id).first()
+        if linked_food:
+            for field, value in calculated_nutrition.items():
+                if hasattr(linked_food, field):
+                    setattr(linked_food, field, value)
+    else:
+        # Create a new Food and link it
+        new_food = Food(
+            name=product.name or f"Prodotto {_get_display_barcode(product) or product.id}",
+            house_id=product.house_id,
+            **{k: v for k, v in calculated_nutrition.items()}
+        )
+        db.add(new_food)
+        db.flush()
+        product.food_id = new_food.id
+
+    db.commit()
+    db.refresh(product)
+
+    return CompositionResponse(
+        items=data.items,
+        total_percentage=round(total_pct, 2),
+        calculated_nutrition=calculated_nutrition
     )

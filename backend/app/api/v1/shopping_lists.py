@@ -25,7 +25,18 @@ from app.models.user import User
 from app.models.shopping_list import ShoppingList, ShoppingListItem, ShoppingListStatus, VerificationStatus
 from app.models.store import Store
 from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
 from app.services.product_enrichment import enrich_product_background
+
+
+def _get_product_by_barcode(db, barcode: str):
+    """Lookup ProductCatalog via ProductBarcode table."""
+    return db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(
+        ProductBarcode.barcode == barcode,
+        ProductCatalog.cancelled == False
+    ).first()
 from app.schemas.shopping_list import (
     ShoppingListCreate,
     ShoppingListUpdate,
@@ -256,8 +267,10 @@ def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -
                 barcode_map[gkey] = item.scanned_barcode
 
     # 2. Fallback: barcode dal catalogo prodotti (della casa + template globali)
-    from app.models.product_catalog import ProductCatalog
-    catalog_products = db.query(ProductCatalog).filter(
+    catalog_results = db.query(ProductCatalog, ProductBarcode.barcode).outerjoin(
+        ProductBarcode,
+        (ProductCatalog.id == ProductBarcode.product_id) & (ProductBarcode.is_primary == True)
+    ).filter(
         or_(
             ProductCatalog.house_id == house_id,
             ProductCatalog.house_id.is_(None),
@@ -265,13 +278,13 @@ def get_known_barcodes_map(db: Session, house_id: UUID, exclude_list_id: UUID) -
         ProductCatalog.cancelled == False,
         ProductCatalog.name.isnot(None),
         ProductCatalog.name != '',
-        ProductCatalog.barcode.isnot(None),
-        ProductCatalog.barcode != '',
     ).all()
-    for p in catalog_products:
-        name_key = p.name.lower().strip()
-        if name_key not in barcode_map:
-            barcode_map[name_key] = p.barcode
+    for p, pb_barcode in catalog_results:
+        bc = pb_barcode or p.barcode  # prefer product_barcodes, fall back to legacy
+        if bc:
+            name_key = p.name.lower().strip()
+            if name_key not in barcode_map:
+                barcode_map[name_key] = bc
 
     return barcode_map
 
@@ -359,12 +372,14 @@ def get_shopping_list(
         if bc:
             all_barcodes.add(bc)
     if all_barcodes:
-        products_with_notes = db.query(ProductCatalog.barcode, ProductCatalog.user_notes).filter(
-            ProductCatalog.barcode.in_(all_barcodes),
+        products_with_notes = db.query(ProductBarcode.barcode, ProductCatalog.user_notes).join(
+            ProductCatalog, ProductCatalog.id == ProductBarcode.product_id
+        ).filter(
+            ProductBarcode.barcode.in_(all_barcodes),
             ProductCatalog.user_notes.isnot(None),
             ProductCatalog.cancelled == False
         ).all()
-        notes_map = {p.barcode: p.user_notes for p in products_with_notes}
+        notes_map = {barcode: notes for barcode, notes in products_with_notes}
         for item_resp in item_responses:
             bc = item_resp.scanned_barcode or item_resp.catalog_barcode
             if bc and bc in notes_map:
@@ -584,9 +599,7 @@ def update_item(
 
         # Propagate category_id to ProductCatalog if item has a barcode
         if 'category_id' in update_data and update_data['category_id'] and item.scanned_barcode:
-            catalog_product = db.query(ProductCatalog).filter(
-                ProductCatalog.barcode == item.scanned_barcode
-            ).first()
+            catalog_product = _get_product_by_barcode(db, item.scanned_barcode)
             if catalog_product:
                 catalog_product.category_id = update_data['category_id']
 
@@ -602,9 +615,7 @@ def update_item(
 
         # Enrich product catalog if a barcode was set and not already in catalog
         if 'scanned_barcode' in update_data and item.scanned_barcode:
-            existing = db.query(ProductCatalog).filter(
-                ProductCatalog.barcode == item.scanned_barcode
-            ).first()
+            existing = _get_product_by_barcode(db, item.scanned_barcode)
             if not existing:
                 enrich_product_background(SessionLocal, item.scanned_barcode, item_id=item_id, list_id=list_id)
 
@@ -881,9 +892,7 @@ def verify_item_with_quantity(
 
             # Also update ProductCatalog if it exists as "not_found" with no name
             if barcode:
-                existing_product = db.query(ProductCatalog).filter(
-                    ProductCatalog.barcode == barcode
-                ).first()
+                existing_product = _get_product_by_barcode(db, barcode)
                 if existing_product and existing_product.source == "not_found" and not existing_product.name:
                     existing_product.name = data.product_name
                     verification_logger.info(
@@ -1074,9 +1083,7 @@ def add_extra_item(
         item.grocy_product_name = data.product_name
 
         # Also update ProductCatalog if it exists as "not_found" with no name
-        existing_product = db.query(ProductCatalog).filter(
-            ProductCatalog.barcode == data.barcode
-        ).first()
+        existing_product = _get_product_by_barcode(db, data.barcode)
         if existing_product and existing_product.source == "not_found" and not existing_product.name:
             existing_product.name = data.product_name
 

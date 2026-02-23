@@ -1,14 +1,25 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions } from '@/services/anagrafiche'
+import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions, ProductBarcodeItem } from '@/services/anagrafiche'
+import CompositionModal from '@/components/CompositionModal'
+import environmentsService from '@/services/environments'
+import { useHouse } from '@/context/HouseContext'
+import type { Environment } from '@/types'
 
 export function AnagraficheProducts() {
   const navigate = useNavigate()
+  const { currentHouse } = useHouse()
   const [products, setProducts] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
+  // Category manager modal
+  const [showCategoryManager, setShowCategoryManager] = useState(false)
+  const [environments, setEnvironments] = useState<Environment[]>([])
+  const [categorySearch, setCategorySearch] = useState('')
+  const [managerCategories, setManagerCategories] = useState<ProductCategoryTag[]>([])
 
   // Category filter
   const [categories, setCategories] = useState<ProductCategoryTag[]>([])
@@ -50,6 +61,14 @@ export function AnagraficheProducts() {
   const [reportModalProduct, setReportModalProduct] = useState<ProductListItem | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [isSubmittingReport, setIsSubmittingReport] = useState(false)
+
+  // Composition modal
+  const [showCompositionModal, setShowCompositionModal] = useState(false)
+
+  // Product barcodes
+  const [productBarcodes, setProductBarcodes] = useState<ProductBarcodeItem[]>([])
+  const [newBarcodeValue, setNewBarcodeValue] = useState('')
+  const [isAddingBarcode, setIsAddingBarcode] = useState(false)
 
   // Name recovery from receipts
   const [isRecoveringNames, setIsRecoveringNames] = useState(false)
@@ -106,6 +125,55 @@ export function AnagraficheProducts() {
     }
   }
 
+  const loadProductBarcodes = async (productId: string) => {
+    try {
+      const barcodes = await anagraficheService.getProductBarcodes(productId)
+      setProductBarcodes(barcodes)
+    } catch (err) {
+      console.error('Failed to load barcodes:', err)
+    }
+  }
+
+  const handleAddBarcode = async () => {
+    if (!viewingProduct || !newBarcodeValue.trim()) return
+    setIsAddingBarcode(true)
+    try {
+      await anagraficheService.addProductBarcode(viewingProduct.id, newBarcodeValue.trim())
+      setNewBarcodeValue('')
+      await loadProductBarcodes(viewingProduct.id)
+      showToast('Barcode aggiunto', 'success')
+      fetchProducts()
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore aggiunta barcode', 'error')
+    } finally {
+      setIsAddingBarcode(false)
+    }
+  }
+
+  const handleDeleteBarcode = async (barcodeId: string) => {
+    if (!viewingProduct) return
+    if (!confirm('Rimuovere questo barcode?')) return
+    try {
+      await anagraficheService.deleteProductBarcode(viewingProduct.id, barcodeId)
+      await loadProductBarcodes(viewingProduct.id)
+      showToast('Barcode rimosso', 'success')
+      fetchProducts()
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore rimozione barcode', 'error')
+    }
+  }
+
+  const handleSetBarcodePrimary = async (barcodeId: string) => {
+    if (!viewingProduct) return
+    try {
+      await anagraficheService.setProductBarcodePrimary(viewingProduct.id, barcodeId)
+      await loadProductBarcodes(viewingProduct.id)
+      showToast('Barcode principale impostato', 'success')
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore', 'error')
+    }
+  }
+
   const fetchProducts = async () => {
     try {
       const response = await anagraficheService.getProducts({
@@ -157,7 +225,7 @@ export function AnagraficheProducts() {
     setViewingProduct(null) // Close detail modal
     setEditingProduct(product)
     setFormData({
-      barcode: product.barcode,
+      barcode: product.barcode || '',
       name: product.name || '',
       brand: product.brand || '',
       quantity_text: product.quantity_text || '',
@@ -173,11 +241,10 @@ export function AnagraficheProducts() {
   }
 
   const handleSave = async () => {
-    if (!formData.barcode) return
     setIsSaving(true)
     try {
       const data = {
-        barcode: formData.barcode,
+        barcode: formData.barcode.trim() || undefined,
         name: formData.name || undefined,
         brand: formData.brand || undefined,
         quantity_text: formData.quantity_text || undefined,
@@ -188,8 +255,8 @@ export function AnagraficheProducts() {
       if (editingProduct) {
         const { barcode, ...updateData } = data
         // Include barcode in update if product is not certified and barcode changed
-        const finalUpdate = !isProductCertified(editingProduct) && barcode !== editingProduct.barcode
-          ? { ...updateData, barcode }
+        const finalUpdate = !isProductCertified(editingProduct) && barcode !== (editingProduct.barcode || '')
+          ? { ...updateData, barcode: barcode || undefined }
           : updateData
         await anagraficheService.updateProduct(editingProduct.id, finalUpdate as ProductUpdateRequest)
         showToast('Prodotto aggiornato', 'success')
@@ -225,7 +292,7 @@ export function AnagraficheProducts() {
       const updated = await anagraficheService.refetchProduct(editingProduct.id, formData.barcode)
       // Update form with fetched data
       setFormData({
-        barcode: updated.barcode,
+        barcode: updated.barcode || '',
         name: updated.name || '',
         brand: updated.brand || '',
         quantity_text: updated.quantity_text || '',
@@ -330,6 +397,40 @@ export function AnagraficheProducts() {
     setIsRecoveringNames(false)
     fetchProducts()
   }
+
+  const openCategoryManager = async () => {
+    setShowCategoryManager(true)
+    setCategorySearch('')
+    try {
+      const [catResponse, envResponse] = await Promise.all([
+        anagraficheService.getProductCategories({ min_products: 1, limit: 500 }),
+        currentHouse ? environmentsService.getAll(currentHouse.id) : Promise.resolve({ environments: [] })
+      ])
+      setManagerCategories(catResponse.categories)
+      setEnvironments(envResponse.environments)
+    } catch (err) {
+      console.error('Failed to load category manager data:', err)
+      showToast('Errore nel caricamento classi', 'error')
+    }
+  }
+
+  const handleCategoryEnvironmentChange = async (categoryId: string, environmentId: string | null) => {
+    try {
+      const updated = await anagraficheService.updateCategoryDefaultEnvironment(categoryId, environmentId)
+      setManagerCategories(prev => prev.map(c => c.id === updated.id ? updated : c))
+      // Also update the filter categories list
+      setCategories(prev => prev.map(c => c.id === updated.id ? updated : c))
+      showToast('Destinazione aggiornata', 'success')
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore nel salvataggio', 'error')
+    }
+  }
+
+  const filteredManagerCategories = managerCategories.filter(c => {
+    if (!categorySearch) return true
+    const term = categorySearch.toLowerCase()
+    return (c.name || '').toLowerCase().includes(term) || c.tag_id.toLowerCase().includes(term)
+  })
 
   const getNutriscoreColor = (score: string | null) => {
     if (!score) return 'bg-gray-100 text-gray-600'
@@ -507,6 +608,18 @@ export function AnagraficheProducts() {
             </select>
           )}
 
+          {/* Category manager button */}
+          <button
+            onClick={openCategoryManager}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+            title="Gestione Classi Prodotto"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+
           {/* Clear filters */}
           {(selectedCategoryId || certificationFilter !== 'all') && (
             <button
@@ -540,14 +653,14 @@ export function AnagraficheProducts() {
               className={`card p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${
                 !isProductCertified(product) ? 'border-l-4 border-l-amber-400 bg-amber-50/50' : ''
               }`}
-              onClick={() => { setImageLoaded(false); setEditingNotes(false); setNotesValue(product.user_notes || ''); setViewingProduct(product) }}
+              onClick={() => { setImageLoaded(false); setEditingNotes(false); setNotesValue(product.user_notes || ''); setNewBarcodeValue(''); setViewingProduct(product); loadProductBarcodes(product.id) }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   {product.name ? (
                     <p className="font-medium text-gray-900 truncate">{product.name}</p>
                   ) : (
-                    <p className="font-medium text-gray-900 font-mono">{product.barcode}</p>
+                    <p className="font-medium text-gray-900 font-mono">{product.barcode || '(senza barcode)'}</p>
                   )}
                   {!isProductCertified(product) && (
                     <span className="flex-shrink-0 px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded">
@@ -555,7 +668,7 @@ export function AnagraficheProducts() {
                     </span>
                   )}
                 </div>
-                {product.name && (
+                {product.name && product.barcode && (
                   <p className="text-sm text-gray-500 font-mono">
                     {product.barcode}
                   </p>
@@ -594,7 +707,7 @@ export function AnagraficheProducts() {
 
       {/* Detail Modal */}
       {viewingProduct && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}>
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false); setProductBarcodes([]) }}>
           <div
             className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
@@ -606,7 +719,7 @@ export function AnagraficheProducts() {
                   {viewingProduct.name ? (
                     <h3 className="font-semibold text-lg text-gray-900">{viewingProduct.name}</h3>
                   ) : (
-                    <h3 className="font-semibold text-lg text-gray-900 font-mono">{viewingProduct.barcode}</h3>
+                    <h3 className="font-semibold text-lg text-gray-900 font-mono">{viewingProduct.barcode || '(senza barcode)'}</h3>
                   )}
                   {!isProductCertified(viewingProduct) && (
                     <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
@@ -614,12 +727,12 @@ export function AnagraficheProducts() {
                     </span>
                   )}
                 </div>
-                {viewingProduct.name && (
+                {viewingProduct.name && viewingProduct.barcode && (
                   <p className="text-sm text-gray-500 font-mono">{viewingProduct.barcode}</p>
                 )}
               </div>
               <button
-                onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}
+                onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false); setProductBarcodes([]) }}
                 className="p-1 hover:bg-gray-100 rounded-lg"
               >
                 <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -677,6 +790,74 @@ export function AnagraficheProducts() {
                   <div className="flex justify-between">
                     <span className="text-gray-500">Fonte dati</span>
                     <span className={`text-xs px-1.5 py-0.5 rounded ${viewingProduct.source === 'not_found' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-700'}`}>{getSourceLabel(viewingProduct.source)}</span>
+                  </div>
+                  {viewingProduct.food_name && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Alimento collegato</span>
+                      <span className="font-medium text-primary-600">{viewingProduct.food_name}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Composizione</span>
+                    <span className="font-medium">
+                      {viewingProduct.composition && viewingProduct.composition.length > 0
+                        ? `${viewingProduct.composition.length} ingredienti`
+                        : <span className="text-gray-400">Non definita</span>
+                      }
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barcodes */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Barcode</h4>
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                  {productBarcodes.length === 0 ? (
+                    <p className="text-sm text-gray-400 italic">Nessun barcode</p>
+                  ) : (
+                    productBarcodes.map((pb) => (
+                      <div key={pb.id} className="flex items-center gap-2">
+                        <span className="font-mono text-sm flex-1">{pb.barcode}</span>
+                        {pb.is_primary ? (
+                          <span className="text-xs text-amber-600 font-medium">★ primario</span>
+                        ) : (
+                          <button
+                            onClick={() => handleSetBarcodePrimary(pb.id)}
+                            className="text-xs text-gray-400 hover:text-amber-600"
+                            title="Imposta come primario"
+                          >
+                            ☆
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteBarcode(pb.id)}
+                          className="p-1 text-gray-400 hover:text-red-500 rounded"
+                          title="Rimuovi barcode"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <input
+                      type="text"
+                      value={newBarcodeValue}
+                      onChange={(e) => setNewBarcodeValue(e.target.value)}
+                      placeholder="Aggiungi barcode..."
+                      className="input flex-1 text-sm py-1.5"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddBarcode() }}
+                    />
+                    <button
+                      onClick={handleAddBarcode}
+                      disabled={!newBarcodeValue.trim() || isAddingBarcode}
+                      className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      {isAddingBarcode ? '...' : '+'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -829,6 +1010,15 @@ export function AnagraficheProducts() {
                 Modifica
               </button>
               <button
+                onClick={() => setShowCompositionModal(true)}
+                className="flex-1 py-2.5 px-3 text-sm font-medium text-emerald-700 bg-white border border-emerald-200 rounded-lg hover:bg-emerald-50 flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+                Composizione
+              </button>
+              <button
                 onClick={() => handleCancel(viewingProduct)}
                 className="py-2.5 px-4 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 flex items-center justify-center gap-2"
               >
@@ -853,7 +1043,7 @@ export function AnagraficheProducts() {
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Barcode *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Barcode</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -863,7 +1053,7 @@ export function AnagraficheProducts() {
                     className="input flex-1 disabled:bg-gray-100"
                     autoFocus={!editingProduct}
                   />
-                  {editingProduct && formData.barcode && formData.barcode.trim() !== '' && (
+                  {editingProduct && formData.barcode && formData.barcode.trim() !== '' && editingProduct.barcode !== null && (
                     <button
                       onClick={handleRefetchFromApi}
                       disabled={isFetching}
@@ -950,7 +1140,7 @@ export function AnagraficheProducts() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={!formData.barcode || isSaving}
+                disabled={isSaving}
                 className="flex-1 py-2.5 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
               >
                 {isSaving ? 'Salvataggio...' : 'Salva'}
@@ -1089,6 +1279,80 @@ export function AnagraficheProducts() {
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* Category Manager Modal */}
+      {showCategoryManager && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => setShowCategoryManager(false)}>
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b flex-shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-lg text-gray-900">Gestione Classi Prodotto</h3>
+                <button
+                  onClick={() => setShowCategoryManager(false)}
+                  className="p-1 hover:bg-gray-100 rounded-lg"
+                >
+                  <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="Cerca classe..."
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                className="input w-full text-sm"
+              />
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredManagerCategories.length === 0 ? (
+                <p className="text-gray-500 text-center py-8 text-sm">Nessuna classe trovata</p>
+              ) : (
+                <div className="divide-y">
+                  {filteredManagerCategories.map((cat) => (
+                    <div key={cat.id} className="px-4 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{cat.name || cat.tag_id}</p>
+                        <p className="text-xs text-gray-500">{cat.product_count} prodotti</p>
+                      </div>
+                      <select
+                        value={cat.default_environment_id || ''}
+                        onChange={(e) => handleCategoryEnvironmentChange(cat.id, e.target.value || null)}
+                        className="input text-sm py-1.5 w-40"
+                      >
+                        <option value="">-- Nessuna --</option>
+                        {environments.map((env) => (
+                          <option key={env.id} value={env.id}>{env.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Composition Modal */}
+      {showCompositionModal && viewingProduct && (
+        <CompositionModal
+          product={viewingProduct}
+          onClose={() => setShowCompositionModal(false)}
+          onSaved={(updated) => {
+            setShowCompositionModal(false)
+            setViewingProduct(updated)
+            setProducts(prev => prev.map(p => p.id === updated.id ? updated : p))
+            showToast('Composizione salvata', 'success')
+          }}
+        />
       )}
     </div>
   )

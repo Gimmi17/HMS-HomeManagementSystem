@@ -32,8 +32,9 @@ class ProductCatalog(BaseModel):
         comment="House this product belongs to (null = global template)"
     )
 
-    # Primary identifier - barcode (same barcode can exist in different houses)
-    barcode = Column(String(100), nullable=False, index=True)
+    # Legacy barcode column - kept nullable for backward compat display
+    # Use product_barcodes table for all barcode lookups
+    barcode = Column(String(100), nullable=True, index=True)
 
     # Basic info
     name = Column(String(255), nullable=True)
@@ -79,6 +80,18 @@ class ProductCatalog(BaseModel):
         comment="Local category assigned by user"
     )
 
+    # Link to Food (anagrafica alimenti)
+    food_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("foods.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Product composition (ingredients with percentages)
+    # JSONB: [{"food_id": "uuid", "food_name": "Carne maiale", "percentage": 80.0}, ...]
+    composition = Column(JSON, nullable=True)
+
     # User notes (free text comment, e.g. "Buona Marca", "Evitare")
     user_notes = Column(Text, nullable=True)
 
@@ -87,6 +100,13 @@ class ProductCatalog(BaseModel):
 
     # Relationships
     category = relationship("Category")
+    food = relationship("Food", backref="products")
+    barcodes = relationship(
+        "ProductBarcode",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        lazy="select"
+    )
     category_tags = relationship(
         "ProductCategoryTag",
         secondary=product_category_association,

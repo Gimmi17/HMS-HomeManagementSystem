@@ -47,7 +47,16 @@ class ProductCategoryTag(BaseModel):
         index=True
     )
 
+    # Default environment for this category (auto-assign when sending to dispensa)
+    default_environment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     # Relationships
+    default_environment = relationship("Environment")
     parent = relationship("ProductCategoryTag", remote_side="ProductCategoryTag.id", backref="children")
     products = relationship(
         "ProductCatalog",

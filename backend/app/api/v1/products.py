@@ -13,7 +13,18 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
 from app.services.barcode_source_service import lookup_barcode_chain
+
+
+def _get_product_by_barcode(db: Session, barcode: str) -> Optional[ProductCatalog]:
+    """Lookup ProductCatalog via ProductBarcode table."""
+    return db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(
+        ProductBarcode.barcode == barcode,
+        ProductCatalog.cancelled == False
+    ).first()
 
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -56,10 +67,7 @@ async def lookup_barcode(
 
     # Check local catalog for saved category_id
     local_category_id = None
-    local_product = db.query(ProductCatalog).filter(
-        ProductCatalog.barcode == barcode,
-        ProductCatalog.cancelled == False
-    ).first()
+    local_product = _get_product_by_barcode(db, barcode)
     if local_product and local_product.category_id:
         local_category_id = str(local_product.category_id)
 

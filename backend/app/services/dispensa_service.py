@@ -274,6 +274,21 @@ class DispensaService:
             item.source_list_id = shopping_list_id
             if environment_id:
                 item.environment_id = environment_id
+            elif sl_item.scanned_barcode:
+                # Auto-assign environment from category tag default
+                from app.models.product_catalog import ProductCatalog
+                from app.models.product_barcode import ProductBarcode
+                product = db.query(ProductCatalog).join(
+                    ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+                ).filter(
+                    ProductBarcode.barcode == sl_item.scanned_barcode,
+                    ProductCatalog.cancelled == False
+                ).first()
+                if product and product.category_tags:
+                    for tag in product.category_tags:
+                        if tag.default_environment_id:
+                            item.environment_id = tag.default_environment_id
+                            break
             count += 1
 
         return {"count": count, "skipped": skipped}
