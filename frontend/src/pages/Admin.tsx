@@ -236,7 +236,7 @@ export function Admin() {
     const term = search.toLowerCase()
     return (
       (p.name && p.name.toLowerCase().includes(term)) ||
-      p.barcode.toLowerCase().includes(term) ||
+      (p.barcode && p.barcode.toLowerCase().includes(term)) ||
       (p.brand && p.brand.toLowerCase().includes(term))
     )
   })

@@ -364,6 +364,83 @@ def _safe_decimal_to_float(value: Optional[Decimal]) -> float:
     return float(value)
 
 
+def calculate_nutrition_from_percentages(
+    composition: List[Dict],
+    db: Session
+) -> Dict[str, float]:
+    """
+    Calculate nutritional values from a percentage-based composition.
+
+    Each item represents a percentage of the final product (per 100g).
+    For example: 80% Pork + 20% Garlic means 80g pork + 20g garlic per 100g product.
+
+    Args:
+        composition: List of dicts with food_id and percentage
+        db: Database session
+
+    Returns:
+        Dictionary with calculated nutritional values per 100g of product
+    """
+    totals = {
+        "proteins_g": 0.0,
+        "fats_g": 0.0,
+        "carbs_g": 0.0,
+        "fibers_g": 0.0,
+        "omega3_ala_g": 0.0,
+        "omega6_g": 0.0,
+        "calcium_g": 0.0,
+        "iron_g": 0.0,
+        "magnesium_g": 0.0,
+        "potassium_g": 0.0,
+        "zinc_g": 0.0,
+        "vitamin_a_g": 0.0,
+        "vitamin_c_g": 0.0,
+        "vitamin_d_g": 0.0,
+        "vitamin_e_g": 0.0,
+        "vitamin_k_g": 0.0,
+        "vitamin_b6_g": 0.0,
+        "folate_b9_g": 0.0,
+        "vitamin_b12_g": 0.0,
+    }
+
+    for item in composition:
+        food_id = item.get("food_id")
+        percentage = float(item.get("percentage", 0))
+
+        if not food_id or percentage <= 0:
+            continue
+
+        food = db.query(Food).filter(Food.id == food_id).first()
+        if not food:
+            continue
+
+        # percentage / 100 gives the ratio (e.g. 80% -> 0.8)
+        # Food values are already per 100g, so ratio directly applies
+        ratio = percentage / 100.0
+
+        totals["proteins_g"] += _safe_decimal_to_float(food.proteins_g) * ratio
+        totals["fats_g"] += _safe_decimal_to_float(food.fats_g) * ratio
+        totals["carbs_g"] += _safe_decimal_to_float(food.carbs_g) * ratio
+        totals["fibers_g"] += _safe_decimal_to_float(food.fibers_g) * ratio
+        totals["omega3_ala_g"] += _safe_decimal_to_float(food.omega3_ala_g) * ratio
+        totals["omega6_g"] += _safe_decimal_to_float(food.omega6_g) * ratio
+        totals["calcium_g"] += _safe_decimal_to_float(food.calcium_g) * ratio
+        totals["iron_g"] += _safe_decimal_to_float(food.iron_g) * ratio
+        totals["magnesium_g"] += _safe_decimal_to_float(food.magnesium_g) * ratio
+        totals["potassium_g"] += _safe_decimal_to_float(food.potassium_g) * ratio
+        totals["zinc_g"] += _safe_decimal_to_float(food.zinc_g) * ratio
+        totals["vitamin_a_g"] += _safe_decimal_to_float(food.vitamin_a_g) * ratio
+        totals["vitamin_c_g"] += _safe_decimal_to_float(food.vitamin_c_g) * ratio
+        totals["vitamin_d_g"] += _safe_decimal_to_float(food.vitamin_d_g) * ratio
+        totals["vitamin_e_g"] += _safe_decimal_to_float(food.vitamin_e_g) * ratio
+        totals["vitamin_k_g"] += _safe_decimal_to_float(food.vitamin_k_g) * ratio
+        totals["vitamin_b6_g"] += _safe_decimal_to_float(food.vitamin_b6_g) * ratio
+        totals["folate_b9_g"] += _safe_decimal_to_float(food.folate_b9_g) * ratio
+        totals["vitamin_b12_g"] += _safe_decimal_to_float(food.vitamin_b12_g) * ratio
+
+    return {key: round(value, 6) for key, value in totals.items()}
+
+
 # Future Enhancement Ideas
 # ------------------------
 # 1. Add caching for frequently used foods

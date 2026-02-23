@@ -33,9 +33,13 @@ class DispensaService:
         expired: bool = False,
         consumed: bool = False,
         show_all: bool = False,
+        environment_id: Optional[UUID] = None,
     ) -> list[DispensaItem]:
         """Get dispensa items with optional filters."""
         query = db.query(DispensaItem).filter(DispensaItem.house_id == house_id)
+
+        if environment_id:
+            query = query.filter(DispensaItem.environment_id == environment_id)
 
         if not show_all:
             if consumed:
@@ -114,6 +118,8 @@ class DispensaService:
             grocy_product_id=data.grocy_product_id,
             grocy_product_name=data.grocy_product_name,
             source_item_id=data.source_item_id,
+            environment_id=data.environment_id,
+            purchase_price=data.purchase_price,
             added_by=user_id,
             notes=data.notes,
         )
@@ -201,7 +207,8 @@ class DispensaService:
         db: Session,
         house_id: UUID,
         user_id: UUID,
-        shopping_list_id: UUID
+        shopping_list_id: UUID,
+        environment_id: Optional[UUID] = None
     ) -> Dict:
         """
         Send verified items from a shopping list to the dispensa.
@@ -265,6 +272,23 @@ class DispensaService:
 
             item = DispensaService.create_item(db, house_id, user_id, item_data)
             item.source_list_id = shopping_list_id
+            if environment_id:
+                item.environment_id = environment_id
+            elif sl_item.scanned_barcode:
+                # Auto-assign environment from category tag default
+                from app.models.product_catalog import ProductCatalog
+                from app.models.product_barcode import ProductBarcode
+                product = db.query(ProductCatalog).join(
+                    ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+                ).filter(
+                    ProductBarcode.barcode == sl_item.scanned_barcode,
+                    ProductCatalog.cancelled == False
+                ).first()
+                if product and product.category_tags:
+                    for tag in product.category_tags:
+                        if tag.default_environment_id:
+                            item.environment_id = tag.default_environment_id
+                            break
             count += 1
 
         return {"count": count, "skipped": skipped}
@@ -338,7 +362,8 @@ class DispensaService:
     @staticmethod
     def get_stats(
         db: Session,
-        house_id: UUID
+        house_id: UUID,
+        environment_id: Optional[UUID] = None
     ) -> Dict:
         """Get dispensa statistics."""
         today = date.today()
@@ -350,6 +375,9 @@ class DispensaService:
                 DispensaItem.is_consumed == False
             )
         )
+
+        if environment_id:
+            base_query = base_query.filter(DispensaItem.environment_id == environment_id)
 
         total = base_query.count()
 

@@ -123,7 +123,8 @@ def seed_foods(db: Session, csv_path: Path, skip_duplicates: bool = True) -> dic
         "inserted": 0,
         "updated": 0,
         "skipped": 0,
-        "errors": 0
+        "errors": 0,
+        "error_details": []
     }
 
     # Read CSV file
@@ -141,16 +142,20 @@ def seed_foods(db: Session, csv_path: Path, skip_duplicates: bool = True) -> dic
             try:
                 # Extract basic info (columns 1-2)
                 if len(row) < 40:
+                    msg = f"Riga {row_num}: colonne insufficienti ({len(row)} invece di 40)"
                     print(f"Row {row_num}: Insufficient columns ({len(row)}), skipping")
                     stats["errors"] += 1
+                    stats["error_details"].append(msg)
                     continue
 
                 name = row[1].strip()
                 category = row[2].strip() if row[2] else None
 
                 if not name:
+                    msg = f"Riga {row_num}: nome alimento vuoto"
                     print(f"Row {row_num}: Empty name, skipping")
                     stats["errors"] += 1
+                    stats["error_details"].append(msg)
                     continue
 
                 # Extract nutrients (using column indexes from CSV)
@@ -209,12 +214,16 @@ def seed_foods(db: Session, csv_path: Path, skip_duplicates: bool = True) -> dic
 
             except IntegrityError as e:
                 db.rollback()
+                msg = f"Riga {row_num} ('{name}'): errore integrita' DB - {e}"
                 print(f"Row {row_num}: Database integrity error: {e}")
                 stats["errors"] += 1
+                stats["error_details"].append(msg)
             except Exception as e:
                 db.rollback()
+                msg = f"Riga {row_num}: errore imprevisto - {e}"
                 print(f"Row {row_num}: Unexpected error: {e}")
                 stats["errors"] += 1
+                stats["error_details"].append(msg)
 
     return stats
 

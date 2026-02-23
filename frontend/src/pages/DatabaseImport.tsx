@@ -125,8 +125,27 @@ function ErrorsSection({ errors }: { errors: ImportError[] }) {
   )
 }
 
+interface SeedResult {
+  success: boolean
+  message: string
+  total: number
+  inserted: number
+  updated: number
+  skipped: number
+  errors: number
+  error_details: string[]
+}
+
 export function DatabaseImport() {
   const token = localStorage.getItem('access_token')
+
+  // Nutrition seed state
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [isSeeding, setIsSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState<SeedResult | null>(null)
+  const [seedError, setSeedError] = useState<string | null>(null)
+  const csvFileInputRef = useRef<HTMLInputElement>(null)
+
   // SQL state
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -384,6 +403,64 @@ export function DatabaseImport() {
     }
   }
 
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      if (!selectedFile.name.endsWith('.csv')) {
+        setSeedError('Seleziona un file .csv')
+        return
+      }
+      setCsvFile(selectedFile)
+      setSeedError(null)
+      setSeedResult(null)
+    }
+  }
+
+  const handleSeedNutrition = async () => {
+    if (!csvFile) {
+      setSeedError('Seleziona un file CSV prima')
+      return
+    }
+
+    setIsSeeding(true)
+    setSeedError(null)
+    setSeedResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', csvFile)
+
+      const response = await fetch('/api/v1/admin/seed-nutrition', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Errore durante l\'import nutrizionale')
+      }
+
+      setSeedResult(data)
+    } catch (err) {
+      setSeedError(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setIsSeeding(false)
+    }
+  }
+
+  const handleCsvReset = () => {
+    setCsvFile(null)
+    setSeedResult(null)
+    setSeedError(null)
+    if (csvFileInputRef.current) {
+      csvFileInputRef.current.value = ''
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -398,6 +475,128 @@ export function DatabaseImport() {
             Esporta o importa i dati del database
           </p>
         </div>
+      </div>
+
+      {/* Nutrition Seed Section */}
+      <div className="card p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🥗</span>
+          <div className="flex-1">
+            <h2 className="font-semibold text-gray-900">Database Nutrizionale</h2>
+            <p className="text-sm text-gray-500">Importa 190 alimenti con valori nutrizionali (per 100g)</p>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex gap-2">
+            <span className="text-blue-600">ℹ️</span>
+            <div className="text-sm text-blue-800">
+              <p>Formato atteso: CSV con colonne Alimento, Categoria, Proteine (g), Grassi (g), ecc.</p>
+              <p>Gli alimenti gia' presenti vengono saltati automaticamente.</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            File CSV Nutrizionale
+          </label>
+          <input
+            ref={csvFileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleCsvFileChange}
+            className="block w-full text-sm text-gray-500
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-lg file:border-0
+              file:text-sm file:font-semibold
+              file:bg-green-50 file:text-green-700
+              hover:file:bg-green-100
+              cursor-pointer"
+          />
+          {csvFile && (
+            <p className="mt-2 text-sm text-gray-600">
+              File selezionato: <span className="font-medium">{csvFile.name}</span> ({(csvFile.size / 1024).toFixed(1)} KB)
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={handleSeedNutrition}
+            disabled={!csvFile || isSeeding}
+            className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSeeding ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Importazione in corso...
+              </span>
+            ) : (
+              'Importa Database Nutrizionale'
+            )}
+          </button>
+          {(csvFile || seedResult) && (
+            <button onClick={handleCsvReset} className="btn-secondary">
+              Reset
+            </button>
+          )}
+        </div>
+
+        {seedError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <div className="flex gap-2">
+              <span className="text-red-600">❌</span>
+              <p className="text-sm text-red-800">{seedError}</p>
+            </div>
+          </div>
+        )}
+
+        {seedResult && (
+          <div className={`border rounded-lg p-4 ${seedResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <div className="flex items-start gap-2">
+              <span className="text-xl">{seedResult.success ? '✅' : '❌'}</span>
+              <div className="flex-1">
+                <p className={`font-medium ${seedResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                  {seedResult.message}
+                </p>
+                <div className="mt-2 text-sm space-y-1">
+                  <p className="text-gray-600">
+                    Totale nel CSV: <span className="font-medium">{seedResult.total}</span>
+                  </p>
+                  <p className="text-gray-600">
+                    Inseriti: <span className="font-medium text-green-700">{seedResult.inserted}</span>
+                  </p>
+                  <p className="text-gray-600">
+                    Gia' presenti: <span className="font-medium text-yellow-700">{seedResult.skipped}</span>
+                  </p>
+                  {seedResult.errors > 0 && (
+                    <p className="text-gray-600">
+                      Errori: <span className="font-medium text-red-700">{seedResult.errors}</span>
+                    </p>
+                  )}
+                </div>
+                {seedResult.error_details && seedResult.error_details.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm font-medium text-red-700 mb-2">
+                      Dettaglio errori ({seedResult.error_details.length}):
+                    </p>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {seedResult.error_details.map((detail, i) => (
+                        <div key={i} className="bg-red-100 rounded px-2.5 py-1.5 text-xs text-red-700">
+                          {detail}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Export Section */}

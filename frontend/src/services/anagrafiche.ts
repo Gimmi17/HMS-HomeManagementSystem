@@ -149,12 +149,36 @@ export interface FoodUpdateRequest {
 }
 
 // ============================================================
+// PRODUCT COMPOSITION
+// ============================================================
+
+export interface CompositionItem {
+  food_id: string
+  food_name: string
+  percentage: number
+}
+
+export interface CompositionResponse {
+  items: CompositionItem[]
+  total_percentage: number
+  calculated_nutrition: Record<string, number> | null
+}
+
+// ============================================================
 // PRODUCTS
 // ============================================================
 
-export interface ProductListItem {
+export interface ProductBarcodeItem {
   id: string
   barcode: string
+  is_primary: boolean
+  source: string | null
+  created_at: string
+}
+
+export interface ProductListItem {
+  id: string
+  barcode: string | null
   name: string | null
   brand: string | null
   quantity_text: string | null
@@ -180,13 +204,18 @@ export interface ProductListItem {
   house_name: string | null
   // User notes
   user_notes: string | null
+  // Linked food
+  food_id: string | null
+  food_name: string | null
+  // Composition
+  composition: CompositionItem[] | null
   // Meta
   source: string
   created_at: string
 }
 
 export interface ProductCreateRequest {
-  barcode: string
+  barcode?: string
   name?: string
   brand?: string
   quantity_text?: string
@@ -230,6 +259,8 @@ export interface ProductCategoryTag {
   name: string | null
   lang: string | null
   product_count: number
+  default_environment_id: string | null
+  default_environment_name: string | null
 }
 
 // ============================================================
@@ -404,6 +435,37 @@ export const anagraficheService = {
     await api.patch(`/anagrafiche/products/by-barcode/${barcode}/notes`, { user_notes: userNotes })
   },
 
+  // Product Barcodes
+  async getProductBarcodes(productId: string): Promise<ProductBarcodeItem[]> {
+    const response = await api.get(`/anagrafiche/products/${productId}/barcodes`)
+    return response.data
+  },
+
+  async addProductBarcode(productId: string, barcode: string, source?: string): Promise<ProductBarcodeItem> {
+    const response = await api.post(`/anagrafiche/products/${productId}/barcodes`, { barcode, source: source || 'manual' })
+    return response.data
+  },
+
+  async deleteProductBarcode(productId: string, barcodeId: string): Promise<void> {
+    await api.delete(`/anagrafiche/products/${productId}/barcodes/${barcodeId}`)
+  },
+
+  async setProductBarcodePrimary(productId: string, barcodeId: string): Promise<ProductBarcodeItem> {
+    const response = await api.patch(`/anagrafiche/products/${productId}/barcodes/${barcodeId}/set-primary`)
+    return response.data
+  },
+
+  // Product Composition
+  async getProductComposition(productId: string): Promise<CompositionResponse> {
+    const response = await api.get(`/anagrafiche/products/${productId}/composition`)
+    return response.data
+  },
+
+  async saveProductComposition(productId: string, items: CompositionItem[]): Promise<CompositionResponse> {
+    const response = await api.put(`/anagrafiche/products/${productId}/composition`, { items })
+    return response.data
+  },
+
   // Product Categories
   async getProductCategories(params?: { search?: string; lang?: string; min_products?: number; limit?: number; offset?: number }): Promise<{ categories: ProductCategoryTag[]; total: number }> {
     const response = await api.get('/anagrafiche/product-categories', { params })
@@ -412,6 +474,11 @@ export const anagraficheService = {
 
   async getProductCategory(categoryId: string): Promise<ProductCategoryTag> {
     const response = await api.get(`/anagrafiche/product-categories/${categoryId}`)
+    return response.data
+  },
+
+  async updateCategoryDefaultEnvironment(categoryId: string, environmentId: string | null): Promise<ProductCategoryTag> {
+    const response = await api.patch(`/anagrafiche/product-categories/${categoryId}/default-environment`, { environment_id: environmentId })
     return response.data
   },
 

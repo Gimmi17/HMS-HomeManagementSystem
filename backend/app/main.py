@@ -125,12 +125,75 @@ async def startup_event():
     else:
         print(f"✓ Database schema up to date")
 
+    # Migrate: make product_catalog.barcode nullable
+    try:
+        col_info = inspector.get_columns("product_catalog")
+        bc_col = next((c for c in col_info if c['name'] == 'barcode'), None)
+        if bc_col and not bc_col.get('nullable', True):
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE product_catalog ALTER COLUMN barcode DROP NOT NULL'))
+            print("✓ product_catalog.barcode made nullable")
+    except Exception as e:
+        print(f"  ⚠ barcode nullable migration skipped: {e}")
+
+    # Migrate: copy existing barcodes to product_barcodes
+    from app.models.product_catalog import ProductCatalog
+    from app.models.product_barcode import ProductBarcode
+    db = SessionLocal()
+    try:
+        products = db.query(ProductCatalog).filter(
+            ProductCatalog.barcode.isnot(None),
+            ProductCatalog.barcode != ''
+        ).all()
+        migrated = 0
+        for p in products:
+            exists = db.query(ProductBarcode).filter(ProductBarcode.barcode == p.barcode).first()
+            if not exists:
+                db.add(ProductBarcode(
+                    product_id=p.id,
+                    barcode=p.barcode,
+                    is_primary=True,
+                    source=p.source
+                ))
+                migrated += 1
+        db.commit()
+        if migrated:
+            print(f"✓ Migrated {migrated} barcodes to product_barcodes")
+        else:
+            print(f"✓ product_barcodes already up to date")
+    except Exception as e:
+        db.rollback()
+        print(f"  ⚠ barcode migration error: {e}")
+    finally:
+        db.close()
+
     # Seed hardcoded barcode lookup sources
     from app.services.barcode_source_service import seed_hardcoded_sources
     db = SessionLocal()
     try:
         seed_hardcoded_sources(db)
         print(f"✓ Barcode lookup sources seeded")
+    finally:
+        db.close()
+
+    # Seed default environments for houses that don't have any
+    from app.models.house import House
+    from app.models.environment import Environment
+    from app.services.environment_service import EnvironmentService
+    db = SessionLocal()
+    try:
+        houses_without_envs = db.query(House).filter(
+            ~House.id.in_(
+                db.query(Environment.house_id).distinct()
+            )
+        ).all()
+        for house in houses_without_envs:
+            env_count = EnvironmentService.seed_defaults(db, house.id)
+            orphan_count = EnvironmentService.assign_orphaned_items(db, house.id)
+            if env_count or orphan_count:
+                print(f"  + House '{house.name}': {env_count} environments seeded, {orphan_count} orphaned items assigned")
+        db.commit()
+        print(f"✓ Default environments seeded")
     finally:
         db.close()
 

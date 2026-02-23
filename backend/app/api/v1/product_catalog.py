@@ -16,8 +16,19 @@ from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
 from app.models.user_house import UserHouse
 from app.services.product_enrichment import get_queue_status
+
+
+def _get_product_by_barcode_in_house(db: Session, barcode: str, house_id):
+    """Lookup ProductCatalog in a house via ProductBarcode table."""
+    return db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(
+        ProductBarcode.barcode == barcode,
+        ProductCatalog.house_id == house_id
+    ).first()
 
 
 router = APIRouter(prefix="/product-catalog")
@@ -36,7 +47,7 @@ class ProductCatalogResponse(BaseModel):
     """Response schema for product catalog entry."""
     id: UUID
     house_id: Optional[UUID] = None
-    barcode: str
+    barcode: Optional[str] = None
     name: Optional[str] = None
     brand: Optional[str] = None
     quantity_text: Optional[str] = None
@@ -72,7 +83,7 @@ class ProductSuggestion(BaseModel):
     """Single product suggestion."""
     name: str
     brand: Optional[str] = None
-    barcode: str
+    barcode: Optional[str] = None
     user_notes: Optional[str] = None
 
 
@@ -124,9 +135,26 @@ def suggest_products(
             seen_names.add(name_lower)
             products.append(p)
 
+    # Batch load primary barcodes
+    product_ids = [p.id for p in products]
+    bc_map: dict = {}
+    if product_ids:
+        barcodes = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id.in_(product_ids)
+        ).all()
+        for pb in barcodes:
+            pid = str(pb.product_id)
+            if pid not in bc_map or pb.is_primary:
+                bc_map[pid] = pb.barcode
+
     return ProductSuggestResponse(
         suggestions=[
-            ProductSuggestion(name=p.name, brand=p.brand, barcode=p.barcode, user_notes=p.user_notes)
+            ProductSuggestion(
+                name=p.name,
+                brand=p.brand,
+                barcode=bc_map.get(str(p.id), p.barcode),
+                user_notes=p.user_notes
+            )
             for p in products
         ]
     )
@@ -159,10 +187,13 @@ def get_product_catalog(
     # Apply search filter
     if search:
         search_term = f"%{search}%"
+        barcode_subq = db.query(ProductBarcode.product_id).filter(
+            ProductBarcode.barcode.ilike(search_term)
+        ).subquery()
         query = query.filter(
             (ProductCatalog.name.ilike(search_term)) |
             (ProductCatalog.brand.ilike(search_term)) |
-            (ProductCatalog.barcode.ilike(search_term))
+            (ProductCatalog.id.in_(barcode_subq))
         )
 
     # Get total count
@@ -196,10 +227,13 @@ def get_template_products(
 
     if search:
         search_term = f"%{search}%"
+        barcode_subq = db.query(ProductBarcode.product_id).filter(
+            ProductBarcode.barcode.ilike(search_term)
+        ).subquery()
         query = query.filter(
             (ProductCatalog.name.ilike(search_term)) |
             (ProductCatalog.brand.ilike(search_term)) |
-            (ProductCatalog.barcode.ilike(search_term))
+            (ProductCatalog.id.in_(barcode_subq))
         )
 
     total = query.count()
@@ -236,19 +270,29 @@ def import_template_products(
         ProductCatalog.source != "not_found"
     ).all()
 
-    # Get existing barcodes in house
+    # Get existing barcodes in house (from product_barcodes)
     existing_barcodes = set(
-        barcode for (barcode,) in db.query(ProductCatalog.barcode).filter(
+        bc for (bc,) in db.query(ProductBarcode.barcode).join(
+            ProductCatalog, ProductCatalog.id == ProductBarcode.product_id
+        ).filter(
             ProductCatalog.house_id == house_id
         ).all()
     )
 
     imported = 0
     for template in templates:
-        if template.barcode not in existing_barcodes:
+        # Get template's primary barcode
+        template_pb = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id == template.id,
+            ProductBarcode.is_primary == True
+        ).first()
+        template_barcode = (template_pb.barcode if template_pb else None) or template.barcode
+        if not template_barcode:
+            continue
+        if template_barcode not in existing_barcodes:
             new_product = ProductCatalog(
                 house_id=house_id,
-                barcode=template.barcode,
+                barcode=template_barcode,
                 name=template.name,
                 brand=template.brand,
                 quantity_text=template.quantity_text,
@@ -270,6 +314,13 @@ def import_template_products(
                 raw_data=template.raw_data,
             )
             db.add(new_product)
+            db.flush()
+            db.add(ProductBarcode(
+                product_id=new_product.id,
+                barcode=template_barcode,
+                is_primary=True,
+                source=template.source
+            ))
             imported += 1
 
     db.commit()
@@ -294,10 +345,7 @@ def get_product_by_barcode(
             detail="Non hai accesso a questa casa"
         )
 
-    product = db.query(ProductCatalog).filter(
-        ProductCatalog.house_id == house_id,
-        ProductCatalog.barcode == barcode
-    ).first()
+    product = _get_product_by_barcode_in_house(db, barcode, house_id)
 
     if not product:
         raise HTTPException(
@@ -335,10 +383,7 @@ def delete_product_by_barcode(
             detail="Non hai accesso a questa casa"
         )
 
-    product = db.query(ProductCatalog).filter(
-        ProductCatalog.house_id == house_id,
-        ProductCatalog.barcode == barcode
-    ).first()
+    product = _get_product_by_barcode_in_house(db, barcode, house_id)
 
     if not product:
         raise HTTPException(

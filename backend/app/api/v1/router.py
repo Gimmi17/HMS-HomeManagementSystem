@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, environments
 
 
 # Create main v1 router
@@ -207,6 +207,17 @@ api_router.include_router(
     dispensa.router,
     # prefix is already defined in dispensa.router (/dispensa)
     tags=["Dispensa"],
+)
+
+
+# Include environments endpoints
+# Endpoints: GET/POST /environments, PUT/DELETE /environments/{id}, GET /environments/{id}/stats, POST /environments/seed
+# Environment management for organizing items into locations
+# Requires authentication
+api_router.include_router(
+    environments.router,
+    # prefix is already defined in environments.router (/environments)
+    tags=["Environments"],
 )
 
 

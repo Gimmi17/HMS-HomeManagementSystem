@@ -513,6 +513,56 @@ export interface CategoryUpdate {
   sort_order?: number
 }
 
+// Environment types
+export type EnvironmentType = 'food_storage' | 'equipment' | 'general'
+
+export interface Environment {
+  id: string
+  house_id: string
+  name: string
+  icon: string | null
+  env_type: EnvironmentType
+  description: string | null
+  is_default: boolean
+  position: number
+  item_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface EnvironmentCreate {
+  name: string
+  icon?: string
+  env_type?: EnvironmentType
+  description?: string
+  position?: number
+}
+
+export interface EnvironmentUpdate {
+  name?: string
+  icon?: string
+  env_type?: EnvironmentType
+  description?: string
+  position?: number
+}
+
+export interface ExpenseByCategory {
+  category_id: string | null
+  category_name: string
+  total: number
+}
+
+export interface ExpenseByMonth {
+  month: string
+  total: number
+}
+
+export interface EnvironmentExpenseStats {
+  total_spent: number
+  by_category: ExpenseByCategory[]
+  by_month: ExpenseByMonth[]
+}
+
 // Dispensa types
 export interface DispensaItem {
   id: string
@@ -528,6 +578,8 @@ export interface DispensaItem {
   source_list_id: string | null
   source_item_id: string | null
   added_by: string | null
+  environment_id: string | null
+  purchase_price: number | null
   is_consumed: boolean
   consumed_at: string | null
   notes: string | null

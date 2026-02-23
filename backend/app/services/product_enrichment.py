@@ -25,7 +25,10 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
 from app.models.product_category_tag import ProductCategoryTag
+from app.models.product_nutrition import ProductNutrition
+from app.models.food import Food
 from app.models.shopping_list import ShoppingListItem
 from sqlalchemy import or_
 from app.integrations.openfoodfacts import openfoodfacts_client
@@ -135,6 +138,86 @@ class EnrichmentTask:
         self.max_retries = 3
 
 
+def create_or_find_food_from_nutrition(
+    db: Session,
+    product_name: str,
+    categories_str: Optional[str],
+    nutrition: ProductNutrition,
+) -> Optional[Food]:
+    """
+    Create or find a Food record from ProductNutrition data.
+
+    If a Food with the same name and house_id=NULL already exists, return it.
+    Otherwise create a new Food with nutritional data mapped from ProductNutrition.
+
+    ProductNutrition stores minerals in mg and vitamins in mg/mcg.
+    Food stores everything in grams, so we need to convert.
+    """
+    if not product_name:
+        return None
+
+    # Check for existing Food with same name and house_id=NULL
+    existing = db.query(Food).filter(
+        Food.name == product_name,
+        Food.house_id.is_(None),
+    ).first()
+    if existing:
+        logger.info(f"[Enrichment] Found existing Food '{product_name}' (id={existing.id})")
+        return existing
+
+    # Extract first category from OFF categories string
+    category = None
+    if categories_str:
+        first_cat = categories_str.split(",")[0].strip()
+        if first_cat:
+            category = first_cat
+
+    # Helper: convert mg to grams
+    def mg_to_g(val):
+        return val / 1000.0 if val is not None else None
+
+    # Helper: convert mcg to grams
+    def mcg_to_g(val):
+        return val / 1_000_000.0 if val is not None else None
+
+    food = Food(
+        name=product_name,
+        house_id=None,
+        category=category,
+        # Macronutrients (already in grams per 100g)
+        proteins_g=nutrition.proteins,
+        fats_g=nutrition.fat,
+        carbs_g=nutrition.carbohydrates,
+        fibers_g=nutrition.fiber,
+        # Minerals: ProductNutrition stores in mg → Food stores in g
+        calcium_g=mg_to_g(nutrition.calcium),
+        iron_g=mg_to_g(nutrition.iron),
+        magnesium_g=mg_to_g(nutrition.magnesium),
+        potassium_g=mg_to_g(nutrition.potassium),
+        zinc_g=mg_to_g(nutrition.zinc),
+        # Vitamins: mixed units in ProductNutrition
+        vitamin_a_g=mcg_to_g(nutrition.vitamin_a),      # mcg → g
+        vitamin_c_g=mg_to_g(nutrition.vitamin_c),        # mg → g
+        vitamin_d_g=mcg_to_g(nutrition.vitamin_d),       # mcg → g
+        vitamin_e_g=mg_to_g(nutrition.vitamin_e),        # mg → g
+        vitamin_k_g=mcg_to_g(nutrition.vitamin_k),       # mcg → g
+        vitamin_b6_g=mg_to_g(nutrition.vitamin_b6),      # mg → g
+        folate_b9_g=mcg_to_g(nutrition.vitamin_b9),      # mcg → g
+        vitamin_b12_g=mcg_to_g(nutrition.vitamin_b12),   # mcg → g
+    )
+
+    try:
+        db.add(food)
+        db.commit()
+        db.refresh(food)
+        logger.info(f"[Enrichment] Created Food '{product_name}' (id={food.id})")
+        return food
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[Enrichment] Failed to create Food '{product_name}': {e}")
+        return None
+
+
 async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCatalog]:
     """
     Enrich product data from Open Food Facts and save to local catalog.
@@ -146,8 +229,10 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
 
     Returns the ProductCatalog entry or None if not found.
     """
-    # Check if product already exists in catalog
-    existing = db.query(ProductCatalog).filter(ProductCatalog.barcode == barcode).first()
+    # Check if product already exists in catalog (via ProductBarcode table)
+    existing = db.query(ProductCatalog).join(
+        ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+    ).filter(ProductBarcode.barcode == barcode).first()
     if existing:
         # If existing entry is "not_found" with no name, try to get user-provided name
         if existing.source == "not_found" and not existing.name:
@@ -178,6 +263,13 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
             source="not_found",
         )
         db.add(product)
+        db.flush()
+        db.add(ProductBarcode(
+            product_id=product.id,
+            barcode=barcode,
+            is_primary=True,
+            source="not_found"
+        ))
         db.commit()
         return None
 
@@ -210,6 +302,16 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
         product.salt_g = nutrients.get("salt_100g")
 
     db.add(product)
+    db.flush()
+
+    # Create ProductBarcode entry
+    db.add(ProductBarcode(
+        product_id=product.id,
+        barcode=barcode,
+        is_primary=True,
+        source=result.get("source_code", "openfoodfacts")
+    ))
+
     db.commit()
     db.refresh(product)
 
@@ -231,6 +333,13 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
             )
             if nutrition:
                 logger.info(f"[Enrichment] ProductNutrition saved for {barcode}")
+                # Create or find linked Food from nutrition data
+                food = create_or_find_food_from_nutrition(
+                    db, product.name, result.get("categories"), nutrition
+                )
+                if food:
+                    product.food_id = food.id
+                    db.commit()
             else:
                 logger.info(f"[Enrichment] No detailed nutrition data available for {barcode}")
         except Exception as e:

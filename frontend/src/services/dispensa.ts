@@ -19,6 +19,7 @@ interface GetItemsParams {
   expired?: boolean
   consumed?: boolean
   show_all?: boolean
+  environment_id?: string
 }
 
 export const dispensaService = {
@@ -54,6 +55,8 @@ export const dispensaService = {
     barcode?: string
     grocy_product_id?: number
     grocy_product_name?: string
+    environment_id?: string
+    purchase_price?: number
     notes?: string
   }): Promise<DispensaItem> {
     const response = await api.post('/dispensa', data, {

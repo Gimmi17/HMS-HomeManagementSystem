@@ -16,6 +16,8 @@ import re
 import logging
 import json
 
+from pathlib import Path
+
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
@@ -815,3 +817,48 @@ async def import_database_json(
             pass
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@router.post("/seed-nutrition")
+def seed_nutrition(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Import nutritional database from an uploaded CSV file.
+    Expected format: columns Alimento, Categoria, Proteine (g), Grassi (g), etc.
+    Skips foods that already exist in the database.
+    """
+    import tempfile
+    from app.db.seed import seed_foods
+
+    if not file.filename or not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Seleziona un file .csv")
+
+    try:
+        # Save uploaded file to a temp path
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            content = file.file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        stats = seed_foods(db=db, csv_path=tmp_path, skip_duplicates=True)
+
+        # Cleanup temp file
+        tmp_path.unlink(missing_ok=True)
+
+        return {
+            "success": True,
+            "message": f"Import completato: {stats['inserted']} inseriti, {stats['skipped']} gia' presenti, {stats['errors']} errori",
+            "total": stats["total"],
+            "inserted": stats["inserted"],
+            "updated": stats["updated"],
+            "skipped": stats["skipped"],
+            "errors": stats["errors"],
+            "error_details": stats.get("error_details", []),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore durante il seed: {str(e)}")
