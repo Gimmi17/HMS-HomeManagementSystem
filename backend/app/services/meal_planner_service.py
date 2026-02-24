@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session
 
 from app.models.dispensa import DispensaItem
 from app.models.recipe import Recipe
+from app.models.user import User
 from app.schemas.meal import MealCreate
-from app.services.meal_service import create_meal
+from app.services.meal_service import create_meal, get_daily_nutrition_summary
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class DayPlan(BaseModel):
 class GenerateRequest(BaseModel):
     house_id: UUID
     plan: list[DayPlan]
+    activity_level: str = "moderate"  # sedentary, light, moderate, intense
 
 
 class SuggestionItem(BaseModel):
@@ -194,15 +196,95 @@ def score_recipes(db: Session, house_id: UUID, pantry: dict[str, PantryItem]) ->
     return scored
 
 
+ACTIVITY_MULTIPLIERS = {
+    "sedentary": 0.85,
+    "light": 1.0,
+    "moderate": 1.15,
+    "intense": 1.35,
+}
+
+ACTIVITY_LABELS = {
+    "sedentary": "Sedentaria",
+    "light": "Leggera",
+    "moderate": "Moderata",
+    "intense": "Intensa",
+}
+
+
+def get_user_nutrition_targets(
+    db: Session,
+    user_ids: list[UUID],
+    activity_level: str = "moderate",
+) -> list[dict]:
+    """
+    Read nutrition targets from User.preferences and apply activity multiplier.
+    Returns list of dicts with name, targets, allergies, dietary_type.
+    """
+    multiplier = ACTIVITY_MULTIPLIERS.get(activity_level, 1.0)
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+
+    targets = []
+    for user in users:
+        prefs = user.preferences or {}
+        base_calories = prefs.get("daily_calorie_target", 2000)
+        macros = prefs.get("macro_targets", {})
+
+        targets.append({
+            "user_id": str(user.id),
+            "name": user.full_name or user.email,
+            "target_calories": round(base_calories * multiplier),
+            "target_proteins_g": round(macros.get("proteins_g", 75) * multiplier),
+            "target_carbs_g": round(macros.get("carbs_g", 250) * multiplier),
+            "target_fats_g": round(macros.get("fats_g", 65) * multiplier),
+            "allergies": prefs.get("allergies", []),
+            "dietary_type": prefs.get("dietary_type", "omnivore"),
+        })
+
+    return targets
+
+
+def get_consumed_nutrition_for_date(
+    db: Session,
+    house_id: UUID,
+    user_ids: list[UUID],
+    target_date: date,
+) -> dict[str, dict]:
+    """
+    Get already consumed nutrition for each user on a given date.
+    Returns {user_id_str: {calories, proteins_g, fats_g, carbs_g}}.
+    """
+    result = {}
+    dt = datetime.combine(target_date, datetime.min.time())
+
+    for uid in user_ids:
+        try:
+            summary = get_daily_nutrition_summary(db, uid, house_id, dt)
+            result[str(uid)] = {
+                "calories": summary.get("total_calories", 0),
+                "proteins_g": summary.get("total_proteins_g", 0),
+                "fats_g": summary.get("total_fats_g", 0),
+                "carbs_g": summary.get("total_carbs_g", 0),
+            }
+        except Exception:
+            result[str(uid)] = {"calories": 0, "proteins_g": 0, "fats_g": 0, "carbs_g": 0}
+
+    return result
+
+
 def build_llm_prompt(
     scored_recipes: list[ScoredRecipe],
     pantry: dict[str, PantryItem],
     meal_type: str,
     people_count: int,
     target_date: date,
+    activity_level: str = "moderate",
+    user_targets: Optional[list[dict]] = None,
+    consumed_today: Optional[dict[str, dict]] = None,
+    is_thinking_model: bool = False,
 ) -> list[dict]:
     """
     Build chat messages for the LLM to generate meal suggestions.
+    Now includes nutrition context when available.
     """
     today = date.today()
 
@@ -233,29 +315,86 @@ def build_llm_prompt(
 
     recipes_text = "\n".join(recipe_lines) if recipe_lines else "Nessuna ricetta disponibile."
 
-    system_msg = {
-        "role": "system",
-        "content": (
-            "Sei un chef che suggerisce piatti per un menu domestico. "
-            "Rispondi SOLO con un array JSON valido, senza testo aggiuntivo. "
-            "Prioritizza ricette che usano ingredienti in scadenza."
-        ),
-    }
+    # Build nutrition context
+    nutrition_text = ""
+    allergies_text = ""
+    if user_targets:
+        activity_label = ACTIVITY_LABELS.get(activity_level, activity_level)
+        nutrition_lines = [f"Livello attivita': {activity_label}"]
 
-    user_msg = {
-        "role": "user",
-        "content": (
-            f"Data: {target_date.isoformat()}\n"
-            f"Pasto: {meal_type}\n"
-            f"Persone: {people_count}\n\n"
-            f"PRODOTTI IN DISPENSA:\n{pantry_text}\n\n"
-            f"RICETTE DISPONIBILI:\n{recipes_text}\n\n"
-            "Seleziona max 10 piatti ordinati per urgenza scadenza ingredienti. "
-            "Formato risposta (JSON array):\n"
-            '[{"recipe_id": "uuid", "recipe_name": "nome", "reason": "motivo breve", '
-            '"expiry_alert": true/false, "avg_expiry_days": numero_o_null}]'
-        ),
-    }
+        all_allergies = set()
+        all_dietary = set()
+
+        for ut in user_targets:
+            name = ut["name"]
+            target_cal = ut["target_calories"]
+            consumed = (consumed_today or {}).get(ut["user_id"], {})
+            consumed_cal = consumed.get("calories", 0)
+            remaining_cal = max(0, target_cal - consumed_cal)
+            remaining_p = max(0, ut["target_proteins_g"] - consumed.get("proteins_g", 0))
+            remaining_c = max(0, ut["target_carbs_g"] - consumed.get("carbs_g", 0))
+            remaining_f = max(0, ut["target_fats_g"] - consumed.get("fats_g", 0))
+
+            nutrition_lines.append(
+                f"- {name}: obiettivo {target_cal}kcal, "
+                f"gia' {consumed_cal:.0f}kcal, "
+                f"rimangono P:{remaining_p:.0f}g C:{remaining_c:.0f}g F:{remaining_f:.0f}g"
+            )
+
+            all_allergies.update(ut.get("allergies", []))
+            if ut.get("dietary_type") and ut["dietary_type"] != "omnivore":
+                all_dietary.add(ut["dietary_type"])
+
+        nutrition_text = "\n".join(nutrition_lines)
+
+        allergy_parts = []
+        if all_allergies:
+            allergy_parts.append(f"Allergie: {', '.join(all_allergies)}")
+        if all_dietary:
+            allergy_parts.append(f"Dieta: {', '.join(all_dietary)}")
+        allergies_text = ". ".join(allergy_parts)
+
+    # Build system prompt
+    if is_thinking_model:
+        system_content = (
+            "Sei un chef nutrizionista esperto. "
+            "Devi suggerire piatti per un menu domestico. "
+            "Considera: ingredienti in scadenza (priorita'), fabbisogno nutrizionale residuo, "
+            "allergie e restrizioni alimentari, adattamento al livello di attivita'. "
+            "Rispondi con un array JSON."
+        )
+    else:
+        system_content = (
+            "Sei un chef nutrizionista che suggerisce piatti per un menu domestico. "
+            "Rispondi SOLO con un array JSON valido, senza testo aggiuntivo. "
+            "Priorita': 1) Usa ingredienti in scadenza 2) Completa il fabbisogno nutrizionale residuo "
+            "3) Rispetta allergie e restrizioni 4) Adatta all'attivita' fisica."
+        )
+
+    system_msg = {"role": "system", "content": system_content}
+
+    # Build user message
+    user_parts = [
+        f"Data: {target_date.isoformat()}",
+        f"Pasto: {meal_type}",
+        f"Persone: {people_count}",
+    ]
+
+    if nutrition_text:
+        user_parts.append(f"\nOBIETTIVI NUTRIZIONALI:\n{nutrition_text}")
+    if allergies_text:
+        user_parts.append(f"\nRESTRIZIONI: {allergies_text}")
+
+    user_parts.extend([
+        f"\nPRODOTTI IN DISPENSA:\n{pantry_text}",
+        f"\nRICETTE DISPONIBILI:\n{recipes_text}",
+        "\nSeleziona max 10 piatti ordinati per urgenza scadenza ingredienti. "
+        "Formato risposta (JSON array):\n"
+        '[{"recipe_id": "uuid", "recipe_name": "nome", "reason": "motivo breve", '
+        '"expiry_alert": true/false, "avg_expiry_days": numero_o_null}]',
+    ])
+
+    user_msg = {"role": "user", "content": "\n".join(user_parts)}
 
     return [system_msg, user_msg]
 
@@ -318,6 +457,7 @@ async def generate_suggestions(
     house_id: UUID,
     request: GenerateRequest,
     llm_client=None,
+    current_user_id: Optional[UUID] = None,
 ) -> GenerateResponse:
     """
     Generate meal suggestions for each day/meal combination.
@@ -327,7 +467,6 @@ async def generate_suggestions(
     scored = score_recipes(db, house_id, pantry)
 
     # Build pantry summary for UI
-    pantry_summary = {}
     today = date.today()
     expiring_soon = 0
     total_items = 0
@@ -340,9 +479,23 @@ async def generate_suggestions(
         "expiring_soon": expiring_soon,
     }
 
+    # Collect all unique user_ids for nutrition targets
+    all_user_ids = set()
+    for day_plan in request.plan:
+        for meal_config in day_plan.meals:
+            all_user_ids.update(meal_config.user_ids)
+
+    user_targets = get_user_nutrition_targets(db, list(all_user_ids), request.activity_level)
+
+    # Check if LLM client supports thinking model
+    is_thinking = getattr(getattr(llm_client, 'connection', None), 'is_thinking_model', False)
+
     meals_suggestions: list[MealSuggestions] = []
 
     for day_plan in request.plan:
+        # Get consumed nutrition for this day
+        consumed_today = get_consumed_nutrition_for_date(db, house_id, list(all_user_ids), day_plan.date)
+
         for meal_config in day_plan.meals:
             people_count = len(meal_config.user_ids)
 
@@ -351,7 +504,13 @@ async def generate_suggestions(
             # Try LLM first
             if llm_client and scored:
                 try:
-                    messages = build_llm_prompt(scored, pantry, meal_config.meal_type, people_count, day_plan.date)
+                    messages = build_llm_prompt(
+                        scored, pantry, meal_config.meal_type, people_count, day_plan.date,
+                        activity_level=request.activity_level,
+                        user_targets=user_targets,
+                        consumed_today=consumed_today,
+                        is_thinking_model=is_thinking,
+                    )
                     response_text = await llm_client.chat_completion(messages, max_tokens=2000)
 
                     if response_text:

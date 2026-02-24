@@ -6,6 +6,13 @@ import { mealPlannerService } from '@/services/mealPlanner'
 import type { HouseMember } from '@/types'
 import type { SuggestionItem, MealSuggestions, GenerateResponse } from '@/services/mealPlanner'
 
+const ACTIVITY_LEVELS = [
+  { key: 'sedentary', label: 'Sedentario' },
+  { key: 'light', label: 'Leggera' },
+  { key: 'moderate', label: 'Moderata' },
+  { key: 'intense', label: 'Intensa' },
+] as const
+
 const MEAL_TYPES = [
   { key: 'colazione', label: 'Colazione' },
   { key: 'spuntino', label: 'Spuntino' },
@@ -153,11 +160,15 @@ function StepMealsAndPeople({
   members,
   dayConfigs,
   onUpdateConfig,
+  activityLevel,
+  onActivityLevelChange,
 }: {
   selectedDays: string[]
   members: HouseMember[]
   dayConfigs: Record<string, DayMealConfig>
   onUpdateConfig: (date: string, config: DayMealConfig) => void
+  activityLevel: string
+  onActivityLevelChange: (level: string) => void
 }) {
   const toggleMeal = (dateStr: string, mealType: string) => {
     const config = { ...(dayConfigs[dateStr] || {}) }
@@ -184,6 +195,29 @@ function StepMealsAndPeople({
   return (
     <div>
       <h2 className="text-lg font-semibold mb-3">Configura pasti e persone</h2>
+
+      {/* Activity Level Selector */}
+      <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Livello attivita' oggi
+        </label>
+        <div className="flex gap-2">
+          {ACTIVITY_LEVELS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onActivityLevelChange(key)}
+              className={`flex-1 py-2 px-2 text-xs sm:text-sm font-medium rounded-lg border-2 transition-colors ${
+                activityLevel === key
+                  ? 'border-blue-500 bg-blue-100 text-blue-700'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="space-y-4">
         {selectedDays.map(dateStr => {
@@ -439,6 +473,7 @@ export function MealPlannerWizard() {
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set())
   const [members, setMembers] = useState<HouseMember[]>([])
   const [dayConfigs, setDayConfigs] = useState<Record<string, DayMealConfig>>({})
+  const [activityLevel, setActivityLevel] = useState('moderate')
   const [generateResponse, setGenerateResponse] = useState<GenerateResponse | null>(null)
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
@@ -504,6 +539,7 @@ export function MealPlannerWizard() {
       const response = await mealPlannerService.generate({
         house_id: currentHouse.id,
         plan,
+        activity_level: activityLevel,
       })
       setGenerateResponse(response)
       setStep(2)
@@ -577,6 +613,8 @@ export function MealPlannerWizard() {
             members={members}
             dayConfigs={dayConfigs}
             onUpdateConfig={updateDayConfig}
+            activityLevel={activityLevel}
+            onActivityLevelChange={setActivityLevel}
           />
         )}
 

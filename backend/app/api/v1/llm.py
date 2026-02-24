@@ -81,12 +81,14 @@ class LLMConnectionCreate(BaseModel):
     url: str = Field(..., description="Base URL (e.g., http://localhost:8080)")
     model: str = Field(default="default", description="Model name/id")
     purpose: str = Field(default="general", description="Purpose: ocr, chat, suggestions, general")
-    connection_type: str = Field(default="openai", description="API type: openai, docext")
+    connection_type: str = Field(default="openai", description="API type: openai, anthropic, ossgpt, docext")
     enabled: bool = Field(default=True)
     timeout: float = Field(default=30.0, ge=5.0, le=300.0)
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     max_tokens: int = Field(default=500, ge=10, le=4096)
     api_key: Optional[str] = Field(default=None, description="API key if required")
+    is_thinking_model: bool = Field(default=False, description="Enable thinking mode (o1/o3, Claude extended thinking)")
+    thinking_budget_tokens: int = Field(default=10000, ge=1000, le=100000, description="Token budget for thinking")
     # DocExt specific
     docext_auth_user: str = Field(default="admin", description="DocExt Gradio username")
     docext_auth_pass: str = Field(default="admin", description="DocExt Gradio password")
@@ -104,6 +106,8 @@ class LLMConnectionUpdate(BaseModel):
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=10, le=4096)
     api_key: Optional[str] = None
+    is_thinking_model: Optional[bool] = None
+    thinking_budget_tokens: Optional[int] = Field(None, ge=1000, le=100000)
     docext_auth_user: Optional[str] = None
     docext_auth_pass: Optional[str] = None
 
@@ -121,6 +125,8 @@ class LLMConnectionResponse(BaseModel):
     temperature: float
     max_tokens: int
     has_api_key: bool  # Don't expose actual key
+    is_thinking_model: bool = False
+    thinking_budget_tokens: int = 10000
     docext_auth_user: Optional[str] = None
 
 
@@ -131,6 +137,7 @@ class LLMTestRequest(BaseModel):
     connection_type: str = "openai"
     docext_auth_user: str = "admin"
     docext_auth_pass: str = "admin"
+    api_key: Optional[str] = None
 
 
 class LLMTestResponse(BaseModel):
@@ -162,6 +169,8 @@ def connection_to_response(conn: dict) -> LLMConnectionResponse:
         temperature=conn.get("temperature", 0.3),
         max_tokens=conn.get("max_tokens", 500),
         has_api_key=bool(conn.get("api_key")),
+        is_thinking_model=conn.get("is_thinking_model", False),
+        thinking_budget_tokens=conn.get("thinking_budget_tokens", 10000),
         docext_auth_user=conn.get("docext_auth_user", "admin") if conn.get("connection_type") == "docext" else None
     )
 
@@ -219,6 +228,8 @@ def create_connection(
         "temperature": data.temperature,
         "max_tokens": data.max_tokens,
         "api_key": data.api_key,
+        "is_thinking_model": data.is_thinking_model,
+        "thinking_budget_tokens": data.thinking_budget_tokens,
         "extra_headers": {},
         "docext_auth_user": data.docext_auth_user,
         "docext_auth_pass": data.docext_auth_pass
@@ -293,6 +304,10 @@ def update_connection(
         conn["max_tokens"] = data.max_tokens
     if data.api_key is not None:
         conn["api_key"] = data.api_key if data.api_key else None
+    if data.is_thinking_model is not None:
+        conn["is_thinking_model"] = data.is_thinking_model
+    if data.thinking_budget_tokens is not None:
+        conn["thinking_budget_tokens"] = data.thinking_budget_tokens
     if data.docext_auth_user is not None:
         conn["docext_auth_user"] = data.docext_auth_user
     if data.docext_auth_pass is not None:
@@ -334,7 +349,8 @@ async def test_llm_connection(
         model=data.model,
         connection_type=data.connection_type,
         docext_auth_user=data.docext_auth_user,
-        docext_auth_pass=data.docext_auth_pass
+        docext_auth_pass=data.docext_auth_pass,
+        api_key=data.api_key,
     )
     return LLMTestResponse(
         status=result.get("status", "error"),
@@ -403,6 +419,8 @@ def list_connection_types():
 def _get_type_label(conn_type: LLMType) -> str:
     labels = {
         LLMType.OPENAI: "OpenAI Compatible",
+        LLMType.ANTHROPIC: "Anthropic Claude",
+        LLMType.OSSGPT: "OSSgpt (Open Source)",
         LLMType.DOCEXT: "DocExt",
     }
     return labels.get(conn_type, conn_type.value)
@@ -411,6 +429,8 @@ def _get_type_label(conn_type: LLMType) -> str:
 def _get_type_description(conn_type: LLMType) -> str:
     descriptions = {
         LLMType.OPENAI: "MLX, Ollama, LM Studio, vLLM, OpenAI API",
+        LLMType.ANTHROPIC: "Claude API (richiede API key)",
+        LLMType.OSSGPT: "Modelli open-source (Llama, Mistral, Qwen via API compatibile OpenAI)",
         LLMType.DOCEXT: "DocExt Document Intelligence (richiede GPU NVIDIA)",
     }
     return descriptions.get(conn_type, "")

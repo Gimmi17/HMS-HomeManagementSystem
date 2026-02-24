@@ -86,7 +86,7 @@ async def generate_meal_suggestions(
     llm_client = _get_llm_client(house)
 
     try:
-        result = await generate_suggestions(db, data.house_id, data, llm_client=llm_client)
+        result = await generate_suggestions(db, data.house_id, data, llm_client=llm_client, current_user_id=current_user.id)
         return result
     except Exception as e:
         logger.error(f"Generate suggestions failed: {e}")

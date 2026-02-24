@@ -13,6 +13,7 @@ interface DayPlanPayload {
 interface GenerateRequest {
   house_id: string
   plan: DayPlanPayload[]
+  activity_level?: string
 }
 
 export interface SuggestionItem {

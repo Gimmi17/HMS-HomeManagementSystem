@@ -30,6 +30,8 @@ class LLMPurpose(str, Enum):
 class LLMType(str, Enum):
     """Supported LLM API types"""
     OPENAI = "openai"        # OpenAI-compatible (MLX, Ollama, LM Studio, vLLM)
+    ANTHROPIC = "anthropic"  # Anthropic Claude API
+    OSSGPT = "ossgpt"        # Open-source models (labeling per UI, usa protocollo OpenAI)
     DOCEXT = "docext"        # DocExt with Gradio API
 
 
@@ -54,6 +56,10 @@ class LLMConnection:
     # Optional fields for different providers
     api_key: Optional[str] = None    # For providers that need auth
     extra_headers: dict = field(default_factory=dict)
+
+    # Thinking model settings
+    is_thinking_model: bool = False
+    thinking_budget_tokens: int = 10000
 
     # DocExt specific settings
     docext_auth_user: str = "admin"  # Gradio auth username
@@ -93,6 +99,7 @@ class LLMConnection:
         valid_fields = {
             'id', 'name', 'url', 'model', 'purpose', 'connection_type', 'enabled',
             'timeout', 'temperature', 'max_tokens', 'api_key', 'extra_headers',
+            'is_thinking_model', 'thinking_budget_tokens',
             'docext_auth_user', 'docext_auth_pass'
         }
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
@@ -182,9 +189,12 @@ class LLMClient:
             payload = {
                 "model": self.connection.model,
                 "messages": messages,
-                "temperature": temperature or self.connection.temperature,
                 "max_tokens": max_tokens or self.connection.max_tokens,
             }
+
+            # Thinking models (o1/o3) don't support temperature
+            if not self.connection.is_thinking_model:
+                payload["temperature"] = temperature or self.connection.temperature
 
             response = await client.post(
                 f"{self.base_url}/v1/chat/completions",
@@ -391,6 +401,140 @@ class DocExtClient:
         return products
 
 
+class AnthropicClient:
+    """
+    Client for Anthropic Claude API.
+
+    Uses the Messages API with support for extended thinking.
+    """
+
+    def __init__(self, connection: LLMConnection):
+        self.connection = connection
+        self._client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def base_url(self) -> str:
+        return self.connection.url.rstrip('/')
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            headers = {
+                "x-api-key": self.connection.api_key or "",
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            self._client = httpx.AsyncClient(
+                timeout=self.connection.timeout,
+                headers=headers,
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    async def health_check(self) -> dict:
+        """Check if Anthropic API is reachable by sending a minimal message."""
+        try:
+            client = await self._get_client()
+
+            payload = {
+                "model": self.connection.model,
+                "max_tokens": 10,
+                "messages": [{"role": "user", "content": "Rispondi solo: OK"}],
+            }
+
+            response = await client.post(
+                f"{self.base_url}/v1/messages",
+                json=payload,
+            )
+
+            if response.status_code == 200:
+                return {
+                    "status": "ok",
+                    "url": self.base_url,
+                    "models": [self.connection.model],
+                    "connection_name": self.connection.name,
+                }
+            elif response.status_code == 401:
+                return {"status": "error", "message": "API key non valida"}
+            return {"status": "error", "message": f"HTTP {response.status_code}: {response.text[:200]}"}
+
+        except httpx.ConnectError:
+            return {"status": "offline", "message": "Impossibile connettersi all'API Anthropic"}
+        except Exception as e:
+            logger.error(f"Anthropic health check failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def chat_completion(
+        self,
+        messages: list[dict],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Optional[str]:
+        """
+        Send a chat completion request to Anthropic Messages API.
+
+        Extracts system message from messages array into top-level field.
+        Supports extended thinking mode.
+        """
+        if not self.connection.enabled:
+            logger.info(f"LLM connection '{self.connection.name}' is disabled")
+            return None
+
+        try:
+            client = await self._get_client()
+
+            # Extract system message
+            system_text = None
+            api_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_text = msg["content"]
+                else:
+                    api_messages.append(msg)
+
+            payload: dict = {
+                "model": self.connection.model,
+                "max_tokens": max_tokens or self.connection.max_tokens,
+                "messages": api_messages,
+            }
+
+            if system_text:
+                payload["system"] = system_text
+
+            if self.connection.is_thinking_model:
+                # Extended thinking: add thinking block, don't send temperature
+                payload["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": self.connection.thinking_budget_tokens,
+                }
+            else:
+                payload["temperature"] = temperature or self.connection.temperature
+
+            response = await client.post(
+                f"{self.base_url}/v1/messages",
+                json=payload,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Anthropic request failed: HTTP {response.status_code} - {response.text[:500]}")
+                return None
+
+            data = response.json()
+            # Filter content blocks for type == "text" (ignore thinking blocks)
+            content_blocks = data.get("content", [])
+            text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
+            return "\n".join(text_parts) if text_parts else None
+
+        except httpx.TimeoutException:
+            logger.error(f"Anthropic request timeout after {self.connection.timeout}s")
+            return None
+        except Exception as e:
+            logger.error(f"Anthropic chat completion failed: {e}")
+            return None
+
+
 # =============================================================================
 # LLM Manager - Handles multiple connections
 # =============================================================================
@@ -431,7 +575,7 @@ class LLMManager:
         """Get all configured connections"""
         return list(self._connections.values())
 
-    def get_client(self, connection_id: str) -> Optional[LLMClient | DocExtClient]:
+    def get_client(self, connection_id: str) -> Optional[LLMClient | DocExtClient | AnthropicClient]:
         """Get or create a client for a specific connection"""
         conn = self._connections.get(connection_id)
         if not conn:
@@ -441,7 +585,9 @@ class LLMManager:
             # Create appropriate client based on connection type
             if conn.connection_type == LLMType.DOCEXT:
                 self._clients[connection_id] = DocExtClient(conn)
-            else:
+            elif conn.connection_type == LLMType.ANTHROPIC:
+                self._clients[connection_id] = AnthropicClient(conn)
+            else:  # OPENAI and OSSGPT use OpenAI-compatible protocol
                 self._clients[connection_id] = LLMClient(conn)
 
         return self._clients[connection_id]
@@ -530,7 +676,8 @@ async def test_connection(
     model: str = "default",
     connection_type: str = "openai",
     docext_auth_user: str = "admin",
-    docext_auth_pass: str = "admin"
+    docext_auth_pass: str = "admin",
+    api_key: Optional[str] = None,
 ) -> dict:
     """Test a new connection before saving"""
     conn = LLMConnection(
@@ -540,25 +687,34 @@ async def test_connection(
         model=model,
         connection_type=LLMType(connection_type) if connection_type else LLMType.OPENAI,
         docext_auth_user=docext_auth_user,
-        docext_auth_pass=docext_auth_pass
+        docext_auth_pass=docext_auth_pass,
+        api_key=api_key,
     )
 
     if conn.connection_type == LLMType.DOCEXT:
         client = DocExtClient(conn)
         try:
             health = await client.health_check()
-            # DocExt doesn't need a test completion
             if health.get("status") == "ok":
                 health["test_response"] = "DocExt connesso"
             return health
         finally:
             await client.close()
-    else:
+    elif conn.connection_type == LLMType.ANTHROPIC:
+        client = AnthropicClient(conn)
+        try:
+            health = await client.health_check()
+            if health.get("status") == "ok":
+                # health_check already sends a test message for Anthropic
+                health["test_response"] = "Anthropic connesso"
+            return health
+        finally:
+            await client.close()
+    else:  # OPENAI and OSSGPT
         client = LLMClient(conn)
         try:
             health = await client.health_check()
             if health.get("status") == "ok":
-                # Try a simple completion
                 response = await client.chat_completion(
                     messages=[{"role": "user", "content": "Rispondi solo: OK"}],
                     max_tokens=10

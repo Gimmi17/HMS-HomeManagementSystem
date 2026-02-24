@@ -40,6 +40,8 @@ export function LLMSettings() {
     temperature: 0.3,
     max_tokens: 500,
     api_key: '',
+    is_thinking_model: false,
+    thinking_budget_tokens: 10000,
     docext_auth_user: 'admin',
     docext_auth_pass: 'admin'
   })
@@ -95,7 +97,8 @@ export function LLMSettings() {
         formData.model || 'default',
         formData.connection_type || 'openai',
         formData.docext_auth_user || 'admin',
-        formData.docext_auth_pass || 'admin'
+        formData.docext_auth_pass || 'admin',
+        formData.api_key || undefined
       )
       setTestResult(result)
 
@@ -105,6 +108,11 @@ export function LLMSettings() {
         if (formData.connection_type === 'docext') {
           // DocExt doesn't have model selection, use default
           setFormData(prev => ({ ...prev, model: 'docext' }))
+        } else if (formData.connection_type === 'anthropic') {
+          // Anthropic doesn't have /v1/models, keep manual model input
+          if (!formData.model || formData.model === 'default') {
+            setFormData(prev => ({ ...prev, model: 'claude-sonnet-4-20250514' }))
+          }
         } else if (result.models && result.models.length > 0) {
           setAvailableModels(result.models)
           // Se non c'è già un modello selezionato, seleziona il primo
@@ -185,6 +193,8 @@ export function LLMSettings() {
       temperature: conn.temperature,
       max_tokens: conn.max_tokens,
       api_key: '',  // Don't show existing key
+      is_thinking_model: conn.is_thinking_model || false,
+      thinking_budget_tokens: conn.thinking_budget_tokens || 10000,
       docext_auth_user: conn.docext_auth_user || 'admin',
       docext_auth_pass: ''  // Don't show existing password
     })
@@ -207,6 +217,8 @@ export function LLMSettings() {
       temperature: 0.3,
       max_tokens: 500,
       api_key: '',
+      is_thinking_model: false,
+      thinking_budget_tokens: 10000,
       docext_auth_user: 'admin',
       docext_auth_pass: 'admin'
     })
@@ -229,6 +241,7 @@ export function LLMSettings() {
   }
 
   const isDocExt = formData.connection_type === 'docext'
+  const isAnthropic = formData.connection_type === 'anthropic'
 
   const getStatusIcon = (status: 'ok' | 'offline' | 'error' | 'checking') => {
     switch (status) {
@@ -332,6 +345,10 @@ export function LLMSettings() {
                             <span className={`text-xs px-2 py-0.5 rounded ${
                               conn.connection_type === 'docext'
                                 ? 'bg-purple-100 text-purple-700'
+                                : conn.connection_type === 'anthropic'
+                                ? 'bg-orange-100 text-orange-700'
+                                : conn.connection_type === 'ossgpt'
+                                ? 'bg-green-100 text-green-700'
                                 : 'bg-blue-100 text-blue-700'
                             }`}>
                               {getTypeLabel(conn.connection_type || 'openai')}
@@ -438,16 +455,39 @@ export function LLMSettings() {
                   type="text"
                   value={formData.url}
                   onChange={e => handleUrlChange(e.target.value)}
-                  placeholder={isDocExt ? "http://192.168.1.100:7860" : "http://192.168.1.100:8080"}
+                  placeholder={isDocExt ? "http://192.168.1.100:7860" : isAnthropic ? "https://api.anthropic.com" : "http://192.168.1.100:8080"}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   {isDocExt
                     ? "URL del server DocExt (es: http://192.168.1.100:7860)"
+                    : isAnthropic
+                    ? "URL API Anthropic (es: https://api.anthropic.com)"
                     : "URL del server LLM (es: http://192.168.1.100:8080)"}
                 </p>
               </div>
+
+              {/* Anthropic API Key (required at step 2) */}
+              {isAnthropic && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    API Key <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.api_key || ''}
+                    onChange={e => {
+                      setFormData(prev => ({ ...prev, api_key: e.target.value }))
+                      setConnectionVerified(false)
+                      setTestResult(null)
+                    }}
+                    placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : 'sk-ant-...'}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    required={isAnthropic && mode === 'add'}
+                  />
+                </div>
+              )}
 
               {/* DocExt Auth Fields */}
               {isDocExt && (
@@ -530,30 +570,81 @@ export function LLMSettings() {
               )}
             </div>
 
-            {/* Step 3: Select Model (only after successful test, OpenAI only) */}
-            {connectionVerified && availableModels.length > 0 && !isDocExt && (
+            {/* Step 3: Select Model (only after successful test, not DocExt) */}
+            {connectionVerified && !isDocExt && (availableModels.length > 0 || isAnthropic) && (
               <div className="p-3 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                   <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">3</span>
                   Seleziona Modello
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Modello ({availableModels.length} disponibili)
+                {isAnthropic ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nome Modello
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.model}
+                      onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                      placeholder="claude-sonnet-4-20250514"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Inserisci il nome del modello Anthropic</p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Modello ({availableModels.length} disponibili)
+                    </label>
+                    <select
+                      value={formData.model}
+                      onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                      required
+                    >
+                      {availableModels.map(model => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Thinking Model Toggle */}
+                <div className="pt-2 border-t border-gray-200">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_thinking_model || false}
+                      onChange={e => setFormData(prev => ({ ...prev, is_thinking_model: e.target.checked }))}
+                      className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-gray-700">Modello Thinking (o1/o3, Claude Extended Thinking)</span>
                   </label>
-                  <select
-                    value={formData.model}
-                    onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                    required
-                  >
-                    {availableModels.map(model => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
+
+                  {formData.is_thinking_model && isAnthropic && (
+                    <div className="mt-2 ml-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Budget Token Thinking: {formData.thinking_budget_tokens?.toLocaleString()}
+                      </label>
+                      <input
+                        type="range"
+                        min="1000"
+                        max="100000"
+                        step="1000"
+                        value={formData.thinking_budget_tokens || 10000}
+                        onChange={e => setFormData(prev => ({ ...prev, thinking_budget_tokens: Number(e.target.value) }))}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>1K</span>
+                        <span>100K</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -599,19 +690,21 @@ export function LLMSettings() {
                   </select>
                 </div>
 
-                {/* API Key (optional) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    API Key (opzionale)
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.api_key}
-                    onChange={e => setFormData(prev => ({ ...prev, api_key: e.target.value }))}
-                    placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : ''}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
-                </div>
+                {/* API Key (optional, not shown for Anthropic since it's in step 2) */}
+                {!isAnthropic && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      API Key (opzionale)
+                    </label>
+                    <input
+                      type="password"
+                      value={formData.api_key}
+                      onChange={e => setFormData(prev => ({ ...prev, api_key: e.target.value }))}
+                      placeholder={mode === 'edit' ? '(lascia vuoto per mantenere)' : ''}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
 
                 {/* Advanced settings toggle */}
                 <details className="pt-2">
@@ -634,22 +727,24 @@ export function LLMSettings() {
                       />
                     </div>
 
-                    {/* Temperature */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Temperature: {formData.temperature}
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        value={formData.temperature}
-                        onChange={e => setFormData(prev => ({ ...prev, temperature: Number(e.target.value) }))}
-                        className="w-full"
-                      />
-                      <p className="text-xs text-gray-500">0 = deterministico, 2 = creativo</p>
-                    </div>
+                    {/* Temperature (hidden for thinking models) */}
+                    {!formData.is_thinking_model && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Temperature: {formData.temperature}
+                        </label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={formData.temperature}
+                          onChange={e => setFormData(prev => ({ ...prev, temperature: Number(e.target.value) }))}
+                          className="w-full"
+                        />
+                        <p className="text-xs text-gray-500">0 = deterministico, 2 = creativo</p>
+                      </div>
+                    )}
 
                     {/* Max Tokens */}
                     <div>
@@ -694,7 +789,7 @@ export function LLMSettings() {
             </button>
             <button
               type="submit"
-              disabled={!connectionVerified || !formData.name || (!isDocExt && !formData.model)}
+              disabled={!connectionVerified || !formData.name || (!isDocExt && !formData.model) || (isAnthropic && mode === 'add' && !formData.api_key)}
               className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {mode === 'add' ? 'Salva Connessione' : 'Aggiorna'}
@@ -712,6 +807,16 @@ export function LLMSettings() {
               <strong>OpenAI Compatible</strong>: Server LLM con API OpenAI
               <br />
               <span className="text-blue-600 text-xs">MLX, Ollama, LM Studio, vLLM, OpenAI API</span>
+            </li>
+            <li>
+              <strong>Anthropic Claude</strong>: API Claude di Anthropic
+              <br />
+              <span className="text-blue-600 text-xs">Richiede API key. Supporta Extended Thinking</span>
+            </li>
+            <li>
+              <strong>OSSgpt</strong>: Modelli Open Source
+              <br />
+              <span className="text-blue-600 text-xs">Llama, Mistral, Qwen via API compatibile OpenAI</span>
             </li>
             <li>
               <strong>DocExt</strong>: Document Intelligence con Vision Models

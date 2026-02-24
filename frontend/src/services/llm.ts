@@ -17,6 +17,8 @@ export interface LLMConnection {
   temperature: number
   max_tokens: number
   has_api_key: boolean
+  is_thinking_model: boolean
+  thinking_budget_tokens: number
   docext_auth_user?: string
 }
 
@@ -31,6 +33,8 @@ export interface LLMConnectionCreate {
   temperature?: number
   max_tokens?: number
   api_key?: string
+  is_thinking_model?: boolean
+  thinking_budget_tokens?: number
   docext_auth_user?: string
   docext_auth_pass?: string
 }
@@ -46,6 +50,8 @@ export interface LLMConnectionUpdate {
   temperature?: number
   max_tokens?: number
   api_key?: string
+  is_thinking_model?: boolean
+  thinking_budget_tokens?: number
   docext_auth_user?: string
   docext_auth_pass?: string
 }
@@ -133,14 +139,16 @@ const llmService = {
     model: string = 'default',
     connectionType: string = 'openai',
     docextAuthUser: string = 'admin',
-    docextAuthPass: string = 'admin'
+    docextAuthPass: string = 'admin',
+    apiKey?: string
   ): Promise<LLMTestResult> {
     const response = await api.post('/llm/test', {
       url,
       model,
       connection_type: connectionType,
       docext_auth_user: docextAuthUser,
-      docext_auth_pass: docextAuthPass
+      docext_auth_pass: docextAuthPass,
+      api_key: apiKey || undefined
     })
     return response.data
   },
