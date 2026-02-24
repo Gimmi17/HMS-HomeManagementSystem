@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useHouse } from '@/context/HouseContext'
 import Header from './Header'
 import DrawerMenu from './DrawerMenu'
+import BottomNav from './BottomNav'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -32,9 +33,10 @@ export function MainLayout({ children }: MainLayoutProps) {
         onMenuToggle={() => setIsMenuOpen((prev) => !prev)}
         isMenuOpen={isMenuOpen}
       />
-      <main className="p-4 sm:p-6 min-h-[calc(100vh-57px)]">
+      <main className="p-4 sm:p-6 pb-20 sm:pb-6 min-h-[calc(100vh-57px)]">
         {children}
       </main>
+      <BottomNav onMenuToggle={() => setIsMenuOpen((prev) => !prev)} />
       <DrawerMenu
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}

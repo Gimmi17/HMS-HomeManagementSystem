@@ -51,8 +51,8 @@ export function Recipes() {
         </Link>
       </div>
 
-      {/* Search */}
-      <div>
+      {/* Sticky Search */}
+      <div className="sticky top-0 z-10 bg-gray-50 -mx-4 px-4 pb-3 pt-1 sm:-mx-6 sm:px-6">
         <input
           type="text"
           placeholder="Cerca ricette..."

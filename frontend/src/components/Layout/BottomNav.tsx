@@ -5,10 +5,13 @@ const navItems = [
   { to: '/shopping-lists', label: 'Spesa', icon: '🛒' },
   { to: '/pantry', label: 'Dispensa', icon: '📦' },
   { to: '/recipes', label: 'Ricette', icon: '📖' },
-  { to: '/settings', label: 'Altro', icon: '⚙️' },
 ]
 
-export function BottomNav() {
+interface BottomNavProps {
+  onMenuToggle?: () => void
+}
+
+export function BottomNav({ onMenuToggle }: BottomNavProps) {
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 sm:hidden safe-area-bottom">
       <div className="flex justify-around items-center h-16">
@@ -28,6 +31,13 @@ export function BottomNav() {
             <span className="text-[10px] font-medium">{item.label}</span>
           </NavLink>
         ))}
+        <button
+          onClick={onMenuToggle}
+          className="flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors text-gray-500 active:bg-gray-100"
+        >
+          <span className="text-xl mb-0.5">☰</span>
+          <span className="text-[10px] font-medium">Altro</span>
+        </button>
       </div>
     </nav>
   )

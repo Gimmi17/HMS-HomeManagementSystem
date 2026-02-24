@@ -35,6 +35,11 @@ export function ShoppingLists() {
   const [dispensaToast, setDispensaToast] = useState<string | null>(null)
 
   const handleListClick = (list: ShoppingListSummary) => {
+    navigate(`/shopping-lists/${list.id}`)
+  }
+
+  const handleListActions = (e: React.MouseEvent, list: ShoppingListSummary) => {
+    e.stopPropagation()
     setSelectedList(list)
     setShowActionModal(true)
   }
@@ -295,14 +300,17 @@ export function ShoppingLists() {
                   )}
                 </div>
 
-                <svg
-                  className="w-5 h-5 text-gray-400 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+                <button
+                  onClick={(e) => handleListActions(e, list)}
+                  className="p-2 -mr-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg flex-shrink-0"
+                  title="Azioni"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                  </svg>
+                </button>
               </div>
             </button>
           ))}

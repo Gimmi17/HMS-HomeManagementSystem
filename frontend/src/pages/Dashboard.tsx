@@ -103,6 +103,31 @@ export function Dashboard() {
         <p className="text-sm text-gray-600 capitalize">{today}</p>
       </div>
 
+      {/* Quick Actions */}
+      <div className="grid grid-cols-3 gap-3">
+        <Link
+          to="/meals/new"
+          className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white border border-gray-100 hover:border-primary-200 hover:bg-primary-50/30 transition-colors shadow-sm"
+        >
+          <span className="text-2xl">🍽️</span>
+          <span className="text-xs font-medium text-gray-700 text-center">Nuovo Pasto</span>
+        </Link>
+        <Link
+          to="/shopping-lists/new"
+          className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white border border-gray-100 hover:border-primary-200 hover:bg-primary-50/30 transition-colors shadow-sm"
+        >
+          <span className="text-2xl">🛒</span>
+          <span className="text-xs font-medium text-gray-700 text-center">Nuova Lista</span>
+        </Link>
+        <Link
+          to="/pantry"
+          className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white border border-gray-100 hover:border-primary-200 hover:bg-primary-50/30 transition-colors shadow-sm"
+        >
+          <span className="text-2xl">📦</span>
+          <span className="text-xs font-medium text-gray-700 text-center">Dispensa</span>
+        </Link>
+      </div>
+
       {/* Sezione Liste Spesa Attive */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3">
