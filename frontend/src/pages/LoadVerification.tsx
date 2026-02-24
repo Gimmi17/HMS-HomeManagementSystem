@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
@@ -6,7 +6,8 @@ import { grocyHouseService } from '@/services/grocy'
 import { useHouse } from '@/context/HouseContext'
 import categoriesService from '@/services/categories'
 import dispensaService from '@/services/dispensa'
-import PhotoBarcodeScanner from '@/components/PhotoBarcodeScanner'
+import LiveBarcodeScanner from '@/components/LiveBarcodeScanner'
+import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import ItemActionMenu from '@/components/ItemActionMenu'
 import ProductNoteModal from '@/components/ProductNoteModal'
@@ -38,7 +39,7 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
   const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || item.catalog_barcode || '')
   const [productName, setProductName] = useState<string | null>(null)
   const [sourceName, setSourceName] = useState<string | null>(null)
-  const [showPhotoScanner, setShowPhotoScanner] = useState(false)
+  const [showLiveScanner, setShowLiveScanner] = useState(false)
   const [isLookingUp, setIsLookingUp] = useState(false)
 
   // Auto-lookup barcode if pre-filled from catalog
@@ -136,10 +137,10 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
     }
   }
 
-  // Handle barcode from photo scanner
-  const handlePhotoBarcodeScanned = (barcode: string) => {
+  // Handle barcode from live scanner
+  const handleLiveBarcodeScanned = (barcode: string) => {
     setBarcodeInput(barcode)
-    setShowPhotoScanner(false)
+    setShowLiveScanner(false)
     lookupBarcode(barcode)
   }
 
@@ -181,12 +182,12 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
     }
   }
 
-  // Show photo scanner
-  if (showPhotoScanner) {
+  // Show live scanner
+  if (showLiveScanner) {
     return (
-      <PhotoBarcodeScanner
-        onScan={handlePhotoBarcodeScanned}
-        onClose={() => setShowPhotoScanner(false)}
+      <LiveBarcodeScanner
+        onScan={handleLiveBarcodeScanned}
+        onClose={() => setShowLiveScanner(false)}
       />
     )
   }
@@ -278,9 +279,9 @@ function VerificationModal({ item, categories, onConfirm, onCancel, onMarkNotPur
                 className="flex-1 px-4 py-3 border rounded-lg font-mono focus:ring-2 focus:ring-blue-500"
               />
               <button
-                onClick={() => setShowPhotoScanner(true)}
+                onClick={() => setShowLiveScanner(true)}
                 className="px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                title="Scatta foto per leggere barcode"
+                title="Scansiona barcode"
               >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -402,6 +403,21 @@ export function LoadVerification() {
   const { currentHouse } = useHouse()
   const [categories, setCategories] = useState<Category[]>([])
 
+  // Continuous scanner state
+  const [showScanner, setShowScanner] = useState(false)
+  const [scanLog, setScanLog] = useState<ScanLogEntry[]>([])
+  const scanLogRef = useRef<ScanLogEntry[]>([])
+
+  // Scanner processing state (shown after closing scanner while saving extras)
+  const [isScanProcessing, setIsScanProcessing] = useState(false)
+
+  // Unassociated items warning modal
+  const [showUnassociatedWarning, setShowUnassociatedWarning] = useState(false)
+  const [unassociatedItems, setUnassociatedItems] = useState<{
+    noProduct: ShoppingListItem[]  // EAN presente ma prodotto non trovato
+    noBarcode: ShoppingListItem[]  // Nessun EAN
+  }>({ noProduct: [], noBarcode: [] })
+
 
   // Initial load
   useEffect(() => {
@@ -443,9 +459,9 @@ export function LoadVerification() {
     loadCategories()
   }, [])
 
-  // Live polling
+  // Live polling (paused during scanning)
   useEffect(() => {
-    if (!id || isLoading || verifyingItem || editingItem || actionMenuItem || noteEditItem) return
+    if (!id || isLoading || verifyingItem || editingItem || actionMenuItem || noteEditItem || showScanner) return
 
     const pollInterval = setInterval(async () => {
       try {
@@ -457,7 +473,7 @@ export function LoadVerification() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [id, isLoading, verifyingItem, editingItem, actionMenuItem, noteEditItem])
+  }, [id, isLoading, verifyingItem, editingItem, actionMenuItem, noteEditItem, showScanner])
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
@@ -590,27 +606,54 @@ export function LoadVerification() {
       return
     }
 
+    // Check for unassociated items before completing
+    const verifiedItems = list.items.filter(i => i.verified_at && !i.not_purchased)
+    const noProduct = verifiedItems.filter(
+      i => i.scanned_barcode && !i.grocy_product_name
+    )
+    const noBarcode = verifiedItems.filter(
+      i => !i.scanned_barcode && !i.catalog_barcode
+    )
+
     try {
       await shoppingListsService.update(list.id, {
         verification_status: 'completed',
         status: 'completed'
       })
 
-      // Check if there are items with grocy_product_id to sync
-      const itemsToSync = list.items.filter(
-        item => item.grocy_product_id && item.verified_at && !item.not_purchased
-      )
-
-      if (itemsToSync.length > 0 && currentHouse) {
-        // Show Grocy sync modal
-        setShowGrocySyncModal(true)
-      } else {
-        // Show dispensa dialog instead of alert
-        setShowDispensaDialog(true)
+      // If there are unassociated items, show warning first
+      if (noProduct.length > 0 || noBarcode.length > 0) {
+        setUnassociatedItems({ noProduct, noBarcode })
+        setShowUnassociatedWarning(true)
+        return
       }
+
+      // Otherwise proceed normally
+      proceedAfterCompletion()
     } catch (error) {
       console.error('Failed to complete verification:', error)
       showToast('Errore durante il completamento', 'error')
+    }
+  }
+
+  const handleDismissUnassociatedWarning = () => {
+    setShowUnassociatedWarning(false)
+    setUnassociatedItems({ noProduct: [], noBarcode: [] })
+    proceedAfterCompletion()
+  }
+
+  const proceedAfterCompletion = () => {
+    if (!list) return
+
+    // Check if there are items with grocy_product_id to sync
+    const itemsToSync = list.items.filter(
+      item => item.grocy_product_id && item.verified_at && !item.not_purchased
+    )
+
+    if (itemsToSync.length > 0 && currentHouse) {
+      setShowGrocySyncModal(true)
+    } else {
+      setShowDispensaDialog(true)
     }
   }
 
@@ -772,6 +815,156 @@ export function LoadVerification() {
       showToast('Errore durante l\'eliminazione', 'error')
     }
   }
+
+  // --- Continuous scanner handlers ---
+  const handleBarcodeDetected = useCallback(async (barcode: string) => {
+    if (!list || !id) return
+
+    // Match against pending (unverified, not not_purchased) items by catalog_barcode
+    const matchedItem = list.items.find(
+      item => item.catalog_barcode === barcode && !item.verified_at && !item.not_purchased
+    )
+
+    if (matchedItem) {
+      // Verify existing item
+      const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode && e.matched)
+
+      let newQuantity = matchedItem.quantity || 1
+      if (existingIdx >= 0) {
+        newQuantity = scanLogRef.current[existingIdx].quantity + 1
+        scanLogRef.current[existingIdx] = {
+          ...scanLogRef.current[existingIdx],
+          quantity: newQuantity,
+          timestamp: Date.now(),
+        }
+      } else {
+        scanLogRef.current = [
+          ...scanLogRef.current,
+          {
+            barcode,
+            productName: matchedItem.name,
+            matched: true,
+            quantity: newQuantity,
+            timestamp: Date.now(),
+          },
+        ]
+      }
+      setScanLog([...scanLogRef.current])
+
+      try {
+        await shoppingListsService.verifyItemWithQuantity(
+          id,
+          matchedItem.id,
+          barcode,
+          newQuantity,
+          matchedItem.unit || 'pz',
+          matchedItem.name
+        )
+        const updated = await shoppingListsService.getById(id)
+        setList(updated)
+      } catch (err) {
+        console.error('Verify failed:', err)
+      }
+    } else {
+      // Extra item — not in the list
+      const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode && !e.matched)
+
+      if (existingIdx >= 0) {
+        // Same extra barcode scanned again → increment quantity
+        const newQty = scanLogRef.current[existingIdx].quantity + 1
+        scanLogRef.current[existingIdx] = {
+          ...scanLogRef.current[existingIdx],
+          quantity: newQty,
+          timestamp: Date.now(),
+        }
+        setScanLog([...scanLogRef.current])
+      } else {
+        // New extra barcode — lookup product and add to log
+        const entry: ScanLogEntry = {
+          barcode,
+          matched: false,
+          quantity: 1,
+          timestamp: Date.now(),
+        }
+        scanLogRef.current = [...scanLogRef.current, entry]
+        setScanLog([...scanLogRef.current])
+
+        // Lookup product name
+        try {
+          const lookup = await productsService.lookupBarcode(barcode)
+          if (lookup.found && lookup.product_name) {
+            const name = lookup.brand ? `${lookup.product_name} (${lookup.brand})` : lookup.product_name
+            const idx = scanLogRef.current.findIndex(e => e.barcode === barcode && !e.matched)
+            if (idx >= 0) {
+              scanLogRef.current[idx] = { ...scanLogRef.current[idx], productName: name }
+              setScanLog([...scanLogRef.current])
+            }
+          }
+        } catch {
+          // Lookup failed — entry stays with barcode only (no product name)
+        }
+      }
+    }
+  }, [list, id])
+
+  const handleScannerClose = useCallback(async () => {
+    setShowScanner(false)
+    if (!id) return
+
+    const extraEntries = scanLogRef.current.filter(e => !e.matched)
+    const verifiedCount = scanLogRef.current.filter(e => e.matched).length
+
+    // Show processing overlay if there's work to do
+    if (extraEntries.length > 0) {
+      setIsScanProcessing(true)
+    }
+
+    let extraCount = 0
+    const noProductBarcodes: string[] = []
+
+    // Add extra items to the list
+    for (const entry of extraEntries) {
+      try {
+        await shoppingListsService.addExtraItem(
+          id,
+          entry.barcode,
+          entry.quantity,
+          'pz',
+          entry.productName
+        )
+        extraCount++
+        if (!entry.productName) {
+          noProductBarcodes.push(entry.barcode)
+        }
+      } catch (err) {
+        console.error('Failed to add extra item:', err)
+      }
+    }
+
+    // Refresh list
+    try {
+      const updated = await shoppingListsService.getById(id)
+      setList(updated)
+    } catch {
+      // ignore
+    }
+
+    setIsScanProcessing(false)
+
+    // Show summary toast
+    const parts: string[] = []
+    if (verifiedCount > 0) parts.push(`${verifiedCount} verificati`)
+    if (extraCount > 0) parts.push(`${extraCount} extra`)
+    if (noProductBarcodes.length > 0) parts.push(`${noProductBarcodes.length} senza prodotto`)
+
+    if (parts.length > 0) {
+      showToast(`Scansione: ${parts.join(', ')}`, noProductBarcodes.length > 0 ? 'error' : 'success')
+    }
+
+    // Reset scan log
+    setScanLog([])
+    scanLogRef.current = []
+  }, [id])
 
   if (isLoading) {
     return (
@@ -1115,6 +1308,125 @@ export function LoadVerification() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Continuous Scanner FAB */}
+      <button
+        onClick={() => {
+          setScanLog([])
+          scanLogRef.current = []
+          setShowScanner(true)
+        }}
+        className="fixed bottom-20 right-4 w-14 h-14 bg-primary-600 text-white rounded-full shadow-lg flex items-center justify-center z-30 hover:bg-primary-700 active:scale-95 transition-transform"
+        title="Scansione continua"
+      >
+        <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 013.75 5.625v-.75zM3.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM9.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 019.75 5.625v-.75zM9.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM3.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM9.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM3.75 18.375c0-.621.504-1.125 1.125-1.125h15.75c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125H4.875a1.125 1.125 0 01-1.125-1.125v-.75z" />
+        </svg>
+      </button>
+
+      {/* Continuous Scanner Overlay */}
+      {showScanner && (
+        <ContinuousBarcodeScanner
+          onBarcodeDetected={handleBarcodeDetected}
+          onClose={handleScannerClose}
+          scanLog={scanLog}
+        />
+      )}
+
+      {/* Processing overlay after scanner close */}
+      {isScanProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
+            <svg className="w-10 h-10 text-primary-600 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="text-sm font-medium text-gray-700">Salvataggio articoli extra...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Unassociated Items Warning Modal */}
+      {showUnassociatedWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col">
+            <div className="p-4 border-b">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">Prodotti senza associazione</h3>
+                  <p className="text-sm text-gray-500">
+                    Alcuni articoli non hanno un'anagrafica completa
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4">
+              {unassociatedItems.noProduct.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-orange-700 mb-2 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" />
+                    </svg>
+                    EAN senza prodotto ({unassociatedItems.noProduct.length})
+                  </h4>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Barcode scansionato ma prodotto non trovato in anagrafica
+                  </p>
+                  <div className="bg-orange-50 rounded-lg divide-y divide-orange-100">
+                    {unassociatedItems.noProduct.map(item => (
+                      <div key={item.id} className="px-3 py-2">
+                        <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                        <p className="text-xs text-gray-500 font-mono">
+                          EAN: {item.scanned_barcode}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {unassociatedItems.noBarcode.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-red-700 mb-2 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Senza EAN ({unassociatedItems.noBarcode.length})
+                  </h4>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Articoli verificati senza barcode associato
+                  </p>
+                  <div className="bg-red-50 rounded-lg divide-y divide-red-100">
+                    {unassociatedItems.noBarcode.map(item => (
+                      <div key={item.id} className="px-3 py-2">
+                        <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit || 'pz'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t">
+              <button
+                onClick={handleDismissUnassociatedWarning}
+                className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700"
+              >
+                Ho capito, continua
+              </button>
             </div>
           </div>
         </div>

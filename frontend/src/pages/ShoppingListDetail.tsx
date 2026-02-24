@@ -8,6 +8,7 @@ import dispensaService from '@/services/dispensa'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import ItemActionMenu from '@/components/ItemActionMenu'
 import ProductNoteModal from '@/components/ProductNoteModal'
+import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 import type { ShoppingList, ShoppingListItem, ShoppingListStatus, Category } from '@/types'
 
 const STATUS_LABELS: Record<ShoppingListStatus, string> = {
@@ -31,6 +32,12 @@ export function ShoppingListDetail() {
   const [noteEditItem, setNoteEditItem] = useState<ShoppingListItem | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
 
+
+  // Continuous scanner
+  const [showScanner, setShowScanner] = useState(false)
+  const [scanLog, setScanLog] = useState<ScanLogEntry[]>([])
+  const scanLogRef = useRef<ScanLogEntry[]>([])
+  const [isScanProcessing, setIsScanProcessing] = useState(false)
 
   // Dispensa
   const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
@@ -92,9 +99,9 @@ export function ShoppingListDetail() {
     }
   }, [list, mode, isLoading, navigate])
 
-  // Live polling - refresh every 3 seconds to sync across devices
+  // Live polling - refresh every 3 seconds to sync across devices (paused during scanning)
   useEffect(() => {
-    if (!id || isLoading) return
+    if (!id || isLoading || showScanner) return
 
     const pollInterval = setInterval(async () => {
       try {
@@ -106,7 +113,7 @@ export function ShoppingListDetail() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [id, isLoading])
+  }, [id, isLoading, showScanner])
 
   // Toggle check only (called from checkbox click)
   const toggleItemCheck = async (item: ShoppingListItem) => {
@@ -270,6 +277,155 @@ export function ShoppingListDetail() {
       setTimeout(() => setScanResult(null), 3000)
     }
   }
+
+  // --- Continuous scanner handlers ---
+  const handleBarcodeDetected = useCallback(async (barcode: string) => {
+    if (!list || !id) return
+
+    // Check if this barcode matches any unchecked item via catalog_barcode
+    const matchedItem = list.items.find(
+      item => item.catalog_barcode === barcode && !item.not_purchased
+    )
+
+    if (matchedItem) {
+      // Check if we already have this barcode in the log → increment quantity
+      const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
+
+      let newQuantity = 1
+      if (existingIdx >= 0) {
+        newQuantity = scanLogRef.current[existingIdx].quantity + 1
+        scanLogRef.current[existingIdx] = {
+          ...scanLogRef.current[existingIdx],
+          quantity: newQuantity,
+          timestamp: Date.now(),
+        }
+      } else {
+        scanLogRef.current = [
+          ...scanLogRef.current,
+          {
+            barcode,
+            productName: matchedItem.name,
+            matched: true,
+            quantity: 1,
+            timestamp: Date.now(),
+          },
+        ]
+      }
+      setScanLog([...scanLogRef.current])
+
+      // Call verify-with-quantity API
+      try {
+        await shoppingListsService.verifyItemWithQuantity(
+          id,
+          matchedItem.id,
+          barcode,
+          newQuantity,
+          matchedItem.unit || 'pz',
+          matchedItem.name
+        )
+        // Refresh list in background
+        const updated = await shoppingListsService.getById(id)
+        setList(updated)
+      } catch (err) {
+        console.error('Verify failed:', err)
+      }
+    } else {
+      // No match — extra item
+      const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode && !e.matched)
+
+      if (existingIdx >= 0) {
+        scanLogRef.current[existingIdx] = {
+          ...scanLogRef.current[existingIdx],
+          quantity: scanLogRef.current[existingIdx].quantity + 1,
+          timestamp: Date.now(),
+        }
+        setScanLog([...scanLogRef.current])
+      } else {
+        // Look up product name in background
+        const entry: ScanLogEntry = {
+          barcode,
+          matched: false,
+          quantity: 1,
+          timestamp: Date.now(),
+        }
+        scanLogRef.current = [...scanLogRef.current, entry]
+        setScanLog([...scanLogRef.current])
+
+        try {
+          const lookup = await productsService.lookupBarcode(barcode)
+          if (lookup.found && lookup.product_name) {
+            const idx = scanLogRef.current.findIndex(e => e.barcode === barcode && !e.matched)
+            if (idx >= 0) {
+              scanLogRef.current[idx] = {
+                ...scanLogRef.current[idx],
+                productName: lookup.product_name,
+              }
+              setScanLog([...scanLogRef.current])
+            }
+          }
+        } catch {
+          // Lookup failed, keep barcode as name
+        }
+      }
+    }
+  }, [list, id])
+
+  const handleScannerClose = useCallback(async () => {
+    setShowScanner(false)
+
+    if (!id) return
+
+    const extraEntries = scanLogRef.current.filter(e => !e.matched)
+    const verifiedCount = scanLogRef.current.filter(e => e.matched).length
+
+    if (extraEntries.length > 0) {
+      setIsScanProcessing(true)
+    }
+
+    let extraCount = 0
+
+    // Add extra items
+    for (const entry of extraEntries) {
+      try {
+        await shoppingListsService.addExtraItem(
+          id,
+          entry.barcode,
+          entry.quantity,
+          'pz',
+          entry.productName
+        )
+        extraCount++
+      } catch (err) {
+        console.error('Failed to add extra item:', err)
+      }
+    }
+
+    // Refresh list
+    try {
+      const updated = await shoppingListsService.getById(id)
+      setList(updated)
+    } catch {
+      // ignore
+    }
+
+    setIsScanProcessing(false)
+
+    // Show summary toast
+    if (verifiedCount > 0 || extraCount > 0) {
+      const parts: string[] = []
+      if (verifiedCount > 0) parts.push(`${verifiedCount} verificati`)
+      if (extraCount > 0) parts.push(`${extraCount} extra`)
+      setScanResult({
+        success: true,
+        message: `Scansione: ${parts.join(', ')}`,
+      })
+      setTimeout(() => setScanResult(null), 4000)
+    }
+
+    // Reset scan log
+    setScanLog([])
+    scanLogRef.current = []
+  }, [id])
 
   // Format date from YYYY-MM-DD to DD/MM/YYYY for display
   const formatDateForDisplay = (dateStr: string | undefined): string => {
@@ -838,6 +994,45 @@ export function ShoppingListDetail() {
           className="fixed inset-0 z-0"
           onClick={() => setShowActionsMenu(false)}
         />
+      )}
+
+      {/* Continuous Scanner FAB */}
+      {list.status === 'active' && (
+        <button
+          onClick={() => {
+            setScanLog([])
+            scanLogRef.current = []
+            setShowScanner(true)
+          }}
+          className="fixed bottom-20 right-4 w-14 h-14 bg-primary-600 text-white rounded-full shadow-lg flex items-center justify-center z-30 hover:bg-primary-700 active:scale-95 transition-transform"
+          title="Scansione continua"
+        >
+          <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 013.75 5.625v-.75zM3.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM9.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25A1.125 1.125 0 019.75 5.625v-.75zM9.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 9.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM3.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM9.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM15.75 13.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125v-.75zM3.75 18.375c0-.621.504-1.125 1.125-1.125h15.75c.621 0 1.125.504 1.125 1.125v.75c0 .621-.504 1.125-1.125 1.125H4.875a1.125 1.125 0 01-1.125-1.125v-.75z" />
+          </svg>
+        </button>
+      )}
+
+      {/* Continuous Scanner Overlay */}
+      {showScanner && (
+        <ContinuousBarcodeScanner
+          onBarcodeDetected={handleBarcodeDetected}
+          onClose={handleScannerClose}
+          scanLog={scanLog}
+        />
+      )}
+
+      {/* Processing overlay after scanner close */}
+      {isScanProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
+            <svg className="w-10 h-10 text-primary-600 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="text-sm font-medium text-gray-700">Salvataggio articoli extra...</p>
+          </div>
+        </div>
       )}
     </div>
   )

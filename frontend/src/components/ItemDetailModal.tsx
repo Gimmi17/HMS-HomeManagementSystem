@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ShoppingListItem, Category } from '@/types'
-import PhotoBarcodeScanner from './PhotoBarcodeScanner'
+import LiveBarcodeScanner from './LiveBarcodeScanner'
 
 // Format date from YYYY-MM-DD to DD/MM/YYYY for display
 const formatDateForDisplay = (dateStr: string | undefined): string => {
@@ -69,7 +69,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
   const [expiryDateInput, setExpiryDateInput] = useState(item.expiry_date ? formatDateForDisplay(item.expiry_date) : '')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(item.category_id)
   const [barcodeInput, setBarcodeInput] = useState(item.scanned_barcode || item.catalog_barcode || '')
-  const [showPhotoScanner, setShowPhotoScanner] = useState(false)
+  const [showLiveScanner, setShowLiveScanner] = useState(false)
   const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
   const [expiryError, setExpiryError] = useState('')
 
@@ -122,19 +122,9 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
     }
   }
 
-  const handlePhotoBarcodeScanned = (barcode: string) => {
+  const handleLiveBarcodeScanned = (barcode: string) => {
     setBarcodeInput(barcode)
-    setShowPhotoScanner(false)
-  }
-
-  // Photo scanner view
-  if (showPhotoScanner) {
-    return (
-      <PhotoBarcodeScanner
-        onScan={handlePhotoBarcodeScanned}
-        onClose={() => setShowPhotoScanner(false)}
-      />
-    )
+    setShowLiveScanner(false)
   }
 
   // Verified confirmation dialog
@@ -326,9 +316,9 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
               inputMode="numeric"
             />
             <button
-              onClick={() => setShowPhotoScanner(true)}
+              onClick={() => setShowLiveScanner(true)}
               className="px-3 py-2.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 flex items-center justify-center"
-              title="Scansiona da foto"
+              title="Scansiona barcode"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -359,6 +349,14 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel }: It
           {mode === 'view' ? 'Salva e Spunta' : 'Salva e Certifica'}
         </button>
       </div>
+
+      {/* Live barcode scanner overlay */}
+      {showLiveScanner && (
+        <LiveBarcodeScanner
+          onScan={handleLiveBarcodeScanned}
+          onClose={() => setShowLiveScanner(false)}
+        />
+      )}
     </div>,
     document.body
   )
