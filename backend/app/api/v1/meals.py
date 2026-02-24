@@ -105,25 +105,18 @@ def create_new_meal(
             "consumed_at": "2026-01-15T20:00:00Z"
         }
     """
-    # Placeholder until auth is fully implemented
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Meal creation requires user_id and house_id from authenticated user. Complete auth implementation first."
-    )
-
-    # Future implementation when auth is ready:
-    # try:
-    #     meal = create_meal(
-    #         db=db,
-    #         user_id=current_user.id,
-    #         house_id=current_user.house_id,  # Get from user's houses
-    #         meal_data=meal_data
-    #     )
-    #     return meal
-    # except ValueError as e:
-    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    # except Exception as e:
-    #     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    from app.models.user_house import UserHouse
+    membership = db.query(UserHouse).filter(UserHouse.user_id == current_user.id).first()
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Utente non associato a nessuna casa",
+        )
+    try:
+        meal = create_meal(db, current_user.id, membership.house_id, meal_data)
+        return meal
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("", response_model=MealListResponse)

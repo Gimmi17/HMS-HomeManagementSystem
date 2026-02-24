@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, environments
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, environments, meal_planner
 
 
 # Create main v1 router
@@ -251,4 +251,15 @@ api_router.include_router(
     llm.router,
     # prefix is already defined in llm.router (/llm)
     tags=["LLM"],
+)
+
+
+# Include meal planner endpoints
+# Endpoints: POST /meal-planner/generate, POST /meal-planner/confirm
+# Meal planning wizard with LLM-powered suggestions
+# Requires authentication
+api_router.include_router(
+    meal_planner.router,
+    # prefix is already defined in meal_planner.router (/meal-planner)
+    tags=["Meal Planner"],
 )
