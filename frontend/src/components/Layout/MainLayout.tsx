@@ -36,7 +36,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       <main className="p-4 sm:p-6 pb-20 sm:pb-6 min-h-[calc(100vh-57px)]">
         {children}
       </main>
-      <BottomNav onMenuToggle={() => setIsMenuOpen((prev) => !prev)} />
+      <BottomNav />
       <DrawerMenu
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}

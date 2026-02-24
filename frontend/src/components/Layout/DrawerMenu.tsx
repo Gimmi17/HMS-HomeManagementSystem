@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
+import { useHouse } from '@/context/HouseContext'
 
 const baseNavItems = [
   { to: '/', label: 'Dashboard', icon: '📊' },
@@ -25,6 +26,7 @@ interface DrawerMenuProps {
 }
 
 export function DrawerMenu({ isOpen, onClose, userName, isAdmin, onLogout }: DrawerMenuProps) {
+  const { currentHouse, houses, setCurrentHouse } = useHouse()
   const navItems = isAdmin
     ? [...baseNavItems.slice(0, -1), adminNavItem, baseNavItems[baseNavItems.length - 1]]
     : baseNavItems
@@ -53,19 +55,37 @@ export function DrawerMenu({ isOpen, onClose, userName, isAdmin, onLogout }: Dra
       {/* Drawer panel */}
       <aside className="absolute top-0 left-0 bottom-0 w-72 bg-white shadow-xl animate-slide-left flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <span className="text-sm font-medium text-gray-700 truncate">
-            {userName}
-          </span>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-            aria-label="Chiudi menu"
-          >
-            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="px-4 py-3 border-b border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700 truncate">
+              {userName}
+            </span>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Chiudi menu"
+            >
+              <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {houses.length > 0 && (
+            <select
+              value={currentHouse?.id || ''}
+              onChange={(e) => {
+                const house = houses.find((h) => h.id === e.target.value)
+                setCurrentHouse(house || null)
+              }}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            >
+              {houses.map((house) => (
+                <option key={house.id} value={house.id}>
+                  {house.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Navigation */}

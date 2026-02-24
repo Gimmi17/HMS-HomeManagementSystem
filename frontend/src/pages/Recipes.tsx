@@ -1,14 +1,41 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import recipesService from '@/services/recipes'
 import type { Recipe } from '@/types'
 
 export function Recipes() {
   const { currentHouse } = useHouse()
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Inquiry mode detection
+  const inquiry = searchParams.get('inquiry')
+  const inquiryDate = searchParams.get('date') || ''
+  const inquiryMealType = searchParams.get('meal_type') || ''
+  const isInquiry = inquiry === 'meal'
+
+  const buildMealFormUrl = (recipeId?: string) => {
+    const params = new URLSearchParams()
+    if (recipeId) params.set('recipe_id', recipeId)
+    if (inquiryDate) params.set('date', inquiryDate)
+    if (inquiryMealType) params.set('meal_type', inquiryMealType)
+    return `/meals/new?${params.toString()}`
+  }
+
+  const buildDetailUrl = (recipeId: string) => {
+    const params = new URLSearchParams()
+    if (isInquiry) {
+      params.set('inquiry', 'meal')
+      if (inquiryDate) params.set('date', inquiryDate)
+      if (inquiryMealType) params.set('meal_type', inquiryMealType)
+    }
+    const qs = params.toString()
+    return `/recipes/${recipeId}${qs ? `?${qs}` : ''}`
+  }
 
   useEffect(() => {
     const fetchRecipes = async () => {
@@ -45,10 +72,21 @@ export function Recipes() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Ricette</h1>
-        <Link to="/recipes/new" className="btn btn-primary text-sm px-3 py-2">
-          + Nuova
-        </Link>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+          {isInquiry ? 'Seleziona Ricetta' : 'Ricette'}
+        </h1>
+        {isInquiry ? (
+          <button
+            onClick={() => navigate(buildMealFormUrl())}
+            className="btn btn-secondary text-sm px-3 py-2"
+          >
+            Annulla
+          </button>
+        ) : (
+          <Link to="/recipes/new" className="btn btn-primary text-sm px-3 py-2">
+            + Nuova
+          </Link>
+        )}
       </div>
 
       {/* Sticky Search */}
@@ -79,66 +117,81 @@ export function Recipes() {
       ) : (
         <div className="space-y-3">
           {filteredRecipes.map((recipe) => (
-            <Link
-              key={recipe.id}
-              to={`/recipes/${recipe.id}`}
-              className="card p-3 block hover:shadow-md transition-shadow"
-            >
-              <div className="flex justify-between items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-base truncate">{recipe.name}</h3>
+            <div key={recipe.id} className="card p-0 flex overflow-hidden hover:shadow-md transition-shadow">
+              {/* Inquiry: select arrow */}
+              {isInquiry && (
+                <button
+                  onClick={() => navigate(buildMealFormUrl(recipe.id))}
+                  className="flex items-center justify-center w-12 flex-shrink-0 bg-primary-50 hover:bg-primary-100 border-r border-gray-200 transition-colors"
+                  title="Seleziona questa ricetta"
+                >
+                  <svg className="w-5 h-5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              )}
 
-                  {recipe.description && (
-                    <p className="text-gray-600 text-xs mt-1 line-clamp-1">
-                      {recipe.description}
-                    </p>
-                  )}
+              {/* Card content - links to detail */}
+              <Link
+                to={buildDetailUrl(recipe.id)}
+                className="flex-1 p-3 block min-w-0"
+              >
+                <div className="flex justify-between items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold text-base truncate">{recipe.name}</h3>
 
-                  {/* Meta info */}
-                  <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
-                    {recipe.preparation_time_min && (
-                      <span>{recipe.preparation_time_min} min</span>
+                    {recipe.description && (
+                      <p className="text-gray-600 text-xs mt-1 line-clamp-1">
+                        {recipe.description}
+                      </p>
                     )}
-                    {recipe.difficulty && (
-                      <>
-                        <span>•</span>
-                        <span className="capitalize">{recipe.difficulty}</span>
-                      </>
-                    )}
-                  </div>
 
-                  {/* Tags */}
-                  {recipe.tags && recipe.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {recipe.tags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] rounded"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {recipe.tags.length > 3 && (
-                        <span className="text-[10px] text-gray-400">+{recipe.tags.length - 3}</span>
+                    {/* Meta info */}
+                    <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                      {recipe.preparation_time_min && (
+                        <span>{recipe.preparation_time_min} min</span>
+                      )}
+                      {recipe.difficulty && (
+                        <>
+                          <span>•</span>
+                          <span className="capitalize">{recipe.difficulty}</span>
+                        </>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* Nutrition summary */}
-                <div className="text-right flex-shrink-0">
-                  <div className="text-base font-bold text-gray-900">
-                    {Math.round(recipe.total_calories || 0)}
+                    {/* Tags */}
+                    {recipe.tags && recipe.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {recipe.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] rounded"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        {recipe.tags.length > 3 && (
+                          <span className="text-[10px] text-gray-400">+{recipe.tags.length - 3}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-gray-500">kcal</div>
-                  <div className="text-[10px] text-gray-400 mt-1">
-                    P:{Math.round(recipe.total_proteins_g || 0)}
-                    C:{Math.round(recipe.total_carbs_g || 0)}
-                    G:{Math.round(recipe.total_fats_g || 0)}
+
+                  {/* Nutrition summary */}
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-base font-bold text-gray-900">
+                      {Math.round(recipe.total_calories || 0)}
+                    </div>
+                    <div className="text-[10px] text-gray-500">kcal</div>
+                    <div className="text-[10px] text-gray-400 mt-1">
+                      P:{Math.round(recipe.total_proteins_g || 0)}
+                      C:{Math.round(recipe.total_carbs_g || 0)}
+                      G:{Math.round(recipe.total_fats_g || 0)}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </div>
           ))}
         </div>
       )}

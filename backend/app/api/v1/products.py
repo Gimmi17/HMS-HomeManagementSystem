@@ -41,6 +41,7 @@ class ProductLookupResponse(BaseModel):
     categories: Optional[str] = None
     nutriscore: Optional[str] = None
     category_id: Optional[str] = None  # Local category from ProductCatalog
+    nutrients: Optional[dict] = None  # { "energy-kcal_100g": ..., "proteins_100g": ..., ... }
     source_code: Optional[str] = None
     source_name: Optional[str] = None
     error: Optional[str] = None
@@ -95,6 +96,7 @@ async def lookup_barcode(
         quantity=result.get("quantity"),
         categories=result.get("categories"),
         nutriscore=result.get("nutriscore"),
+        nutrients=result.get("nutrients"),
         category_id=local_category_id,
         source_code=result.get("source_code"),
         source_name=result.get("source_name"),

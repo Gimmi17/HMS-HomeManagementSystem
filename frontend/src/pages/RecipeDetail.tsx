@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { recipesService } from '@/services/recipes'
 import { useHouse } from '@/context/HouseContext'
 import { RecipeHeader } from '@/components/Recipes/RecipeHeader'
@@ -35,7 +35,14 @@ import type { Recipe } from '@/types'
 export default function RecipeDetail() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const { currentHouse } = useHouse()
+
+  // Inquiry mode detection
+  const inquiry = searchParams.get('inquiry')
+  const inquiryDate = searchParams.get('date') || ''
+  const inquiryMealType = searchParams.get('meal_type') || ''
+  const isInquiry = inquiry === 'meal'
 
   // Recipe data
   const [recipe, setRecipe] = useState<Recipe | null>(null)
@@ -122,19 +129,31 @@ export default function RecipeDetail() {
   }
 
   /**
-   * Navigate to meal creation with recipe pre-filled
+   * Navigate to meal creation with recipe pre-filled (or select in inquiry mode)
    */
-  const handlePrepare = () => {
+  const handleSelectOrPrepare = () => {
     if (id) {
-      navigate(`/meals/new?recipe_id=${id}`)
+      const params = new URLSearchParams()
+      params.set('recipe_id', id)
+      if (inquiryDate) params.set('date', inquiryDate)
+      if (inquiryMealType) params.set('meal_type', inquiryMealType)
+      navigate(`/meals/new?${params.toString()}`)
     }
   }
 
   /**
-   * Go back to recipes list
+   * Go back to recipes list (preserving inquiry params)
    */
   const handleBack = () => {
-    navigate('/recipes')
+    if (isInquiry) {
+      const params = new URLSearchParams()
+      params.set('inquiry', 'meal')
+      if (inquiryDate) params.set('date', inquiryDate)
+      if (inquiryMealType) params.set('meal_type', inquiryMealType)
+      navigate(`/recipes?${params.toString()}`)
+    } else {
+      navigate('/recipes')
+    }
   }
 
   // Loading state
@@ -199,7 +218,7 @@ export default function RecipeDetail() {
             d="M15 19l-7-7 7-7"
           />
         </svg>
-        Torna alle Ricette
+        {isInquiry ? 'Torna alla selezione' : 'Torna alle Ricette'}
       </button>
 
       {/* Error message (for delete errors) */}
@@ -247,68 +266,93 @@ export default function RecipeDetail() {
             <div className="card space-y-3">
               <h3 className="text-lg font-semibold text-gray-900 mb-3">Azioni</h3>
 
-              {/* Prepare button (primary action) */}
-              <button
-                onClick={handlePrepare}
-                className="btn btn-primary w-full flex items-center justify-center gap-2"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              {isInquiry ? (
+                /* Inquiry mode: only "Seleziona" button */
+                <button
+                  onClick={handleSelectOrPrepare}
+                  className="btn btn-primary w-full flex items-center justify-center gap-2"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                  />
-                </svg>
-                Prepara Pasto
-              </button>
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  Seleziona questa ricetta
+                </button>
+              ) : (
+                <>
+                  {/* Prepare button (primary action) */}
+                  <button
+                    onClick={handleSelectOrPrepare}
+                    className="btn btn-primary w-full flex items-center justify-center gap-2"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                      />
+                    </svg>
+                    Prepara Pasto
+                  </button>
 
-              {/* Edit button */}
-              <button
-                onClick={handleEdit}
-                className="btn btn-secondary w-full flex items-center justify-center gap-2"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                  />
-                </svg>
-                Modifica
-              </button>
+                  {/* Edit button */}
+                  <button
+                    onClick={handleEdit}
+                    className="btn btn-secondary w-full flex items-center justify-center gap-2"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                      />
+                    </svg>
+                    Modifica
+                  </button>
 
-              {/* Delete button */}
-              <button
-                onClick={handleDeleteClick}
-                className="btn btn-danger w-full flex items-center justify-center gap-2"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-                Elimina
-              </button>
+                  {/* Delete button */}
+                  <button
+                    onClick={handleDeleteClick}
+                    className="btn btn-danger w-full flex items-center justify-center gap-2"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                    Elimina
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

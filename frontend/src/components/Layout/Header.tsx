@@ -1,12 +1,21 @@
-import { useHouse } from '@/context/HouseContext'
+import { useAuth } from '@/context/AuthContext'
 
 interface HeaderProps {
   onMenuToggle: () => void
   isMenuOpen: boolean
 }
 
+function getGreeting(): string {
+  const hour = new Date().getHours()
+  if (hour >= 5 && hour < 12) return 'Buongiorno'
+  if (hour >= 12 && hour < 18) return 'Buon pomeriggio'
+  if (hour >= 18 && hour < 22) return 'Buonasera'
+  return 'Buonanotte'
+}
+
 export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
-  const { currentHouse, houses, setCurrentHouse } = useHouse()
+  const { user } = useAuth()
+  const firstName = user?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || ''
 
   return (
     <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-40">
@@ -22,23 +31,9 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
           </svg>
         </button>
 
-        {/* House selector */}
-        {houses.length > 0 && (
-          <select
-            value={currentHouse?.id || ''}
-            onChange={(e) => {
-              const house = houses.find((h) => h.id === e.target.value)
-              setCurrentHouse(house || null)
-            }}
-            className="input flex-1 sm:flex-none sm:max-w-[180px]"
-          >
-            {houses.map((house) => (
-              <option key={house.id} value={house.id}>
-                {house.name}
-              </option>
-            ))}
-          </select>
-        )}
+        <span className="text-sm font-medium text-gray-700 truncate">
+          {getGreeting()}, {firstName}!
+        </span>
       </div>
     </header>
   )
