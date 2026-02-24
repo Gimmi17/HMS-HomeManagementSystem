@@ -9,6 +9,16 @@ export interface ProductLookupResult {
   quantity?: string
   categories?: string
   nutriscore?: string
+  nutrients?: {
+    'energy-kcal_100g'?: number
+    'proteins_100g'?: number
+    'carbohydrates_100g'?: number
+    'fat_100g'?: number
+    'fiber_100g'?: number
+    'sugars_100g'?: number
+    'saturated-fat_100g'?: number
+    'salt_100g'?: number
+  }
   category_id?: string  // Local category from product catalog
   source_code?: string
   source_name?: string

@@ -253,20 +253,30 @@ def get_recipe_details(
     recipe = result["recipe"]
     ingredient_breakdown = result["ingredient_breakdown"]
 
-    # Convert ingredient breakdown to schema format
+    # Build a lookup of nutrition by food_id
+    nutrition_by_food = {
+        ing["food_id"]: ing for ing in ingredient_breakdown
+    }
+
+    # Merge stored ingredient data (quantity, unit) with calculated nutrition
     from app.schemas.recipe import RecipeIngredientWithNutrition
-    ingredients_with_nutrition = [
-        RecipeIngredientWithNutrition(
-            food_id=UUID(ing["food_id"]),
-            food_name=ing["food_name"],
-            quantity_g=ing["quantity_g"],
-            calories=ing.get("calories"),
-            proteins_g=ing.get("proteins_g"),
-            fats_g=ing.get("fats_g"),
-            carbs_g=ing.get("carbs_g")
+    ingredients_with_nutrition = []
+    for stored_ing in (recipe.ingredients or []):
+        food_id_str = str(stored_ing.get("food_id", ""))
+        nutr = nutrition_by_food.get(food_id_str, {})
+        ingredients_with_nutrition.append(
+            RecipeIngredientWithNutrition(
+                food_id=UUID(food_id_str) if food_id_str else None,
+                food_name=stored_ing.get("food_name", ""),
+                quantity=stored_ing.get("quantity", stored_ing.get("quantity_g", 0)),
+                unit=stored_ing.get("unit", "g"),
+                quantity_g=stored_ing.get("quantity_g", 0),
+                calories=nutr.get("calories"),
+                proteins_g=nutr.get("proteins_g"),
+                fats_g=nutr.get("fats_g"),
+                carbs_g=nutr.get("carbs_g"),
+            )
         )
-        for ing in ingredient_breakdown
-    ]
 
     # Build detailed response
     return RecipeDetailResponse(

@@ -534,30 +534,31 @@ export function Pantry() {
         </div>
       </div>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Cerca prodotti..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        className="input w-full"
-      />
+      {/* Sticky Search + Filter */}
+      <div className="sticky top-0 z-10 bg-gray-50 -mx-4 px-4 pb-3 pt-1 sm:-mx-6 sm:px-6 space-y-3">
+        <input
+          type="text"
+          placeholder="Cerca prodotti..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="input w-full"
+        />
 
-      {/* Filter buttons */}
-      <div className="flex gap-2 overflow-x-auto">
-        {filterButtons.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilterMode(f.key)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              filterMode === f.key
-                ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+        <div className="flex gap-2 overflow-x-auto">
+          {filterButtons.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilterMode(f.key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                filterMode === f.key
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Items list grouped by category, then aggregated by product */}

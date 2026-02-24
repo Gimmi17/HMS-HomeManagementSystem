@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import recipesService from '@/services/recipes'
 import type { Recipe } from '@/types'
@@ -64,21 +65,32 @@ export function RecipeSelector({ value, onChange, disabled = false }: RecipeSele
     <div className="space-y-2">
       <label className="label">Seleziona ricetta</label>
 
-      {/* Recipe dropdown */}
-      <select
-        value={value || ''}
-        onChange={handleChange}
-        disabled={disabled || isLoading}
-        className="input w-full"
-      >
-        <option value="">-- Seleziona una ricetta --</option>
-        {safeRecipes.map((recipe) => (
-          <option key={recipe.id} value={recipe.id}>
-            {recipe.name}
-            {recipe.total_calories && ` (${Math.round(recipe.total_calories)} kcal)`}
-          </option>
-        ))}
-      </select>
+      {/* Recipe dropdown + new recipe button */}
+      <div className="flex gap-2">
+        <select
+          value={value || ''}
+          onChange={handleChange}
+          disabled={disabled || isLoading}
+          className="input flex-1 min-w-0"
+        >
+          <option value="">-- Seleziona una ricetta --</option>
+          {safeRecipes.map((recipe) => (
+            <option key={recipe.id} value={recipe.id}>
+              {recipe.name}
+              {recipe.total_calories && ` (${Math.round(recipe.total_calories)} kcal)`}
+            </option>
+          ))}
+        </select>
+        <Link
+          to="/recipes/new"
+          className="flex items-center justify-center w-10 h-10 bg-green-500 text-white rounded-lg hover:bg-green-600 flex-shrink-0"
+          title="Nuova ricetta"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+          </svg>
+        </Link>
+      </div>
 
       {/* Loading state */}
       {isLoading && (

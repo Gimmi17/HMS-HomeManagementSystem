@@ -985,9 +985,12 @@ export function LoadVerification() {
     )
   }
 
+  const pendingItems = list.items.filter((i) => !i.verified_at && !i.not_purchased)
+  const verifiedItems = list.items.filter((i) => i.verified_at || i.not_purchased)
   const verifiedCount = list.items.filter((i) => i.verified_at).length
   const notPurchasedCount = list.items.filter((i) => i.not_purchased).length
   const totalCount = list.items.length
+  const [collapsedVerified, setCollapsedVerified] = useState(false)
 
   return (
     <div className="space-y-4 pb-20">
@@ -1054,91 +1057,133 @@ export function LoadVerification() {
         </div>
       </div>
 
-      {/* Items */}
-      <div className="space-y-2">
-        {list.items.map((item) => {
-          const state = getItemState(item)
-          const colors = STATE_COLORS[state]
-
-          return (
-            <div
-              key={item.id}
-              onClick={() => handleItemClick(item)}
-              className={`card p-3 border-2 transition-colors cursor-pointer ${colors.bg} ${colors.border}`}
-            >
-              <div className="flex items-start gap-3">
-                {/* Status icon */}
-                <div className={`mt-0.5 ${colors.icon}`}>
-                  {state === 'pending' && (
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                  {state === 'not_purchased' && (
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )}
-                  {(state === 'verified_no_info' || state === 'verified_with_info') && (
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-
-                {/* Item info */}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900">
-                    {item.grocy_product_name || item.name}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-0.5">
-                    {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit}
-                    {item.scanned_barcode && (
-                      <span className="ml-2 text-gray-400">EAN: {item.scanned_barcode}</span>
-                    )}
-                  </div>
-                  {item.expiry_date && (
-                    <div className="text-xs text-orange-600 mt-0.5">
-                      Scad: {item.expiry_date.split('-').reverse().join('/')}
+      {/* Da verificare */}
+      {pendingItems.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-semibold text-gray-700">Da verificare</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-600">{pendingItems.length}</span>
+          </div>
+          <div className="space-y-2">
+            {pendingItems.map((item) => {
+              const state = getItemState(item)
+              const colors = STATE_COLORS[state]
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleItemClick(item)}
+                  className={`card p-3 border-2 transition-colors cursor-pointer ${colors.bg} ${colors.border}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`mt-0.5 ${colors.icon}`}>
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                     </div>
-                  )}
-                  {item.product_notes && (
-                    <p className="text-xs text-blue-600 italic truncate">{item.product_notes}</p>
-                  )}
-                </div>
-
-                {/* Edit button for verified items */}
-                {(state === 'verified_no_info' || state === 'verified_with_info') && (
-                  <div className="flex gap-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditItem(item)
-                      }}
-                      className="p-1.5 text-gray-500 hover:bg-white/50 rounded"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteItem(item)
-                      }}
-                      className="p-1.5 text-red-500 hover:bg-white/50 rounded"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-900">{item.grocy_product_name || item.name}</div>
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        {item.quantity} {item.unit}
+                        {item.catalog_barcode && (
+                          <span className="ml-2 text-gray-400">EAN: {item.catalog_barcode}</span>
+                        )}
+                      </div>
+                      {item.product_notes && (
+                        <p className="text-xs text-blue-600 italic truncate">{item.product_notes}</p>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Verificati */}
+      {verifiedItems.length > 0 && (
+        <div>
+          <button
+            onClick={() => setCollapsedVerified(!collapsedVerified)}
+            className="flex items-center gap-2 mb-2 w-full"
+          >
+            <svg
+              className={`w-4 h-4 text-gray-400 transition-transform ${collapsedVerified ? '' : 'rotate-180'}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            <span className="text-sm font-semibold text-gray-700">Verificati</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">{verifiedItems.length}</span>
+          </button>
+          {!collapsedVerified && (
+            <div className="space-y-2">
+              {verifiedItems.map((item) => {
+                const state = getItemState(item)
+                const colors = STATE_COLORS[state]
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleItemClick(item)}
+                    className={`card p-3 border-2 transition-colors cursor-pointer ${colors.bg} ${colors.border}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 ${colors.icon}`}>
+                        {state === 'not_purchased' ? (
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        ) : (
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900">{item.grocy_product_name || item.name}</div>
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit}
+                          {item.scanned_barcode && (
+                            <span className="ml-2 text-gray-400">EAN: {item.scanned_barcode}</span>
+                          )}
+                        </div>
+                        {item.expiry_date && (
+                          <div className="text-xs text-orange-600 mt-0.5">
+                            Scad: {item.expiry_date.split('-').reverse().join('/')}
+                          </div>
+                        )}
+                        {item.product_notes && (
+                          <p className="text-xs text-blue-600 italic truncate">{item.product_notes}</p>
+                        )}
+                      </div>
+                      {(state === 'verified_no_info' || state === 'verified_with_info') && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEditItem(item) }}
+                            className="p-1.5 text-gray-500 hover:bg-white/50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteItem(item) }}
+                            className="p-1.5 text-red-500 hover:bg-white/50 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Verification Modal */}
       {verifyingItem && (

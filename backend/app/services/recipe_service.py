@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 
 from app.models.recipe import Recipe
+from app.models.food import Food
 from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeIngredient
 from app.services.nutrition import (
     calculate_primary_macros,
@@ -34,6 +35,58 @@ from app.services.nutrition import (
 # RECIPE CRUD FUNCTIONS
 # ============================================================================
 
+def _resolve_ingredient_food(
+    ingredient: RecipeIngredient,
+    house_id: UUID,
+    db: Session,
+) -> RecipeIngredient:
+    """
+    Resolve an ingredient without food_id by finding or creating a matching Food.
+
+    Lookup order:
+    1. House-specific food matching by name (case-insensitive)
+    2. Global food (house_id=None) matching by name
+    3. Auto-create a new Food with the given name and null nutrients
+    """
+    if ingredient.food_id:
+        return ingredient
+
+    food_name = ingredient.food_name.strip()
+    if not food_name:
+        return ingredient
+
+    # Search house-specific foods first, then global
+    food = db.query(Food).filter(
+        and_(
+            Food.house_id == house_id,
+            func.lower(Food.name) == food_name.lower(),
+        )
+    ).first()
+
+    if not food:
+        food = db.query(Food).filter(
+            and_(
+                Food.house_id.is_(None),
+                func.lower(Food.name) == food_name.lower(),
+            )
+        ).first()
+
+    if not food:
+        # Auto-create food with null nutrients
+        food = Food(
+            house_id=house_id,
+            name=food_name,
+        )
+        db.add(food)
+        db.flush()  # get the generated id without committing
+
+    # Return a copy with the resolved food_id
+    data = ingredient.model_dump()
+    data["food_id"] = food.id
+    data["needs_configuration"] = False
+    return RecipeIngredient(**data)
+
+
 def create_recipe(
     db: Session,
     house_id: UUID,
@@ -44,40 +97,20 @@ def create_recipe(
     Create a new recipe with calculated nutritional values.
 
     This function:
-    1. Validates all ingredients exist in foods database
-    2. Calculates nutritional totals from ingredients
-    3. Creates recipe record with all data
-    4. Returns the created recipe
-
-    Args:
-        db: Database session
-        house_id: ID of house this recipe belongs to
-        created_by: ID of user creating the recipe
-        recipe_data: Recipe data from request (validated Pydantic model)
-
-    Returns:
-        Recipe: Created recipe record with calculated nutrition
-
-    Raises:
-        ValueError: If ingredients are invalid or not found in database
-
-    Example:
-        recipe = create_recipe(
-            db=db,
-            house_id=current_house.id,
-            created_by=current_user.id,
-            recipe_data=RecipeCreate(
-                name="Pasta al Pomodoro",
-                ingredients=[
-                    {"food_id": "uuid", "food_name": "Pasta", "quantity_g": 100},
-                    {"food_id": "uuid", "food_name": "Pomodori", "quantity_g": 200}
-                ],
-                difficulty="easy"
-            )
-        )
+    1. Resolves ingredients without food_id (auto-creates foods if needed)
+    2. Validates all ingredients exist in foods database
+    3. Calculates nutritional totals from ingredients
+    4. Creates recipe record with all data
+    5. Returns the created recipe
     """
+    # Step 0: Resolve ingredients without food_id
+    resolved_ingredients = [
+        _resolve_ingredient_food(ing, house_id, db)
+        for ing in recipe_data.ingredients
+    ]
+
     # Step 1: Validate ingredients exist in database
-    ingredients_list = [ing.model_dump() for ing in recipe_data.ingredients]
+    ingredients_list = [ing.model_dump() for ing in resolved_ingredients]
     is_valid, errors = validate_ingredients(ingredients_list, db)
     if not is_valid:
         raise ValueError(f"Invalid ingredients: {'; '.join(errors)}")
@@ -94,7 +127,7 @@ def create_recipe(
             "unit": ing.unit,
             "quantity_g": ing.quantity_g
         }
-        for ing in recipe_data.ingredients
+        for ing in resolved_ingredients
     ]
 
     # Step 4: Create recipe record
@@ -244,8 +277,14 @@ def update_recipe(
 
     # Check if ingredients are being updated
     if "ingredients" in update_data:
+        # Resolve ingredients without food_id
+        resolved_ingredients = [
+            _resolve_ingredient_food(ing, house_id, db)
+            for ing in recipe_data.ingredients
+        ]
+
         # Validate new ingredients
-        ingredients_list = [ing.model_dump() for ing in recipe_data.ingredients]
+        ingredients_list = [ing.model_dump() for ing in resolved_ingredients]
         is_valid, errors = validate_ingredients(ingredients_list, db)
         if not is_valid:
             raise ValueError(f"Invalid ingredients: {'; '.join(errors)}")
@@ -262,7 +301,7 @@ def update_recipe(
                 "unit": ing.unit,
                 "quantity_g": ing.quantity_g
             }
-            for ing in recipe_data.ingredients
+            for ing in resolved_ingredients
         ]
 
         # Update ingredients and nutrition
