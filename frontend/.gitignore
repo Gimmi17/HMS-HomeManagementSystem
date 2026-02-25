@@ -23,5 +23,8 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Local SSL certs (dev only)
+certs/
+
 # TypeScript
 *.tsbuildinfo

@@ -30,3 +30,8 @@ declare class BarcodeDetector {
 interface Window {
   BarcodeDetector?: typeof BarcodeDetector
 }
+
+// Extend MediaTrackCapabilities with zoom (not in default TS types)
+interface MediaTrackCapabilities {
+  zoom?: { min: number; max: number; step: number }
+}
