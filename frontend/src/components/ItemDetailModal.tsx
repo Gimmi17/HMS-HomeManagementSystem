@@ -11,31 +11,44 @@ const formatDateForDisplay = (dateStr: string | undefined): string => {
   return `${day}/${month}/${year}`
 }
 
+// Validate that a date actually exists (e.g. reject Feb 30)
+const isValidDate = (d: number, m: number, y: number): boolean => {
+  const date = new Date(y, m - 1, d)
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+}
+
 // Parse date from various formats to YYYY-MM-DD for API
-const parseDateFromInput = (input: string): string | null => {
+const parseDateFromInput = (input: string): { date: string | null; error?: string } => {
+  let d = 0, m = 0, y = 0, day = '', month = '', year = ''
+
   const compactMatch = input.match(/^(\d{2})(\d{2})(\d{2,4})$/)
   if (compactMatch) {
-    const day = compactMatch[1]
-    const month = compactMatch[2]
-    const year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
-    const d = parseInt(day, 10)
-    const m = parseInt(month, 10)
-    const y = parseInt(year, 10)
-    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-    return `${year}-${month}-${day}`
+    day = compactMatch[1]
+    month = compactMatch[2]
+    year = compactMatch[3].length === 2 ? `20${compactMatch[3]}` : compactMatch[3]
+    d = parseInt(day, 10)
+    m = parseInt(month, 10)
+    y = parseInt(year, 10)
+  } else {
+    const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
+    if (separatorMatch) {
+      day = separatorMatch[1].padStart(2, '0')
+      month = separatorMatch[2].padStart(2, '0')
+      year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
+      d = parseInt(day, 10)
+      m = parseInt(month, 10)
+      y = parseInt(year, 10)
+    } else {
+      return { date: null, error: 'Formato non riconosciuto. Usa DDMMYY o DD/MM/YYYY' }
+    }
   }
-  const separatorMatch = input.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/)
-  if (separatorMatch) {
-    const day = separatorMatch[1].padStart(2, '0')
-    const month = separatorMatch[2].padStart(2, '0')
-    const year = separatorMatch[3].length === 2 ? `20${separatorMatch[3]}` : separatorMatch[3]
-    const d = parseInt(day, 10)
-    const m = parseInt(month, 10)
-    const y = parseInt(year, 10)
-    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 2020 || y > 2100) return null
-    return `${year}-${month}-${day}`
-  }
-  return null
+
+  if (m < 1 || m > 12) return { date: null, error: `Mese ${m} non valido` }
+  if (d < 1 || d > 31) return { date: null, error: `Giorno ${d} non valido` }
+  if (y < 2020 || y > 2100) return { date: null, error: `Anno ${y} non valido` }
+  if (!isValidDate(d, m, y)) return { date: null, error: `La data ${d}/${m}/${y} non esiste` }
+
+  return { date: `${year}-${month}-${day}` }
 }
 
 export interface ItemDetailModalData {
@@ -155,12 +168,12 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
     let expiryDate: string | null | undefined = undefined
 
     if (trimmedExpiry) {
-      const parsedDate = parseDateFromInput(trimmedExpiry)
-      if (!parsedDate) {
-        setExpiryError('Formato data non valido. Usa DDMMYY o DD/MM/YYYY')
+      const result = parseDateFromInput(trimmedExpiry)
+      if (!result.date) {
+        setExpiryError(result.error || 'Data non valida')
         return
       }
-      expiryDate = parsedDate
+      expiryDate = result.date
     } else if (isCertify) {
       expiryDate = null
     }

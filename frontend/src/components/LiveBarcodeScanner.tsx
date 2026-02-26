@@ -287,7 +287,7 @@ export default function LiveBarcodeScanner({ onScan, onClose }: Props) {
     : cssZoom > 1 ? { transform: `scale(${cssZoom})`, transformOrigin: 'center center' } : undefined
 
   const content = (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+    <div className="fixed inset-0 z-[70] bg-black flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-black/80 text-white z-10">
         <h2 className="text-lg font-semibold">Scansiona Barcode</h2>
