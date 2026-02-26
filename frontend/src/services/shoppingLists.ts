@@ -141,6 +141,14 @@ export const shoppingListsService = {
   },
 
   /**
+   * Undo not-purchased, returning item to pending state
+   */
+  async undoNotPurchased(listId: string, itemId: string): Promise<ShoppingListItem> {
+    const response = await api.post(`/shopping-lists/${listId}/items/${itemId}/undo-not-purchased`)
+    return response.data
+  },
+
+  /**
    * Add an extra item during load verification (products not originally on the list)
    */
   async addExtraItem(

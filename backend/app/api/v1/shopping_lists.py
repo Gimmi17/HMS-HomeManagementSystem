@@ -822,6 +822,39 @@ def mark_item_not_purchased(
     return item
 
 
+@router.post("/{list_id}/items/{item_id}/undo-not-purchased", response_model=ShoppingListItemResponse)
+def undo_item_not_purchased(
+    list_id: UUID,
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Undo not-purchased status, returning the item to pending (unverified) state.
+    """
+    item = db.query(ShoppingListItem).filter(
+        ShoppingListItem.id == item_id,
+        ShoppingListItem.shopping_list_id == list_id
+    ).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Articolo non trovato"
+        )
+
+    item.not_purchased = False
+    item.not_purchased_at = None
+    item.verified_at = None
+    item.checked = False
+    item.checked_at = None
+
+    db.commit()
+    db.refresh(item)
+
+    return item
+
+
 class VerifyWithQuantityRequest(BaseModel):
     barcode: str
     quantity: float

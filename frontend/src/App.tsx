@@ -2,7 +2,8 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, ShoppingListDetail, LoadVerification, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Environments, EnvironmentDetail, MealPlannerWizard } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Environments, EnvironmentDetail, MealPlannerWizard } from './pages'
+import { ShoppingListUnified } from './pages/ShoppingList'
 import RecipeForm from './pages/RecipeForm'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -258,30 +259,19 @@ function App() {
         element={
           <PrivateRoute>
             <MainLayout>
-              <ShoppingListDetail />
+              <ShoppingListUnified />
             </MainLayout>
           </PrivateRoute>
         }
       />
+      {/* Redirect old routes to unified page */}
       <Route
         path="/shopping-lists/:id/edit"
-        element={
-          <PrivateRoute>
-            <MainLayout>
-              <ShoppingListForm />
-            </MainLayout>
-          </PrivateRoute>
-        }
+        element={<Navigate to="../?mode=edit" replace />}
       />
       <Route
         path="/shopping-lists/:id/verify"
-        element={
-          <PrivateRoute>
-            <MainLayout>
-              <LoadVerification />
-            </MainLayout>
-          </PrivateRoute>
-        }
+        element={<Navigate to="../?mode=verify" replace />}
       />
       <Route
         path="/shopping-lists/:listId/receipt"

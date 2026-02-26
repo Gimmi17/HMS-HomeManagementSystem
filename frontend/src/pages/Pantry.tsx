@@ -18,6 +18,7 @@ import type {
   ShoppingListSummary,
 } from '@/types'
 import categoriesService from '@/services/categories'
+import SwipeableRow from '@/components/SwipeableRow'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useToast } from '@/hooks/useToast'
 import { Toast } from '@/components/Toast'
@@ -668,16 +669,19 @@ export function Pantry() {
                           {isExpanded && (
                             <div className="bg-gray-50 border-t">
                               {product.entries.map((entry) => (
-                                <button
+                                <SwipeableRow
                                   key={entry.id}
-                                  onClick={() => setSelectedEntry(entry)}
-                                  className={`w-full text-left px-3 py-2.5 pl-10 border-b border-gray-100 last:border-b-0 hover:bg-gray-100 transition-colors ${
-                                    isExpired(entry.expiry_date) ? 'bg-red-50/50' : ''
-                                  } ${
-                                    isExpiringSoon(entry.expiry_date) ? 'bg-yellow-50/50' : ''
-                                  }`}
+                                  onSwipeLeft={() => setSelectedEntry(entry)}
+                                  className=""
                                 >
-                                  <div className="flex items-center justify-between">
+                                  <button
+                                    onClick={() => setSelectedEntry(entry)}
+                                    className={`w-full text-left px-3 py-2.5 pl-10 border-b border-gray-100 last:border-b-0 hover:bg-gray-100 transition-colors ${
+                                      isExpired(entry.expiry_date) ? 'bg-red-50/50' : ''
+                                    } ${
+                                      isExpiringSoon(entry.expiry_date) ? 'bg-yellow-50/50' : ''
+                                    }`}
+                                  >
                                     <div className="flex items-center gap-2 text-xs text-gray-600">
                                       <span className="font-medium">
                                         {entry.quantity} {entry.unit || 'pz'}
@@ -693,11 +697,8 @@ export function Pantry() {
                                         <span className="text-gray-400 italic ml-1 truncate max-w-[100px]">{entry.notes}</span>
                                       )}
                                     </div>
-                                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                    </svg>
-                                  </div>
-                                </button>
+                                  </button>
+                                </SwipeableRow>
                               ))}
                             </div>
                           )}

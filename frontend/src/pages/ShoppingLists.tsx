@@ -60,9 +60,9 @@ export function ShoppingLists() {
     }
     setShowActionModal(false)
     if (action === 'verify') {
-      navigate(`/shopping-lists/${selectedList.id}/verify`)
+      navigate(`/shopping-lists/${selectedList.id}?mode=verify`)
     } else if (action === 'edit') {
-      navigate(`/shopping-lists/${selectedList.id}/edit`)
+      navigate(`/shopping-lists/${selectedList.id}?mode=edit`)
     } else if (action === 'receipt') {
       navigate(`/shopping-lists/${selectedList.id}/receipt`)
     } else {
