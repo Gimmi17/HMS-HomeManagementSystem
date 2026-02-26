@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 
 const leftItems = [
   { to: '/shopping-lists', label: 'Spesa', icon: '🛒' },
-  { to: '/pantry', label: 'Dispensa', icon: '📦' },
+  { to: '/pantry', label: 'Giacenze', icon: '🏠' },
 ]
 
 const rightItems = [

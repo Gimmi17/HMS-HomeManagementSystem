@@ -5,7 +5,7 @@ const navItems = [
   { to: '/meals', label: 'Pasti', icon: '🍽️' },
   { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
   { to: '/recipes', label: 'Ricette', icon: '📖' },
-  { to: '/pantry', label: 'Dispensa', icon: '🏠' },
+  { to: '/pantry', label: 'Giacenze', icon: '🏠' },
   { to: '/environments', label: 'Ambienti', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/house', label: 'Casa', icon: '👥' },
