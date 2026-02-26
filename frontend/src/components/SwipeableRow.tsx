@@ -86,7 +86,6 @@ export default function SwipeableRow({ children, onSwipeLeft, onSwipeRight, thre
           transition: swiping ? 'none' : 'transform 0.3s ease-out',
         }}
       >
-        {children}
         {/* Swipe hint: right-pointing arrow on left (swipe right available) */}
         {onSwipeRight && (
           <div className="absolute left-1 inset-y-0 flex items-center pointer-events-none">
@@ -95,6 +94,9 @@ export default function SwipeableRow({ children, onSwipeLeft, onSwipeRight, thre
             </svg>
           </div>
         )}
+        <div className={`${onSwipeRight ? 'pl-4' : ''} ${onSwipeLeft ? 'pr-4' : ''}`}>
+          {children}
+        </div>
         {/* Swipe hint: left-pointing arrow on right (swipe left available) */}
         {onSwipeLeft && (
           <div className="absolute right-1 inset-y-0 flex items-center pointer-events-none">
