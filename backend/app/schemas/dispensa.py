@@ -83,6 +83,35 @@ class DispensaItemListResponse(BaseModel):
 class SendToDispensaRequest(BaseModel):
     """Schema for sending shopping list items to dispensa"""
     shopping_list_id: UUID = Field(..., description="Shopping list ID to send items from")
+    item_environments: Optional[dict[str, str]] = Field(None, description="Map of item_id → environment_id overrides")
+
+
+class PreviewFromShoppingListRequest(BaseModel):
+    """Schema for previewing items before sending to dispensa"""
+    shopping_list_id: UUID = Field(..., description="Shopping list ID to preview")
+
+
+class PreviewItemResponse(BaseModel):
+    """Single item in the preview response"""
+    item_id: UUID
+    name: str
+    quantity: float
+    unit: Optional[str] = None
+    environment_id: Optional[UUID] = None
+    environment_name: Optional[str] = None
+
+
+class PreviewEnvironmentResponse(BaseModel):
+    """Environment info in the preview response"""
+    id: UUID
+    name: str
+    icon: Optional[str] = None
+
+
+class PreviewFromShoppingListResponse(BaseModel):
+    """Response for preview-from-shopping-list"""
+    items: list[PreviewItemResponse]
+    environments: list[PreviewEnvironmentResponse]
 
 
 class ConsumeItemRequest(BaseModel):

@@ -18,6 +18,10 @@ from uuid import UUID
 
 from app.models.dispensa import DispensaItem
 from app.models.shopping_list import ShoppingList, ShoppingListItem
+from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
+from app.models.category import Category
+from app.models.environment import Environment
 from app.schemas.dispensa import DispensaItemCreate, DispensaItemUpdate
 
 
@@ -203,12 +207,148 @@ class DispensaService:
         return item
 
     @staticmethod
+    def _resolve_environment_for_item(
+        db: Session,
+        sl_item: ShoppingListItem,
+    ) -> Optional[UUID]:
+        """
+        Resolve the environment for a shopping list item using the fallback chain:
+        1. Barcode → ProductCatalog → ProductCategoryTag.default_environment_id
+        2. item.category_id → Category.default_environment_id
+        3. None (user must choose)
+        """
+        # 1. Try barcode → product → category tag default environment
+        if sl_item.scanned_barcode:
+            product = db.query(ProductCatalog).join(
+                ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
+            ).filter(
+                ProductBarcode.barcode == sl_item.scanned_barcode,
+                ProductCatalog.cancelled == False
+            ).first()
+            if product and product.category_tags:
+                for tag in product.category_tags:
+                    if tag.default_environment_id:
+                        return tag.default_environment_id
+
+        # 2. Try category → default_environment_id
+        if sl_item.category_id:
+            category = db.query(Category).filter(Category.id == sl_item.category_id).first()
+            if category and category.default_environment_id:
+                return category.default_environment_id
+
+        return None
+
+    @staticmethod
+    def _auto_create_product_catalog(
+        db: Session,
+        house_id: UUID,
+        sl_item: ShoppingListItem,
+    ) -> None:
+        """
+        Auto-create a ProductCatalog entry for items with a scanned barcode
+        that don't yet have a product in the catalog.
+        """
+        if not sl_item.scanned_barcode:
+            return
+
+        # Check if product already exists for this barcode
+        existing = db.query(ProductBarcode).filter(
+            ProductBarcode.barcode == sl_item.scanned_barcode
+        ).first()
+        if existing:
+            return
+
+        # Create a minimal product catalog entry
+        product = ProductCatalog(
+            house_id=house_id,
+            barcode=sl_item.scanned_barcode,
+            name=sl_item.grocy_product_name or sl_item.name,
+            category_id=sl_item.category_id,
+            source="auto",
+        )
+        db.add(product)
+        db.flush()
+
+        # Create the barcode association
+        barcode_entry = ProductBarcode(
+            product_id=product.id,
+            barcode=sl_item.scanned_barcode,
+            is_primary=True,
+            source="auto",
+        )
+        db.add(barcode_entry)
+        db.flush()
+
+    @staticmethod
+    def preview_from_shopping_list(
+        db: Session,
+        house_id: UUID,
+        shopping_list_id: UUID,
+    ) -> Optional[Dict]:
+        """
+        Preview items from a shopping list before sending to dispensa.
+        Returns items with resolved environments and the list of available environments.
+        """
+        shopping_list = db.query(ShoppingList).filter(
+            and_(
+                ShoppingList.id == shopping_list_id,
+                ShoppingList.house_id == house_id
+            )
+        ).first()
+
+        if not shopping_list:
+            return None
+
+        # Get eligible items (verified or checked, not not_purchased)
+        eligible_items = db.query(ShoppingListItem).filter(
+            and_(
+                ShoppingListItem.shopping_list_id == shopping_list_id,
+                ShoppingListItem.not_purchased == False,
+                (ShoppingListItem.verified_at != None) | (ShoppingListItem.checked == True)
+            )
+        ).all()
+
+        # Get all food_storage environments for this house
+        environments = db.query(Environment).filter(
+            and_(
+                Environment.house_id == house_id,
+                Environment.env_type == "food_storage",
+            )
+        ).order_by(Environment.position).all()
+
+        env_map = {env.id: env for env in environments}
+
+        items = []
+        for sl_item in eligible_items:
+            qty = sl_item.verified_quantity if sl_item.verified_quantity is not None else float(sl_item.quantity)
+            unit = sl_item.verified_unit if sl_item.verified_unit else sl_item.unit
+
+            env_id = DispensaService._resolve_environment_for_item(db, sl_item)
+            env_name = env_map[env_id].name if env_id and env_id in env_map else None
+
+            items.append({
+                "item_id": sl_item.id,
+                "name": sl_item.grocy_product_name or sl_item.name,
+                "quantity": qty,
+                "unit": unit,
+                "environment_id": env_id,
+                "environment_name": env_name,
+            })
+
+        env_list = [
+            {"id": env.id, "name": env.name, "icon": env.icon}
+            for env in environments
+        ]
+
+        return {"items": items, "environments": env_list}
+
+    @staticmethod
     def send_from_shopping_list(
         db: Session,
         house_id: UUID,
         user_id: UUID,
         shopping_list_id: UUID,
-        environment_id: Optional[UUID] = None
+        item_environments: Optional[Dict[str, str]] = None,
     ) -> Dict:
         """
         Send verified items from a shopping list to the dispensa.
@@ -217,6 +357,8 @@ class DispensaService:
         Uses verified_quantity/verified_unit if available, otherwise quantity/unit.
         Each item creates a separate row (no merge). Uses source_item_id to prevent
         duplicates when pressing "Send to Dispensa" multiple times.
+
+        Auto-creates ProductCatalog entries for items with barcodes not yet in catalog.
 
         Returns dict with count of items sent.
         """
@@ -231,14 +373,11 @@ class DispensaService:
         if not shopping_list:
             return {"count": 0, "error": "Lista non trovata"}
 
-        # Get items eligible for dispensa:
-        # - Verified items (verified_at IS NOT NULL, not_purchased = False)
-        # - OR checked items (checked = True) that weren't marked as not purchased
+        # Get items eligible for dispensa
         eligible_items = db.query(ShoppingListItem).filter(
             and_(
                 ShoppingListItem.shopping_list_id == shopping_list_id,
                 ShoppingListItem.not_purchased == False,
-                # Either verified or checked
                 (ShoppingListItem.verified_at != None) | (ShoppingListItem.checked == True)
             )
         ).all()
@@ -254,9 +393,20 @@ class DispensaService:
                 skipped += 1
                 continue
 
+            # Auto-create product catalog entry if needed
+            DispensaService._auto_create_product_catalog(db, house_id, sl_item)
+
             # Use verified values if available, otherwise original
             qty = sl_item.verified_quantity if sl_item.verified_quantity is not None else float(sl_item.quantity)
             unit = sl_item.verified_unit if sl_item.verified_unit else sl_item.unit
+
+            # Resolve environment: explicit override → auto-resolve
+            env_id = None
+            item_id_str = str(sl_item.id)
+            if item_environments and item_id_str in item_environments:
+                env_id = UUID(item_environments[item_id_str])
+            else:
+                env_id = DispensaService._resolve_environment_for_item(db, sl_item)
 
             item_data = DispensaItemCreate(
                 name=sl_item.grocy_product_name or sl_item.name,
@@ -268,27 +418,11 @@ class DispensaService:
                 grocy_product_id=sl_item.grocy_product_id,
                 grocy_product_name=sl_item.grocy_product_name,
                 source_item_id=sl_item.id,
+                environment_id=env_id,
             )
 
             item = DispensaService.create_item(db, house_id, user_id, item_data)
             item.source_list_id = shopping_list_id
-            if environment_id:
-                item.environment_id = environment_id
-            elif sl_item.scanned_barcode:
-                # Auto-assign environment from category tag default
-                from app.models.product_catalog import ProductCatalog
-                from app.models.product_barcode import ProductBarcode
-                product = db.query(ProductCatalog).join(
-                    ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
-                ).filter(
-                    ProductBarcode.barcode == sl_item.scanned_barcode,
-                    ProductCatalog.cancelled == False
-                ).first()
-                if product and product.category_tags:
-                    for tag in product.category_tags:
-                        if tag.default_environment_id:
-                            item.environment_id = tag.default_environment_id
-                            break
             count += 1
 
         return {"count": count, "skipped": skipped}

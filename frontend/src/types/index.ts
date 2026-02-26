@@ -465,6 +465,7 @@ export interface Category {
   icon?: string
   color?: string  // Hex color code (e.g., #FF5733)
   sort_order: number
+  default_environment_id?: string
   created_by?: string
   created_at: string
   updated_at: string
@@ -503,6 +504,7 @@ export interface CategoryCreate {
   icon?: string
   color?: string
   sort_order?: number
+  default_environment_id?: string
 }
 
 export interface CategoryUpdate {
@@ -511,6 +513,7 @@ export interface CategoryUpdate {
   icon?: string
   color?: string
   sort_order?: number
+  default_environment_id?: string
 }
 
 // Environment types

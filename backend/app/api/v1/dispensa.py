@@ -20,6 +20,8 @@ from app.schemas.dispensa import (
     DispensaStatsResponse,
     SendToDispensaRequest,
     ConsumeItemRequest,
+    PreviewFromShoppingListRequest,
+    PreviewFromShoppingListResponse,
 )
 
 
@@ -85,18 +87,36 @@ def get_dispensa_stats(
     return DispensaService.get_stats(db, house_id, environment_id=environment_id)
 
 
+@router.post("/preview-from-shopping-list", response_model=PreviewFromShoppingListResponse)
+def preview_from_shopping_list(
+    data: PreviewFromShoppingListRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Preview items from a shopping list with resolved environments before sending to dispensa."""
+    result = DispensaService.preview_from_shopping_list(
+        db, house_id, data.shopping_list_id
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lista non trovata"
+        )
+    return result
+
+
 @router.post("/from-shopping-list")
 def send_from_shopping_list(
     data: SendToDispensaRequest,
     house_id: UUID = Query(..., description="House ID"),
-    environment_id: Optional[UUID] = Query(None, description="Target environment"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Send verified items from a shopping list to the dispensa."""
     result = DispensaService.send_from_shopping_list(
         db, house_id, current_user.id, data.shopping_list_id,
-        environment_id=environment_id
+        item_environments=data.item_environments,
     )
 
     if "error" in result:

@@ -4,6 +4,7 @@ import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import { grocyHouseService } from '@/services/grocy'
 import dispensaService from '@/services/dispensa'
+import type { PreviewItem, PreviewEnvironment } from '@/services/dispensa'
 import SwipeableRow from '@/components/SwipeableRow'
 import { getItemState, STATE_COLORS } from '@/components/VerificationModal'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
@@ -14,6 +15,8 @@ interface VerifyModeProps {
   state: ShoppingListState
 }
 
+type EnvironmentFlowStep = 'idle' | 'loading' | 'assign' | 'sending'
+
 export default function VerifyMode({ state }: VerifyModeProps) {
   const { list, setList, showToast, refreshList } = state
   const navigate = useNavigate()
@@ -23,14 +26,14 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const [showGrocySyncModal, setShowGrocySyncModal] = useState(false)
   const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [showDispensaDialog, setShowDispensaDialog] = useState(false)
-  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
-  const [showUnassociatedWarning, setShowUnassociatedWarning] = useState(false)
-  const [unassociatedItems, setUnassociatedItems] = useState<{
-    noProduct: ShoppingListItem[]
-    noBarcode: ShoppingListItem[]
-  }>({ noProduct: [], noBarcode: [] })
   const [collapsedVerified, setCollapsedVerified] = useState(false)
+
+  // Environment assignment flow state
+  const [envFlowStep, setEnvFlowStep] = useState<EnvironmentFlowStep>('idle')
+  const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
+  const [previewEnvironments, setPreviewEnvironments] = useState<PreviewEnvironment[]>([])
+  const [itemEnvironments, setItemEnvironments] = useState<Record<string, string>>({})
+  const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
 
   if (!list) return null
 
@@ -45,8 +48,6 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const notPurchasedCount = list.items.filter((i) => i.not_purchased).length
   const totalCount = list.items.length
 
-  // Swipe right on pending item -> open ItemDetailModal (certify mode)
-  // Swipe right on not_purchased item -> undo not_purchased (back to pending)
   const handleSwipeRight = (item: ShoppingListItem) => {
     const itemState = getItemState(item)
     if (itemState === 'pending') {
@@ -92,6 +93,8 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     }
   }
 
+  // --- NEW COMPLETION FLOW ---
+
   const handleCompleteVerification = async () => {
     if (!list) return
     const pendingCount = list.items.filter(i => !i.verified_at).length
@@ -100,29 +103,13 @@ export default function VerifyMode({ state }: VerifyModeProps) {
       : 'Confermi di voler completare il controllo carico?'
     if (!confirm(message)) return
 
-    const verifiedItemsList = list.items.filter(i => i.verified_at && !i.not_purchased)
-    const noProduct = verifiedItemsList.filter(i => i.scanned_barcode && !i.grocy_product_name)
-    const noBarcode = verifiedItemsList.filter(i => !i.scanned_barcode && !i.catalog_barcode)
-
     try {
       await shoppingListsService.update(list.id, { verification_status: 'completed', status: 'completed' })
-
-      if (noProduct.length > 0 || noBarcode.length > 0) {
-        setUnassociatedItems({ noProduct, noBarcode })
-        setShowUnassociatedWarning(true)
-        return
-      }
       proceedAfterCompletion()
     } catch (error) {
       console.error('Failed to complete verification:', error)
       showToast(false, 'Errore durante il completamento')
     }
-  }
-
-  const handleDismissUnassociatedWarning = () => {
-    setShowUnassociatedWarning(false)
-    setUnassociatedItems({ noProduct: [], noBarcode: [] })
-    proceedAfterCompletion()
   }
 
   const proceedAfterCompletion = () => {
@@ -131,9 +118,11 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     if (itemsToSync.length > 0 && currentHouse) {
       setShowGrocySyncModal(true)
     } else {
-      setShowDispensaDialog(true)
+      startEnvironmentFlow()
     }
   }
+
+  // --- GROCY SYNC ---
 
   const getItemsToSync = (): GrocyBulkAddItem[] => {
     if (!list) return []
@@ -145,7 +134,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const handleGrocySync = async () => {
     if (!currentHouse || !list) return
     const itemsToSync = getItemsToSync()
-    if (itemsToSync.length === 0) { setShowGrocySyncModal(false); navigate('/shopping-lists'); return }
+    if (itemsToSync.length === 0) { setShowGrocySyncModal(false); startEnvironmentFlow(); return }
 
     setIsSyncing(true)
     try {
@@ -161,25 +150,58 @@ export default function VerifyMode({ state }: VerifyModeProps) {
 
   const handleSkipGrocySync = () => {
     setShowGrocySyncModal(false)
-    showToast(true, 'Controllo carico completato!')
-    navigate('/shopping-lists')
+    startEnvironmentFlow()
   }
 
   const handleGrocySyncComplete = () => {
     setShowGrocySyncModal(false)
     setGrocySyncResult(null)
-    showToast(true, 'Prodotti aggiunti alla dispensa!')
-    navigate('/shopping-lists')
+    showToast(true, 'Sincronizzazione Grocy completata!')
+    startEnvironmentFlow()
   }
 
-  const handleSendToDispensa = async () => {
+  // --- ENVIRONMENT ASSIGNMENT FLOW ---
+
+  const startEnvironmentFlow = async () => {
     if (!list) return
-    const houseId = localStorage.getItem('current_house_id') || ''
+    const houseId = currentHouse?.id || localStorage.getItem('current_house_id') || ''
+    if (!houseId) { navigate('/shopping-lists'); return }
+
+    setEnvFlowStep('loading')
+    try {
+      const preview = await dispensaService.previewFromShoppingList(houseId, list.id)
+      setPreviewItems(preview.items)
+      setPreviewEnvironments(preview.environments)
+
+      // Build initial environment map from resolved items
+      const envMap: Record<string, string> = {}
+      for (const item of preview.items) {
+        if (item.environment_id) {
+          envMap[item.item_id] = item.environment_id
+        }
+      }
+      setItemEnvironments(envMap)
+      setEnvFlowStep('assign')
+    } catch (error) {
+      console.error('Failed to preview:', error)
+      showToast(false, 'Errore nel caricamento anteprima')
+      setEnvFlowStep('idle')
+    }
+  }
+
+  const handleEnvironmentChange = (itemId: string, envId: string) => {
+    setItemEnvironments(prev => ({ ...prev, [itemId]: envId }))
+  }
+
+  const handleConfirmDispensa = async () => {
+    if (!list) return
+    const houseId = currentHouse?.id || localStorage.getItem('current_house_id') || ''
     if (!houseId) { navigate('/shopping-lists'); return }
 
     setIsSendingToDispensa(true)
+    setEnvFlowStep('sending')
     try {
-      const result = await dispensaService.sendFromShoppingList(houseId, list.id)
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id, itemEnvironments)
       showToast(true, `${result.count} articoli inviati alla Dispensa!`)
       setTimeout(() => navigate('/shopping-lists'), 1500)
     } catch (error) {
@@ -188,12 +210,11 @@ export default function VerifyMode({ state }: VerifyModeProps) {
       setTimeout(() => navigate('/shopping-lists'), 1500)
     } finally {
       setIsSendingToDispensa(false)
-      setShowDispensaDialog(false)
     }
   }
 
   const handleSkipDispensa = () => {
-    setShowDispensaDialog(false)
+    setEnvFlowStep('idle')
     navigate('/shopping-lists')
   }
 
@@ -202,6 +223,22 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     if (itemState === 'verified_no_info' || itemState === 'verified_with_info') {
       state.setActionMenuItem(item)
     }
+  }
+
+  // --- ENVIRONMENT UI HELPERS ---
+
+  const unassignedItems = previewItems.filter(i => !itemEnvironments[i.item_id])
+  const assignedItems = previewItems.filter(i => !!itemEnvironments[i.item_id])
+  const allAssigned = unassignedItems.length === 0
+  const isSingleEnv = previewEnvironments.length === 1
+  const envById = Object.fromEntries(previewEnvironments.map(e => [e.id, e]))
+
+  // Group assigned items by environment
+  const groupedByEnv: Record<string, PreviewItem[]> = {}
+  for (const item of assignedItems) {
+    const envId = itemEnvironments[item.item_id]
+    if (!groupedByEnv[envId]) groupedByEnv[envId] = []
+    groupedByEnv[envId].push(item)
   }
 
   return (
@@ -399,7 +436,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                       </div>
                     )}
                   </div>
-                  <button onClick={handleGrocySyncComplete} className="w-full py-3 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-600">Chiudi</button>
+                  <button onClick={handleGrocySyncComplete} className="w-full py-3 rounded-lg bg-blue-500 text-white font-medium hover:bg-blue-600">Continua</button>
                 </>
               )}
             </div>
@@ -407,79 +444,204 @@ export default function VerifyMode({ state }: VerifyModeProps) {
         </div>
       )}
 
-      {/* Unassociated Items Warning Modal */}
-      {showUnassociatedWarning && (
+      {/* Environment Assignment Flow */}
+      {envFlowStep !== 'idle' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col">
-            <div className="p-4 border-b">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-lg">Prodotti senza associazione</h3>
-                  <p className="text-sm text-gray-500">Alcuni articoli non hanno un'anagrafica completa</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-4 overflow-y-auto space-y-4">
-              {unassociatedItems.noProduct.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium text-orange-700 mb-2">EAN senza prodotto ({unassociatedItems.noProduct.length})</h4>
-                  <p className="text-xs text-gray-500 mb-2">Barcode scansionato ma prodotto non trovato in anagrafica</p>
-                  <div className="bg-orange-50 rounded-lg divide-y divide-orange-100">
-                    {unassociatedItems.noProduct.map(item => (
-                      <div key={item.id} className="px-3 py-2">
-                        <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                        <p className="text-xs text-gray-500 font-mono">EAN: {item.scanned_barcode}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {unassociatedItems.noBarcode.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium text-red-700 mb-2">Senza EAN ({unassociatedItems.noBarcode.length})</h4>
-                  <p className="text-xs text-gray-500 mb-2">Articoli verificati senza barcode associato</p>
-                  <div className="bg-red-50 rounded-lg divide-y divide-red-100">
-                    {unassociatedItems.noBarcode.map(item => (
-                      <div key={item.id} className="px-3 py-2">
-                        <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit || 'pz'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="p-4 border-t">
-              <button onClick={handleDismissUnassociatedWarning} className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700">Ho capito, continua</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Dispensa Dialog */}
-      {showDispensaDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
-            <div className="p-6 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
-                <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            {/* Loading state */}
+            {envFlowStep === 'loading' && (
+              <div className="p-8 flex flex-col items-center justify-center">
+                <svg className="animate-spin h-8 w-8 text-primary-600 mb-3" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
+                <p className="text-sm text-gray-500">Preparazione invio alla Dispensa...</p>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">Controllo carico completato!</h3>
-              <p className="text-sm text-gray-500 mt-2">Vuoi mandare gli articoli verificati alla Dispensa?</p>
-            </div>
-            <div className="p-4 border-t space-y-2">
-              <button onClick={handleSendToDispensa} disabled={isSendingToDispensa} className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50">
-                {isSendingToDispensa ? 'Invio in corso...' : 'Si, manda a Dispensa'}
-              </button>
-              <button onClick={handleSkipDispensa} className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100">No, grazie</button>
-            </div>
+            )}
+
+            {/* Case A: Single environment */}
+            {envFlowStep === 'assign' && isSingleEnv && previewEnvironments.length > 0 && (
+              <>
+                <div className="p-6 text-center">
+                  <div className="text-4xl mb-3">{previewEnvironments[0].icon || '📦'}</div>
+                  <h3 className="text-lg font-semibold text-gray-900">Invio alla Dispensa</h3>
+                  <p className="text-sm text-gray-500 mt-2">
+                    {previewItems.length === 1 ? '1 articolo' : `${previewItems.length} articoli`} {previewItems.length === 1 ? 'sara inviato' : 'saranno inviati'} a <strong>{previewEnvironments[0].name}</strong>
+                  </p>
+                </div>
+                <div className="p-4 border-t space-y-2">
+                  <button
+                    onClick={handleConfirmDispensa}
+                    disabled={isSendingToDispensa}
+                    className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    Conferma
+                  </button>
+                  <button onClick={handleSkipDispensa} className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100">
+                    No, grazie
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Case A-bis: No environments configured */}
+            {envFlowStep === 'assign' && previewEnvironments.length === 0 && (
+              <>
+                <div className="p-6 text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Controllo carico completato!</h3>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Vuoi mandare {previewItems.length === 1 ? "l'articolo verificato" : `i ${previewItems.length} articoli verificati`} alla Dispensa?
+                  </p>
+                </div>
+                <div className="p-4 border-t space-y-2">
+                  <button
+                    onClick={handleConfirmDispensa}
+                    disabled={isSendingToDispensa}
+                    className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    Si, manda a Dispensa
+                  </button>
+                  <button onClick={handleSkipDispensa} className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100">
+                    No, grazie
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Case B: Multiple environments, all resolved */}
+            {envFlowStep === 'assign' && !isSingleEnv && previewEnvironments.length > 0 && allAssigned && (
+              <>
+                <div className="p-4 border-b">
+                  <h3 className="font-semibold text-lg">Invio alla Dispensa</h3>
+                  <p className="text-sm text-gray-500 mt-1">Tutti gli articoli hanno una zona assegnata</p>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                  {Object.entries(groupedByEnv).map(([envId, items]) => {
+                    const env = envById[envId]
+                    if (!env) return null
+                    return (
+                      <div key={envId} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-lg">{env.icon || '📦'}</span>
+                          <span className="font-medium text-sm">{env.name}</span>
+                          <span className="text-xs text-gray-400 ml-auto">{items.length} {items.length === 1 ? 'articolo' : 'articoli'}</span>
+                        </div>
+                        <ul className="space-y-1">
+                          {items.map(item => (
+                            <li key={item.item_id} className="text-sm text-gray-600 flex justify-between">
+                              <span className="truncate">{item.name}</span>
+                              <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="p-4 border-t space-y-2">
+                  <button
+                    onClick={handleConfirmDispensa}
+                    disabled={isSendingToDispensa}
+                    className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    Conferma
+                  </button>
+                  <button onClick={handleSkipDispensa} className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100">
+                    No, grazie
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Case C: Multiple environments, some unassigned */}
+            {envFlowStep === 'assign' && !isSingleEnv && previewEnvironments.length > 0 && !allAssigned && (
+              <>
+                <div className="p-4 border-b">
+                  <h3 className="font-semibold text-lg">Assegna zona</h3>
+                  <p className="text-sm text-gray-500 mt-1">Scegli dove riporre ogni articolo</p>
+                </div>
+                <div className="p-4 overflow-y-auto flex-1 space-y-4">
+                  {/* Unassigned items - need user choice */}
+                  <div>
+                    <p className="text-sm font-medium text-orange-700 mb-2">
+                      Da assegnare ({unassignedItems.length})
+                    </p>
+                    <div className="space-y-2">
+                      {unassignedItems.map(item => (
+                        <div key={item.item_id} className="bg-orange-50 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-sm font-medium text-gray-900 truncate">{item.name}</span>
+                            <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
+                          </div>
+                          <select
+                            value={itemEnvironments[item.item_id] || ''}
+                            onChange={e => handleEnvironmentChange(item.item_id, e.target.value)}
+                            className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                          >
+                            <option value="">-- Scegli zona --</option>
+                            {previewEnvironments.map(env => (
+                              <option key={env.id} value={env.id}>
+                                {env.icon ? `${env.icon} ` : ''}{env.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Already assigned items - collapsed summary */}
+                  {assignedItems.length > 0 && (
+                    <div className="bg-green-50 rounded-lg p-3">
+                      <p className="text-sm font-medium text-green-700">
+                        {assignedItems.length} {assignedItems.length === 1 ? 'articolo gia assegnato' : 'articoli gia assegnati'}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {Object.entries(groupedByEnv).map(([envId, items]) => {
+                          const env = envById[envId]
+                          if (!env) return null
+                          return (
+                            <span key={envId} className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                              {env.icon || '📦'} {env.name} ({items.length})
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 border-t space-y-2">
+                  <button
+                    onClick={handleConfirmDispensa}
+                    disabled={!allAssigned || isSendingToDispensa}
+                    className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {isSendingToDispensa ? 'Invio in corso...' : 'Conferma'}
+                  </button>
+                  <button onClick={handleSkipDispensa} className="w-full py-3 rounded-lg text-gray-600 font-medium hover:bg-gray-100">
+                    No, grazie
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Sending state */}
+            {envFlowStep === 'sending' && (
+              <div className="p-8 flex flex-col items-center justify-center">
+                <svg className="animate-spin h-8 w-8 text-primary-600 mb-3" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <p className="text-sm text-gray-500">Invio articoli alla Dispensa...</p>
+              </div>
+            )}
+
           </div>
         </div>
       )}

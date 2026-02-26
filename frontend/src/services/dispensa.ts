@@ -12,6 +12,26 @@ interface SendToDispensaResponse {
   count: number
 }
 
+export interface PreviewItem {
+  item_id: string
+  name: string
+  quantity: number
+  unit: string | null
+  environment_id: string | null
+  environment_name: string | null
+}
+
+export interface PreviewEnvironment {
+  id: string
+  name: string
+  icon: string | null
+}
+
+export interface PreviewFromShoppingListResponse {
+  items: PreviewItem[]
+  environments: PreviewEnvironment[]
+}
+
 interface GetItemsParams {
   search?: string
   category_id?: string
@@ -114,11 +134,22 @@ export const dispensaService = {
   },
 
   /**
+   * Preview items from a shopping list with resolved environments
+   */
+  async previewFromShoppingList(houseId: string, listId: string): Promise<PreviewFromShoppingListResponse> {
+    const response = await api.post('/dispensa/preview-from-shopping-list',
+      { shopping_list_id: listId },
+      { params: { house_id: houseId } },
+    )
+    return response.data
+  },
+
+  /**
    * Send verified items from a shopping list to the dispensa
    */
-  async sendFromShoppingList(houseId: string, listId: string): Promise<SendToDispensaResponse> {
+  async sendFromShoppingList(houseId: string, listId: string, itemEnvironments?: Record<string, string>): Promise<SendToDispensaResponse> {
     const response = await api.post('/dispensa/from-shopping-list',
-      { shopping_list_id: listId },
+      { shopping_list_id: listId, item_environments: itemEnvironments || null },
       { params: { house_id: houseId } },
     )
     return response.data
