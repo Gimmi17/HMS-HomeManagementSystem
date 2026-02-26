@@ -34,7 +34,7 @@ interface ItemRow {
 const generateId = () => Math.random().toString(36).substring(2, 9)
 
 export default function EditMode({ state, onDone }: EditModeProps) {
-  const { list, setList, categories, showToast } = state
+  const { list, categories, showToast } = state
   const { currentHouse } = useHouse()
 
   const [listName, setListName] = useState('')

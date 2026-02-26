@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import shoppingListsService from '@/services/shoppingLists'
 import productsService from '@/services/products'
-import type { ProductSuggestion } from '@/services/products'
+
 import categoriesService from '@/services/categories'
 import type { ShoppingList, ShoppingListItem, Category } from '@/types'
 import type { ScanLogEntry } from '@/components/ContinuousBarcodeScanner'

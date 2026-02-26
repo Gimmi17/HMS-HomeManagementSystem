@@ -14,7 +14,7 @@ interface ViewModeProps {
 }
 
 export default function ViewMode({ state, onEdit }: ViewModeProps) {
-  const { list, setList, categories, showToast, refreshList } = state
+  const { list, setList, categories, showToast } = state
 
   // Swipe-left action modal (not purchased / delete)
   const [swipeLeftItem, setSwipeLeftItem] = useState<ShoppingListItem | null>(null)
