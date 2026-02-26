@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useShoppingListState, type UnifiedMode } from './useShoppingListState'
 import ViewMode from './ViewMode'
@@ -6,8 +7,10 @@ import VerifyMode from './VerifyMode'
 import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDetailModal'
 import ItemActionMenu from '@/components/ItemActionMenu'
 import ProductNoteModal from '@/components/ProductNoteModal'
+import MoveToListModal from '@/components/MoveToListModal'
 import ContinuousBarcodeScanner from '@/components/ContinuousBarcodeScanner'
 import shoppingListsService from '@/services/shoppingLists'
+import type { ShoppingListItem } from '@/types'
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Attiva',
@@ -26,6 +29,7 @@ export default function ShoppingListUnified() {
   const mode = (searchParams.get('mode') || 'view') as UnifiedMode
 
   const state = useShoppingListState(id!, mode)
+  const [moveItem, setMoveItem] = useState<ShoppingListItem | null>(null)
 
   const setMode = (newMode: UnifiedMode) => {
     if (newMode === 'view') {
@@ -297,6 +301,10 @@ export default function ShoppingListUnified() {
             state.setNoteEditItem(state.actionMenuItem)
             state.setActionMenuItem(null)
           }}
+          onSendTo={() => {
+            setMoveItem(state.actionMenuItem)
+            state.setActionMenuItem(null)
+          }}
           onClose={() => state.setActionMenuItem(null)}
         />
       )}
@@ -320,6 +328,19 @@ export default function ShoppingListUnified() {
           item={state.noteEditItem}
           onSave={handleNoteSave}
           onCancel={() => state.setNoteEditItem(null)}
+        />
+      )}
+
+      {moveItem && state.list && (
+        <MoveToListModal
+          item={moveItem}
+          currentListId={state.list.id}
+          onComplete={(targetListName) => {
+            setMoveItem(null)
+            state.refreshList()
+            state.showToast(true, `Articolo spostato in "${targetListName}"`)
+          }}
+          onCancel={() => setMoveItem(null)}
         />
       )}
     </div>

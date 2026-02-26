@@ -120,7 +120,7 @@ export function Dashboard() {
           <span className="text-xs font-medium text-gray-700 text-center">Nuova Lista</span>
         </Link>
         <Link
-          to="/pantry"
+          to="/giacenze"
           className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white border border-gray-100 hover:border-primary-200 hover:bg-primary-50/30 transition-colors shadow-sm"
         >
           <span className="text-2xl">📦</span>
@@ -193,7 +193,7 @@ export function Dashboard() {
             <span className="text-lg">🧊</span>
             <h2 className="text-base font-semibold">Dispensa</h2>
           </div>
-          <Link to="/pantry" className="text-sm text-primary-600 hover:text-primary-700">
+          <Link to="/giacenze" className="text-sm text-primary-600 hover:text-primary-700">
             Vai alla Dispensa
           </Link>
         </div>
@@ -251,7 +251,7 @@ export function Dashboard() {
             ))}
             {hasMoreAlerts && (
               <Link
-                to="/pantry"
+                to="/giacenze"
                 className="block text-center text-xs text-primary-600 hover:text-primary-700 pt-1"
               >
                 Vedi tutti →

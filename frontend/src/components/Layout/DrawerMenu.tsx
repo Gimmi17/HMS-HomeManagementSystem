@@ -8,7 +8,7 @@ const baseNavItems = [
   { to: '/meals', label: 'Pasti', icon: '🍽️' },
   { to: '/recipes', label: 'Ricette', icon: '📖' },
   { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
-  { to: '/pantry', label: 'Giacenze', icon: '🏠' },
+  { to: '/giacenze', label: 'Giacenze', icon: '🏠' },
   { to: '/environments', label: 'Ambienti', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },

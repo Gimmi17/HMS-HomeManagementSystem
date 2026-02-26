@@ -219,10 +219,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   }
 
   const handleEditItem = (item: ShoppingListItem) => {
-    const itemState = getItemState(item)
-    if (itemState === 'verified_no_info' || itemState === 'verified_with_info') {
-      state.setActionMenuItem(item)
-    }
+    state.setActionMenuItem(item)
   }
 
   // --- ENVIRONMENT UI HELPERS ---
@@ -281,7 +278,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                   onSwipeRight={() => handleSwipeRight(item)}
                 >
                   <div
-                    onClick={() => state.setEditingItem(item)}
+                    onClick={() => handleEditItem(item)}
                     className={`card p-3 border-2 transition-colors cursor-pointer ${colors.bg} ${colors.border}`}
                   >
                     <div className="flex items-start gap-3">
