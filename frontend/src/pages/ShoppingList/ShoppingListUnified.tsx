@@ -246,7 +246,7 @@ export default function ShoppingListUnified() {
       )}
 
       {/* Mode content */}
-      {mode === 'view' && <ViewMode state={state} onEdit={() => setMode('edit')} />}
+      {mode === 'view' && <ViewMode state={state} onEdit={() => setMode('edit')} onMoveItem={(item) => setMoveItem(item)} />}
       {mode === 'edit' && <EditMode state={state} onDone={() => setMode('view')} />}
       {mode === 'verify' && <VerifyMode state={state} />}
 

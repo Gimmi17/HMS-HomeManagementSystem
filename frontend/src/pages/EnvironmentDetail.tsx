@@ -4,7 +4,9 @@ import { useHouse } from '@/context/HouseContext'
 import environmentsService from '@/services/environments'
 import dispensaService from '@/services/dispensa'
 import categoriesService from '@/services/categories'
+import mealsService from '@/services/meals'
 import { useDebounce } from '@/hooks/useDebounce'
+import { MealTypeModal } from '@/components/Pantry'
 import type { Environment, EnvironmentExpenseStats, DispensaItem, DispensaStats, Category, EnvironmentType, EnvironmentUpdate } from '@/types'
 
 const TYPE_COLORS: Record<EnvironmentType, string> = {
@@ -52,6 +54,9 @@ export function EnvironmentDetail() {
 
   // Delete environment
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Meal type selection
+  const [mealTypeItem, setMealTypeItem] = useState<DispensaItem | null>(null)
 
   const loadData = async () => {
     if (!currentHouse || !id) return
@@ -136,10 +141,21 @@ export function EnvironmentDetail() {
     }
   }
 
-  const handleConsumeItem = async (itemId: string) => {
+  const handleConsumeItem = (item: DispensaItem) => {
+    setMealTypeItem(item)
+  }
+
+  const doConsumeWithMeal = async (item: DispensaItem, mealType?: 'colazione' | 'spuntino' | 'pranzo' | 'cena') => {
     if (!currentHouse) return
     try {
-      await dispensaService.consumeItem(currentHouse.id, itemId)
+      await dispensaService.consumeItem(currentHouse.id, item.id)
+      if (mealType) {
+        await mealsService.create(currentHouse.id, {
+          meal_type: mealType,
+          consumed_at: new Date().toISOString(),
+          notes: item.name,
+        })
+      }
       loadData()
     } catch (error) {
       console.error('Failed to consume item:', error)
@@ -380,7 +396,7 @@ export function EnvironmentDetail() {
                   <div className="flex items-center gap-1 shrink-0">
                     {environment.env_type === 'food_storage' && (
                       <button
-                        onClick={() => handleConsumeItem(item.id)}
+                        onClick={() => handleConsumeItem(item)}
                         className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg"
                         title="Consuma"
                       >
@@ -582,6 +598,24 @@ export function EnvironmentDetail() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Meal Type Selection Modal */}
+      {mealTypeItem && (
+        <MealTypeModal
+          item={mealTypeItem}
+          onSelect={(mealType) => {
+            const item = mealTypeItem
+            setMealTypeItem(null)
+            doConsumeWithMeal(item, mealType)
+          }}
+          onSkip={() => {
+            const item = mealTypeItem
+            setMealTypeItem(null)
+            doConsumeWithMeal(item)
+          }}
+          onClose={() => setMealTypeItem(null)}
+        />
       )}
 
       {/* Delete Confirmation Modal */}

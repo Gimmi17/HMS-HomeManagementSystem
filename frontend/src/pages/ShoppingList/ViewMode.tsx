@@ -11,9 +11,10 @@ import type { ShoppingListState } from './useShoppingListState'
 interface ViewModeProps {
   state: ShoppingListState
   onEdit: () => void
+  onMoveItem: (item: ShoppingListItem) => void
 }
 
-export default function ViewMode({ state, onEdit }: ViewModeProps) {
+export default function ViewMode({ state, onEdit, onMoveItem }: ViewModeProps) {
   const { list, setList, categories, showToast } = state
 
   // Swipe-left action modal (not purchased / delete)
@@ -103,6 +104,20 @@ export default function ViewMode({ state, onEdit }: ViewModeProps) {
       showToast(true, 'Articolo segnato come non acquistato')
     } catch (error) {
       console.error('Failed to mark as not purchased:', error)
+      showToast(false, 'Errore durante l\'operazione')
+    }
+  }
+
+  // Undo not purchased (swipe left on not_purchased item)
+  const handleUndoNotPurchased = async (item: ShoppingListItem) => {
+    if (!list) return
+    try {
+      await shoppingListsService.undoNotPurchased(list.id, item.id)
+      const updatedList = await shoppingListsService.getById(list.id)
+      setList(updatedList)
+      showToast(true, 'Articolo ripristinato')
+    } catch (error) {
+      console.error('Failed to undo not purchased:', error)
       showToast(false, 'Errore durante l\'operazione')
     }
   }
@@ -330,7 +345,7 @@ export default function ViewMode({ state, onEdit }: ViewModeProps) {
         {list.items.map((item) => (
           <SwipeableRow
             key={item.id}
-            onSwipeLeft={() => setSwipeLeftItem(item)}
+            onSwipeLeft={() => item.not_purchased ? handleUndoNotPurchased(item) : setSwipeLeftItem(item)}
             onSwipeRight={() => handleSwipeRight(item)}
           >
             <div
@@ -340,7 +355,7 @@ export default function ViewMode({ state, onEdit }: ViewModeProps) {
             >
               <div
                 className="flex items-center gap-3 cursor-pointer"
-                onClick={() => state.setActionMenuItem(item)}
+                onClick={() => item.checked ? state.setEditingItem(item) : state.setActionMenuItem(item)}
               >
                 {/* Picking sequence number */}
                 {item.store_picking_position && (
@@ -517,6 +532,30 @@ export default function ViewMode({ state, onEdit }: ViewModeProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
               </svg>
               Non acquistato
+            </button>
+            <button
+              onClick={() => {
+                state.setNoteEditItem(swipeLeftItem)
+                setSwipeLeftItem(null)
+              }}
+              className="w-full py-3 rounded-lg bg-green-50 text-green-700 font-medium border border-green-200 hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Modifica nota
+            </button>
+            <button
+              onClick={() => {
+                onMoveItem(swipeLeftItem)
+                setSwipeLeftItem(null)
+              }}
+              className="w-full py-3 rounded-lg bg-orange-50 text-orange-700 font-medium border border-orange-200 hover:bg-orange-100 transition-colors flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              Invia a...
             </button>
             <button
               onClick={() => handleDeleteItem(swipeLeftItem)}

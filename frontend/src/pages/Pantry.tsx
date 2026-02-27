@@ -28,7 +28,9 @@ import {
   PantryConsumeModal,
   PantryAddToListModal,
   PantryGrocySection,
+  MealTypeModal,
 } from '@/components/Pantry'
+import mealsService from '@/services/meals'
 
 type FilterMode = 'all' | 'expiring' | 'expired' | 'consumed'
 
@@ -67,6 +69,7 @@ export function Pantry() {
   const [addToListEntry, setAddToListEntry] = useState<DispensaItem | null>(null)
   const [activeLists, setActiveLists] = useState<ShoppingListSummary[]>([])
   const [isAddingToList, setIsAddingToList] = useState(false)
+  const [mealTypeItem, setMealTypeItem] = useState<DispensaItem | null>(null)
 
   // Grocy
   const [selectedItem, setSelectedItem] = useState<GrocyStockItem | null>(null)
@@ -318,11 +321,22 @@ export function Pantry() {
     }
   }
 
-  const handleConsumeEntry = async (entry: DispensaItem) => {
+  const handleConsumeEntry = (entry: DispensaItem) => {
+    setSelectedEntry(null)
+    setMealTypeItem(entry)
+  }
+
+  const doConsumeWithMeal = async (entry: DispensaItem, mealType?: 'colazione' | 'spuntino' | 'pranzo' | 'cena') => {
     try {
       await dispensaService.consumeItem(houseId, entry.id)
+      if (mealType) {
+        await mealsService.create(houseId, {
+          meal_type: mealType,
+          consumed_at: new Date().toISOString(),
+          notes: entry.name,
+        })
+      }
       showToast(`"${entry.name}" consumato`, 'success')
-      setSelectedEntry(null)
       fetchData()
     } catch {
       showToast('Errore', 'error')
@@ -816,6 +830,24 @@ export function Pantry() {
           onConfirm={handleActionConfirm}
           onClose={handleActionClose}
           isLoading={isActionLoading}
+        />
+      )}
+
+      {/* Meal Type Selection Modal */}
+      {mealTypeItem && (
+        <MealTypeModal
+          item={mealTypeItem}
+          onSelect={(mealType) => {
+            const item = mealTypeItem
+            setMealTypeItem(null)
+            doConsumeWithMeal(item, mealType)
+          }}
+          onSkip={() => {
+            const item = mealTypeItem
+            setMealTypeItem(null)
+            doConsumeWithMeal(item)
+          }}
+          onClose={() => setMealTypeItem(null)}
         />
       )}
     </div>
