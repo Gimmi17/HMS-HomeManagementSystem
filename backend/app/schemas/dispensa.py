@@ -16,13 +16,16 @@ class DispensaItemCreate(BaseModel):
     unit: Optional[str] = Field(None, max_length=50, description="Unit (pz, kg, g, l, ml)")
     category_id: Optional[UUID] = Field(None, description="Category ID")
     expiry_date: Optional[date] = Field(None, description="Expiry date")
+    original_expiry_date: Optional[date] = Field(None, description="Original expiry date before extension")
     barcode: Optional[str] = Field(None, max_length=100, description="Barcode")
     grocy_product_id: Optional[int] = Field(None, description="Grocy product ID")
     grocy_product_name: Optional[str] = Field(None, max_length=255, description="Grocy product name")
     source_item_id: Optional[UUID] = Field(None, description="Source shopping list item ID")
-    environment_id: Optional[UUID] = Field(None, description="Environment ID")
+    area_id: Optional[UUID] = Field(None, description="Area ID")
     purchase_price: Optional[float] = Field(None, ge=0, description="Purchase price")
     notes: Optional[str] = Field(None, max_length=500, description="Notes")
+    warranty_expiry_date: Optional[date] = Field(None, description="Warranty expiry date")
+    trial_expiry_date: Optional[date] = Field(None, description="Trial/return period expiry date")
 
 
 class DispensaItemUpdate(BaseModel):
@@ -32,12 +35,15 @@ class DispensaItemUpdate(BaseModel):
     unit: Optional[str] = Field(None, max_length=50)
     category_id: Optional[UUID] = None
     expiry_date: Optional[date] = None
+    original_expiry_date: Optional[date] = None
     barcode: Optional[str] = Field(None, max_length=100)
     grocy_product_id: Optional[int] = None
     grocy_product_name: Optional[str] = Field(None, max_length=255)
-    environment_id: Optional[UUID] = None
+    area_id: Optional[UUID] = None
     purchase_price: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = Field(None, max_length=500)
+    warranty_expiry_date: Optional[date] = None
+    trial_expiry_date: Optional[date] = None
 
 
 class DispensaItemResponse(BaseModel):
@@ -49,17 +55,20 @@ class DispensaItemResponse(BaseModel):
     unit: Optional[str] = None
     category_id: Optional[UUID] = None
     expiry_date: Optional[date] = None
+    original_expiry_date: Optional[date] = None
     barcode: Optional[str] = None
     grocy_product_id: Optional[int] = None
     grocy_product_name: Optional[str] = None
     source_list_id: Optional[UUID] = None
     source_item_id: Optional[UUID] = None
     added_by: Optional[UUID] = None
-    environment_id: Optional[UUID] = None
+    area_id: Optional[UUID] = None
     purchase_price: Optional[float] = None
     is_consumed: bool
     consumed_at: Optional[datetime] = None
     notes: Optional[str] = None
+    warranty_expiry_date: Optional[date] = None
+    trial_expiry_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
 
@@ -83,7 +92,8 @@ class DispensaItemListResponse(BaseModel):
 class SendToDispensaRequest(BaseModel):
     """Schema for sending shopping list items to dispensa"""
     shopping_list_id: UUID = Field(..., description="Shopping list ID to send items from")
-    item_environments: Optional[dict[str, str]] = Field(None, description="Map of item_id → environment_id overrides")
+    item_areas: Optional[dict[str, str]] = Field(None, description="Map of item_id → area_id overrides")
+    item_expiry_extensions: Optional[dict[str, int]] = Field(None, description="Map of item_id → extension days")
 
 
 class PreviewFromShoppingListRequest(BaseModel):
@@ -97,21 +107,28 @@ class PreviewItemResponse(BaseModel):
     name: str
     quantity: float
     unit: Optional[str] = None
-    environment_id: Optional[UUID] = None
-    environment_name: Optional[str] = None
+    category_name: Optional[str] = None
+    area_id: Optional[UUID] = None
+    area_name: Optional[str] = None
 
 
-class PreviewEnvironmentResponse(BaseModel):
-    """Environment info in the preview response"""
+class PreviewAreaResponse(BaseModel):
+    """Area info in the preview response"""
     id: UUID
     name: str
     icon: Optional[str] = None
+    expiry_extension_enabled: bool = False
+    disable_expiry_tracking: bool = False
+    warranty_tracking_enabled: bool = False
+    default_warranty_months: Optional[int] = None
+    trial_period_enabled: bool = False
+    default_trial_days: Optional[int] = None
 
 
 class PreviewFromShoppingListResponse(BaseModel):
     """Response for preview-from-shopping-list"""
     items: list[PreviewItemResponse]
-    environments: list[PreviewEnvironmentResponse]
+    areas: list[PreviewAreaResponse]
 
 
 class ConsumeItemRequest(BaseModel):

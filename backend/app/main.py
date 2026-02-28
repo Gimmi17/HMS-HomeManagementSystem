@@ -176,24 +176,103 @@ async def startup_event():
     finally:
         db.close()
 
-    # Seed default environments for houses that don't have any
-    from app.models.house import House
-    from app.models.environment import Environment
-    from app.services.environment_service import EnvironmentService
+    # Migrate: rename environments → areas
+    try:
+        if inspector.has_table("environments") and not inspector.has_table("areas"):
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE environments RENAME TO areas'))
+                # Rename env_type → area_type
+                existing_cols = {c['name'] for c in inspector.get_columns("environments")}
+                if 'env_type' in existing_cols:
+                    conn.execute(text('ALTER TABLE areas RENAME COLUMN env_type TO area_type'))
+                # Rename enum type
+                conn.execute(text("DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'environmenttype') THEN ALTER TYPE environmenttype RENAME TO areatype; END IF; END $$"))
+            print("✓ Renamed table environments → areas")
+        elif inspector.has_table("areas"):
+            # Table already renamed, check column
+            area_cols = {c['name'] for c in inspector.get_columns("areas")}
+            if 'env_type' in area_cols:
+                with engine.begin() as conn:
+                    conn.execute(text('ALTER TABLE areas RENAME COLUMN env_type TO area_type'))
+                print("✓ Renamed column areas.env_type → area_type")
+    except Exception as e:
+        print(f"  ⚠ environments→areas rename skipped: {e}")
+
+    # Migrate: rename environment_id → area_id in referencing tables
+    for tbl, old_col, new_col in [
+        ("dispensa_items", "environment_id", "area_id"),
+        ("categories", "default_environment_id", "default_area_id"),
+        ("product_category_tags", "default_environment_id", "default_area_id"),
+    ]:
+        try:
+            if inspector.has_table(tbl):
+                cols = {c['name'] for c in inspector.get_columns(tbl)}
+                if old_col in cols and new_col not in cols:
+                    with engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE {tbl} RENAME COLUMN {old_col} TO {new_col}'))
+                    print(f"✓ Renamed {tbl}.{old_col} → {new_col}")
+        except Exception as e:
+            print(f"  ⚠ {tbl} column rename skipped: {e}")
+
+    # Update FK constraints to point to areas table
+    for tbl, col in [
+        ("dispensa_items", "area_id"),
+        ("categories", "default_area_id"),
+        ("product_category_tags", "default_area_id"),
+    ]:
+        try:
+            if inspector.has_table(tbl):
+                cols = {c['name'] for c in inspector.get_columns(tbl)}
+                if col in cols:
+                    fks = inspector.get_foreign_keys(tbl)
+                    for fk in fks:
+                        if col in fk.get('constrained_columns', []) and fk.get('referred_table') == 'environments':
+                            fk_name = fk.get('name')
+                            if fk_name:
+                                with engine.begin() as conn:
+                                    conn.execute(text(f'ALTER TABLE {tbl} DROP CONSTRAINT {fk_name}'))
+                                    conn.execute(text(f'ALTER TABLE {tbl} ADD CONSTRAINT {fk_name} FOREIGN KEY ({col}) REFERENCES areas(id) ON DELETE SET NULL'))
+                                print(f"✓ Updated FK {tbl}.{col} → areas")
+        except Exception as e:
+            print(f"  ⚠ FK update for {tbl}.{col} skipped: {e}")
+
+    # Backfill: set expiry_extension_enabled=True on default Congelatore areas
+    from app.models.area import Area
     db = SessionLocal()
     try:
-        houses_without_envs = db.query(House).filter(
+        updated = db.query(Area).filter(
+            Area.name == "Congelatore",
+            Area.is_default == True,
+            Area.expiry_extension_enabled == False,
+        ).update({"expiry_extension_enabled": True})
+        if updated:
+            db.commit()
+            print(f"✓ Backfill: {updated} Congelatore area(s) updated with expiry_extension_enabled=True")
+        else:
+            print(f"✓ Congelatore areas already have expiry_extension_enabled")
+    except Exception as e:
+        db.rollback()
+        print(f"  ⚠ Congelatore backfill skipped: {e}")
+    finally:
+        db.close()
+
+    # Seed default areas for houses that don't have any
+    from app.models.house import House
+    from app.services.area_service import AreaService
+    db = SessionLocal()
+    try:
+        houses_without_areas = db.query(House).filter(
             ~House.id.in_(
-                db.query(Environment.house_id).distinct()
+                db.query(Area.house_id).distinct()
             )
         ).all()
-        for house in houses_without_envs:
-            env_count = EnvironmentService.seed_defaults(db, house.id)
-            orphan_count = EnvironmentService.assign_orphaned_items(db, house.id)
-            if env_count or orphan_count:
-                print(f"  + House '{house.name}': {env_count} environments seeded, {orphan_count} orphaned items assigned")
+        for house in houses_without_areas:
+            area_count = AreaService.seed_defaults(db, house.id)
+            orphan_count = AreaService.assign_orphaned_items(db, house.id)
+            if area_count or orphan_count:
+                print(f"  + House '{house.name}': {area_count} areas seeded, {orphan_count} orphaned items assigned")
         db.commit()
-        print(f"✓ Default environments seeded")
+        print(f"✓ Default areas seeded")
     finally:
         db.close()
 

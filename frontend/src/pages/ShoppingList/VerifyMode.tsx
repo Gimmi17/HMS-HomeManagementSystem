@@ -4,7 +4,7 @@ import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import { grocyHouseService } from '@/services/grocy'
 import dispensaService from '@/services/dispensa'
-import type { PreviewItem, PreviewEnvironment } from '@/services/dispensa'
+import type { PreviewItem, PreviewArea } from '@/services/dispensa'
 import SwipeableRow from '@/components/SwipeableRow'
 import { getItemState, STATE_COLORS } from '@/components/VerificationModal'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
@@ -15,7 +15,7 @@ interface VerifyModeProps {
   state: ShoppingListState
 }
 
-type EnvironmentFlowStep = 'idle' | 'loading' | 'assign' | 'sending'
+type AreaFlowStep = 'idle' | 'loading' | 'assign' | 'sending'
 
 export default function VerifyMode({ state }: VerifyModeProps) {
   const { list, setList, showToast, refreshList } = state
@@ -28,12 +28,13 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const [isSyncing, setIsSyncing] = useState(false)
   const [collapsedVerified, setCollapsedVerified] = useState(false)
 
-  // Environment assignment flow state
-  const [envFlowStep, setEnvFlowStep] = useState<EnvironmentFlowStep>('idle')
+  // Area assignment flow state
+  const [envFlowStep, setEnvFlowStep] = useState<AreaFlowStep>('idle')
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
-  const [previewEnvironments, setPreviewEnvironments] = useState<PreviewEnvironment[]>([])
-  const [itemEnvironments, setItemEnvironments] = useState<Record<string, string>>({})
+  const [previewAreas, setPreviewAreas] = useState<PreviewArea[]>([])
+  const [itemAreas, setItemAreas] = useState<Record<string, string>>({})
   const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
+  const [itemExpiryExtensions, setItemExpiryExtensions] = useState<Record<string, number>>({})
 
   if (!list) return null
 
@@ -118,7 +119,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     if (itemsToSync.length > 0 && currentHouse) {
       setShowGrocySyncModal(true)
     } else {
-      startEnvironmentFlow()
+      startAreaFlow()
     }
   }
 
@@ -134,7 +135,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const handleGrocySync = async () => {
     if (!currentHouse || !list) return
     const itemsToSync = getItemsToSync()
-    if (itemsToSync.length === 0) { setShowGrocySyncModal(false); startEnvironmentFlow(); return }
+    if (itemsToSync.length === 0) { setShowGrocySyncModal(false); startAreaFlow(); return }
 
     setIsSyncing(true)
     try {
@@ -150,19 +151,19 @@ export default function VerifyMode({ state }: VerifyModeProps) {
 
   const handleSkipGrocySync = () => {
     setShowGrocySyncModal(false)
-    startEnvironmentFlow()
+    startAreaFlow()
   }
 
   const handleGrocySyncComplete = () => {
     setShowGrocySyncModal(false)
     setGrocySyncResult(null)
     showToast(true, 'Sincronizzazione Grocy completata!')
-    startEnvironmentFlow()
+    startAreaFlow()
   }
 
-  // --- ENVIRONMENT ASSIGNMENT FLOW ---
+  // --- AREA ASSIGNMENT FLOW ---
 
-  const startEnvironmentFlow = async () => {
+  const startAreaFlow = async () => {
     if (!list) return
     const houseId = currentHouse?.id || localStorage.getItem('current_house_id') || ''
     if (!houseId) { navigate('/shopping-lists'); return }
@@ -171,16 +172,16 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     try {
       const preview = await dispensaService.previewFromShoppingList(houseId, list.id)
       setPreviewItems(preview.items)
-      setPreviewEnvironments(preview.environments)
+      setPreviewAreas(preview.areas)
 
-      // Build initial environment map from resolved items
-      const envMap: Record<string, string> = {}
+      // Build initial area map from resolved items
+      const areaMap: Record<string, string> = {}
       for (const item of preview.items) {
-        if (item.environment_id) {
-          envMap[item.item_id] = item.environment_id
+        if (item.area_id) {
+          areaMap[item.item_id] = item.area_id
         }
       }
-      setItemEnvironments(envMap)
+      setItemAreas(areaMap)
       setEnvFlowStep('assign')
     } catch (error) {
       console.error('Failed to preview:', error)
@@ -189,8 +190,8 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     }
   }
 
-  const handleEnvironmentChange = (itemId: string, envId: string) => {
-    setItemEnvironments(prev => ({ ...prev, [itemId]: envId }))
+  const handleAreaChange = (itemId: string, areaId: string) => {
+    setItemAreas(prev => ({ ...prev, [itemId]: areaId }))
   }
 
   const handleConfirmDispensa = async () => {
@@ -201,7 +202,8 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     setIsSendingToDispensa(true)
     setEnvFlowStep('sending')
     try {
-      const result = await dispensaService.sendFromShoppingList(houseId, list.id, itemEnvironments)
+      const extensions = Object.keys(itemExpiryExtensions).length > 0 ? itemExpiryExtensions : undefined
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id, itemAreas, extensions)
       showToast(true, `${result.count} articoli inviati alla Dispensa!`)
       setTimeout(() => navigate('/shopping-lists'), 1500)
     } catch (error) {
@@ -222,18 +224,72 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     state.setActionMenuItem(item)
   }
 
-  // --- ENVIRONMENT UI HELPERS ---
+  // --- AREA UI HELPERS ---
 
-  const unassignedItems = previewItems.filter(i => !itemEnvironments[i.item_id])
-  const assignedItems = previewItems.filter(i => !!itemEnvironments[i.item_id])
+  const unassignedItems = previewItems.filter(i => !itemAreas[i.item_id])
+  const assignedItems = previewItems.filter(i => !!itemAreas[i.item_id])
   const allAssigned = unassignedItems.length === 0
-  const isSingleEnv = previewEnvironments.length === 1
-  const envById = Object.fromEntries(previewEnvironments.map(e => [e.id, e]))
+  const isSingleEnv = previewAreas.length === 1
+  const envById = Object.fromEntries(previewAreas.map(e => [e.id, e]))
 
-  // Group assigned items by environment
+  // Get the original shopping list item to check for expiry_date
+  const slItemById = Object.fromEntries((list?.items || []).map(i => [i.id, i]))
+
+  // Check if item needs expiry extension UI
+  const itemNeedsExtension = (item: PreviewItem): boolean => {
+    const areaId = itemAreas[item.item_id]
+    if (!areaId) return false
+    const area = envById[areaId]
+    if (!area?.expiry_extension_enabled) return false
+    const slItem = slItemById[item.item_id]
+    return !!slItem?.expiry_date
+  }
+
+  const handleExpiryExtension = (itemId: string, days: number) => {
+    setItemExpiryExtensions(prev => {
+      if (prev[itemId] === days) {
+        const next = { ...prev }
+        delete next[itemId]
+        return next
+      }
+      return { ...prev, [itemId]: days }
+    })
+  }
+
+  const ExpiryExtensionSelector = ({ item }: { item: PreviewItem }) => {
+    if (!itemNeedsExtension(item)) return null
+    const slItem = slItemById[item.item_id]
+    const currentExtension = itemExpiryExtensions[item.item_id]
+    return (
+      <div className="mt-2 pt-2 border-t border-gray-200">
+        <div className="text-xs text-gray-500 mb-1">
+          Scad: {slItem.expiry_date?.split('-').reverse().join('/')}
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {[30, 60, 90, 120].map(days => (
+            <button
+              key={days}
+              type="button"
+              onClick={() => handleExpiryExtension(item.item_id, days)}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${currentExtension === days ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              +{days}gg
+            </button>
+          ))}
+        </div>
+        {currentExtension && slItem.expiry_date && (
+          <p className="text-xs text-blue-600 mt-1">
+            → {(() => { const d = new Date(slItem.expiry_date); d.setDate(d.getDate() + currentExtension); return d.toLocaleDateString('it-IT') })()}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // Group assigned items by area
   const groupedByEnv: Record<string, PreviewItem[]> = {}
   for (const item of assignedItems) {
-    const envId = itemEnvironments[item.item_id]
+    const envId = itemAreas[item.item_id]
     if (!groupedByEnv[envId]) groupedByEnv[envId] = []
     groupedByEnv[envId].push(item)
   }
@@ -441,7 +497,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
         </div>
       )}
 
-      {/* Environment Assignment Flow */}
+      {/* Area Assignment Flow */}
       {envFlowStep !== 'idle' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col">
@@ -458,15 +514,31 @@ export default function VerifyMode({ state }: VerifyModeProps) {
             )}
 
             {/* Case A: Single environment */}
-            {envFlowStep === 'assign' && isSingleEnv && previewEnvironments.length > 0 && (
+            {envFlowStep === 'assign' && isSingleEnv && previewAreas.length > 0 && (
               <>
                 <div className="p-6 text-center">
-                  <div className="text-4xl mb-3">{previewEnvironments[0].icon || '📦'}</div>
+                  <div className="text-4xl mb-3">{previewAreas[0].icon || '📦'}</div>
                   <h3 className="text-lg font-semibold text-gray-900">Invio alla Dispensa</h3>
                   <p className="text-sm text-gray-500 mt-2">
-                    {previewItems.length === 1 ? '1 articolo' : `${previewItems.length} articoli`} {previewItems.length === 1 ? 'sara inviato' : 'saranno inviati'} a <strong>{previewEnvironments[0].name}</strong>
+                    {previewItems.length === 1 ? '1 articolo' : `${previewItems.length} articoli`} {previewItems.length === 1 ? 'sara inviato' : 'saranno inviati'} a <strong>{previewAreas[0].name}</strong>
                   </p>
                 </div>
+                {previewAreas[0].expiry_extension_enabled && previewItems.some(i => slItemById[i.item_id]?.expiry_date) && (
+                  <div className="px-4 pb-2 space-y-2 max-h-60 overflow-y-auto">
+                    {previewItems.filter(i => slItemById[i.item_id]?.expiry_date).map(item => (
+                      <div key={item.item_id} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex justify-between text-sm">
+                          <div className="truncate">
+                            <span className="font-medium">{item.name}</span>
+                            {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
+                          </div>
+                          <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
+                        </div>
+                        <ExpiryExtensionSelector item={item} />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="p-4 border-t space-y-2">
                   <button
                     onClick={handleConfirmDispensa}
@@ -483,7 +555,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
             )}
 
             {/* Case A-bis: No environments configured */}
-            {envFlowStep === 'assign' && previewEnvironments.length === 0 && (
+            {envFlowStep === 'assign' && previewAreas.length === 0 && (
               <>
                 <div className="p-6 text-center">
                   <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
@@ -512,7 +584,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
             )}
 
             {/* Case B: Multiple environments, all resolved */}
-            {envFlowStep === 'assign' && !isSingleEnv && previewEnvironments.length > 0 && allAssigned && (
+            {envFlowStep === 'assign' && !isSingleEnv && previewAreas.length > 0 && allAssigned && (
               <>
                 <div className="p-4 border-b">
                   <h3 className="font-semibold text-lg">Invio alla Dispensa</h3>
@@ -531,9 +603,15 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                         </div>
                         <ul className="space-y-1">
                           {items.map(item => (
-                            <li key={item.item_id} className="text-sm text-gray-600 flex justify-between">
-                              <span className="truncate">{item.name}</span>
-                              <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
+                            <li key={item.item_id} className="text-sm text-gray-600">
+                              <div className="flex justify-between">
+                                <div className="truncate">
+                                  <span>{item.name}</span>
+                                  {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
+                                </div>
+                                <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
+                              </div>
+                              <ExpiryExtensionSelector item={item} />
                             </li>
                           ))}
                         </ul>
@@ -557,7 +635,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
             )}
 
             {/* Case C: Multiple environments, some unassigned */}
-            {envFlowStep === 'assign' && !isSingleEnv && previewEnvironments.length > 0 && !allAssigned && (
+            {envFlowStep === 'assign' && !isSingleEnv && previewAreas.length > 0 && !allAssigned && (
               <>
                 <div className="p-4 border-b">
                   <h3 className="font-semibold text-lg">Assegna zona</h3>
@@ -573,21 +651,25 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                       {unassignedItems.map(item => (
                         <div key={item.item_id} className="bg-orange-50 rounded-lg p-3">
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-sm font-medium text-gray-900 truncate">{item.name}</span>
+                            <div className="truncate">
+                              <span className="text-sm font-medium text-gray-900">{item.name}</span>
+                              {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
+                            </div>
                             <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
                           </div>
                           <select
-                            value={itemEnvironments[item.item_id] || ''}
-                            onChange={e => handleEnvironmentChange(item.item_id, e.target.value)}
+                            value={itemAreas[item.item_id] || ''}
+                            onChange={e => handleAreaChange(item.item_id, e.target.value)}
                             className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                           >
                             <option value="">-- Scegli zona --</option>
-                            {previewEnvironments.map(env => (
+                            {previewAreas.map(env => (
                               <option key={env.id} value={env.id}>
                                 {env.icon ? `${env.icon} ` : ''}{env.name}
                               </option>
                             ))}
                           </select>
+                          <ExpiryExtensionSelector item={item} />
                         </div>
                       ))}
                     </div>

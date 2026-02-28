@@ -9,7 +9,7 @@ const baseNavItems = [
   { to: '/recipes', label: 'Ricette', icon: '📖' },
   { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
   { to: '/giacenze', label: 'Giacenze', icon: '🏠' },
-  { to: '/environments', label: 'Ambienti', icon: '🗄️' },
+  { to: '/areas', label: 'Aree', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },

@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Environments, EnvironmentDetail, MealPlannerWizard } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Areas, AreaDetail, MealPlannerWizard } from './pages'
 import { ShoppingListUnified } from './pages/ShoppingList'
 import RecipeForm from './pages/RecipeForm'
 
@@ -165,21 +165,21 @@ function App() {
         }
       />
       <Route
-        path="/environments"
+        path="/areas"
         element={
           <PrivateRoute>
             <MainLayout>
-              <Environments />
+              <Areas />
             </MainLayout>
           </PrivateRoute>
         }
       />
       <Route
-        path="/environments/:id"
+        path="/areas/:id"
         element={
           <PrivateRoute>
             <MainLayout>
-              <EnvironmentDetail />
+              <AreaDetail />
             </MainLayout>
           </PrivateRoute>
         }

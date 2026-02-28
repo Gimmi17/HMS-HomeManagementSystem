@@ -1373,8 +1373,8 @@ class ProductCategoryTagItem(BaseModel):
     name: Optional[str] = None
     lang: Optional[str] = None
     product_count: int = 0
-    default_environment_id: Optional[UUID] = None
-    default_environment_name: Optional[str] = None
+    default_area_id: Optional[UUID] = None
+    default_area_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -1400,20 +1400,20 @@ def list_product_categories(
     Categories are from OpenFoodFacts taxonomy.
     """
     from sqlalchemy import func
-    from app.models.environment import Environment
+    from app.models.area import Area
 
-    # Base query with product count and environment name
+    # Base query with product count and area name
     query = db.query(
         ProductCategoryTag,
         func.count(product_category_association.c.product_id).label('product_count'),
-        Environment.name.label('env_name')
+        Area.name.label('area_name')
     ).outerjoin(
         product_category_association,
         ProductCategoryTag.id == product_category_association.c.category_tag_id
     ).outerjoin(
-        Environment,
-        ProductCategoryTag.default_environment_id == Environment.id
-    ).group_by(ProductCategoryTag.id, Environment.name)
+        Area,
+        ProductCategoryTag.default_area_id == Area.id
+    ).group_by(ProductCategoryTag.id, Area.name)
 
     # Search filter
     if search:
@@ -1450,10 +1450,10 @@ def list_product_categories(
                 name=cat.name,
                 lang=cat.lang,
                 product_count=count,
-                default_environment_id=cat.default_environment_id,
-                default_environment_name=env_name
+                default_area_id=cat.default_area_id,
+                default_area_name=area_name
             )
-            for cat, count, env_name in results
+            for cat, count, area_name in results
         ],
         total=total
     )
@@ -1467,93 +1467,93 @@ def get_product_category(
 ):
     """Get a single product category tag by ID."""
     from sqlalchemy import func
-    from app.models.environment import Environment
+    from app.models.area import Area
 
     result = db.query(
         ProductCategoryTag,
         func.count(product_category_association.c.product_id).label('product_count'),
-        Environment.name.label('env_name')
+        Area.name.label('area_name')
     ).outerjoin(
         product_category_association,
         ProductCategoryTag.id == product_category_association.c.category_tag_id
     ).outerjoin(
-        Environment,
-        ProductCategoryTag.default_environment_id == Environment.id
+        Area,
+        ProductCategoryTag.default_area_id == Area.id
     ).filter(
         ProductCategoryTag.id == category_id
-    ).group_by(ProductCategoryTag.id, Environment.name).first()
+    ).group_by(ProductCategoryTag.id, Area.name).first()
 
     if not result:
         raise HTTPException(status_code=404, detail="Categoria non trovata")
 
-    cat, count, env_name = result
+    cat, count, area_name = result
     return ProductCategoryTagItem(
         id=cat.id,
         tag_id=cat.tag_id,
         name=cat.name,
         lang=cat.lang,
         product_count=count,
-        default_environment_id=cat.default_environment_id,
-        default_environment_name=env_name
+        default_area_id=cat.default_area_id,
+        default_area_name=area_name
     )
 
 
 # ============================================================
-# PRODUCT CATEGORY DEFAULT ENVIRONMENT
+# PRODUCT CATEGORY DEFAULT AREA
 # ============================================================
 
-class UpdateCategoryDefaultEnvironmentRequest(BaseModel):
-    environment_id: Optional[UUID] = None
+class UpdateCategoryDefaultAreaRequest(BaseModel):
+    area_id: Optional[UUID] = None
 
 
-@router.patch("/product-categories/{category_id}/default-environment", response_model=ProductCategoryTagItem)
-def update_category_default_environment(
+@router.patch("/product-categories/{category_id}/default-area", response_model=ProductCategoryTagItem)
+def update_category_default_area(
     category_id: UUID,
-    data: UpdateCategoryDefaultEnvironmentRequest,
+    data: UpdateCategoryDefaultAreaRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update the default environment for a product category tag."""
+    """Update the default area for a product category tag."""
     from sqlalchemy import func
-    from app.models.environment import Environment
+    from app.models.area import Area
 
     cat = db.query(ProductCategoryTag).filter(ProductCategoryTag.id == category_id).first()
     if not cat:
         raise HTTPException(status_code=404, detail="Categoria non trovata")
 
-    if data.environment_id is not None:
-        env = db.query(Environment).filter(Environment.id == data.environment_id).first()
-        if not env:
-            raise HTTPException(status_code=404, detail="Ambiente non trovato")
+    if data.area_id is not None:
+        area = db.query(Area).filter(Area.id == data.area_id).first()
+        if not area:
+            raise HTTPException(status_code=404, detail="Area non trovata")
 
-    cat.default_environment_id = data.environment_id
+    cat.default_area_id = data.area_id
     db.commit()
     db.refresh(cat)
 
-    # Return full item with product count and env name
+    # Return full item with product count and area name
     result = db.query(
         ProductCategoryTag,
         func.count(product_category_association.c.product_id).label('product_count'),
-        Environment.name.label('env_name')
+        Area.name.label('area_name')
     ).outerjoin(
         product_category_association,
         ProductCategoryTag.id == product_category_association.c.category_tag_id
     ).outerjoin(
-        Environment,
-        ProductCategoryTag.default_environment_id == Environment.id
+        Area,
+        ProductCategoryTag.default_area_id == Area.id
     ).filter(
         ProductCategoryTag.id == category_id
-    ).group_by(ProductCategoryTag.id, Environment.name).first()
+    ).group_by(ProductCategoryTag.id, Area.name).first()
 
-    cat, count, env_name = result
+    cat, count, area_name = result
     return ProductCategoryTagItem(
         id=cat.id,
         tag_id=cat.tag_id,
         name=cat.name,
         lang=cat.lang,
         product_count=count,
-        default_environment_id=cat.default_environment_id,
-        default_environment_name=env_name
+        default_area_id=cat.default_area_id,
+        default_area_name=area_name
     )
 
 

@@ -48,6 +48,7 @@ class DispensaItem(BaseModel):
 
     # Expiry tracking
     expiry_date = Column(Date, nullable=True)
+    original_expiry_date = Column(Date, nullable=True)
 
     # Barcode
     barcode = Column(String(100), nullable=True)
@@ -82,10 +83,10 @@ class DispensaItem(BaseModel):
     is_consumed = Column(Boolean, default=False, nullable=False)
     consumed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Environment
-    environment_id = Column(
+    # Area
+    area_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("environments.id", ondelete="SET NULL"),
+        ForeignKey("areas.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )
@@ -96,10 +97,14 @@ class DispensaItem(BaseModel):
     # Notes
     notes = Column(String(500), nullable=True)
 
+    # Tracking fields (warranty, trial)
+    warranty_expiry_date = Column(Date, nullable=True)
+    trial_expiry_date = Column(Date, nullable=True)
+
     # Relationships
     house = relationship("House")
     category = relationship("Category")
-    environment = relationship("Environment", back_populates="items")
+    area = relationship("Area", back_populates="items")
     source_list = relationship("ShoppingList")
     source_item = relationship("ShoppingListItem", foreign_keys=[source_item_id])
     added_by_user = relationship("User")

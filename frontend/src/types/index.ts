@@ -465,7 +465,7 @@ export interface Category {
   icon?: string
   color?: string  // Hex color code (e.g., #FF5733)
   sort_order: number
-  default_environment_id?: string
+  default_area_id?: string
   created_by?: string
   created_at: string
   updated_at: string
@@ -504,7 +504,7 @@ export interface CategoryCreate {
   icon?: string
   color?: string
   sort_order?: number
-  default_environment_id?: string
+  default_area_id?: string
 }
 
 export interface CategoryUpdate {
@@ -513,40 +513,58 @@ export interface CategoryUpdate {
   icon?: string
   color?: string
   sort_order?: number
-  default_environment_id?: string
+  default_area_id?: string
 }
 
-// Environment types
-export type EnvironmentType = 'food_storage' | 'equipment' | 'general'
+// Area types
+export type AreaType = 'food_storage' | 'equipment' | 'general'
 
-export interface Environment {
+export interface Area {
   id: string
   house_id: string
   name: string
   icon: string | null
-  env_type: EnvironmentType
+  area_type: AreaType
   description: string | null
   is_default: boolean
   position: number
+  expiry_extension_enabled: boolean
+  disable_expiry_tracking: boolean
+  warranty_tracking_enabled: boolean
+  default_warranty_months: number | null
+  trial_period_enabled: boolean
+  default_trial_days: number | null
   item_count: number
   created_at: string
   updated_at: string
 }
 
-export interface EnvironmentCreate {
+export interface AreaCreate {
   name: string
   icon?: string
-  env_type?: EnvironmentType
+  area_type?: AreaType
   description?: string
   position?: number
+  expiry_extension_enabled?: boolean
+  disable_expiry_tracking?: boolean
+  warranty_tracking_enabled?: boolean
+  default_warranty_months?: number | null
+  trial_period_enabled?: boolean
+  default_trial_days?: number | null
 }
 
-export interface EnvironmentUpdate {
+export interface AreaUpdate {
   name?: string
   icon?: string
-  env_type?: EnvironmentType
+  area_type?: AreaType
   description?: string
   position?: number
+  expiry_extension_enabled?: boolean
+  disable_expiry_tracking?: boolean
+  warranty_tracking_enabled?: boolean
+  default_warranty_months?: number | null
+  trial_period_enabled?: boolean
+  default_trial_days?: number | null
 }
 
 export interface ExpenseByCategory {
@@ -560,7 +578,7 @@ export interface ExpenseByMonth {
   total: number
 }
 
-export interface EnvironmentExpenseStats {
+export interface AreaExpenseStats {
   total_spent: number
   by_category: ExpenseByCategory[]
   by_month: ExpenseByMonth[]
@@ -575,17 +593,20 @@ export interface DispensaItem {
   unit: string | null
   category_id: string | null
   expiry_date: string | null
+  original_expiry_date: string | null
   barcode: string | null
   grocy_product_id: number | null
   grocy_product_name: string | null
   source_list_id: string | null
   source_item_id: string | null
   added_by: string | null
-  environment_id: string | null
+  area_id: string | null
   purchase_price: number | null
   is_consumed: boolean
   consumed_at: string | null
   notes: string | null
+  warranty_expiry_date: string | null
+  trial_expiry_date: string | null
   created_at: string
   updated_at: string
 }

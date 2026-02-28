@@ -37,7 +37,7 @@ def get_dispensa_items(
     expired: bool = Query(False, description="Show only expired"),
     consumed: bool = Query(False, description="Show consumed items"),
     show_all: bool = Query(False, description="Show all items regardless of consumed status"),
-    environment_id: Optional[UUID] = Query(None, description="Filter by environment"),
+    area_id: Optional[UUID] = Query(None, description="Filter by area"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -50,9 +50,9 @@ def get_dispensa_items(
         expired=expired,
         consumed=consumed,
         show_all=show_all,
-        environment_id=environment_id,
+        area_id=area_id,
     )
-    stats_data = DispensaService.get_stats(db, house_id, environment_id=environment_id)
+    stats_data = DispensaService.get_stats(db, house_id, area_id=area_id)
     total = len(items)
 
     return DispensaItemListResponse(
@@ -79,12 +79,12 @@ def create_dispensa_item(
 @router.get("/stats", response_model=DispensaStatsResponse)
 def get_dispensa_stats(
     house_id: UUID = Query(..., description="House ID"),
-    environment_id: Optional[UUID] = Query(None, description="Filter by environment"),
+    area_id: Optional[UUID] = Query(None, description="Filter by area"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get dispensa statistics (totals, expiring, expired)."""
-    return DispensaService.get_stats(db, house_id, environment_id=environment_id)
+    return DispensaService.get_stats(db, house_id, area_id=area_id)
 
 
 @router.post("/preview-from-shopping-list", response_model=PreviewFromShoppingListResponse)
@@ -94,7 +94,7 @@ def preview_from_shopping_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Preview items from a shopping list with resolved environments before sending to dispensa."""
+    """Preview items from a shopping list with resolved areas before sending to dispensa."""
     result = DispensaService.preview_from_shopping_list(
         db, house_id, data.shopping_list_id
     )
@@ -116,7 +116,8 @@ def send_from_shopping_list(
     """Send verified items from a shopping list to the dispensa."""
     result = DispensaService.send_from_shopping_list(
         db, house_id, current_user.id, data.shopping_list_id,
-        item_environments=data.item_environments,
+        item_areas=data.item_areas,
+        item_expiry_extensions=data.item_expiry_extensions,
     )
 
     if "error" in result:

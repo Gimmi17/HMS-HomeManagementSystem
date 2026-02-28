@@ -21,7 +21,7 @@ from app.models.shopping_list import ShoppingList, ShoppingListItem
 from app.models.product_catalog import ProductCatalog
 from app.models.product_barcode import ProductBarcode
 from app.models.category import Category
-from app.models.environment import Environment
+from app.models.area import Area
 from app.schemas.dispensa import DispensaItemCreate, DispensaItemUpdate
 
 
@@ -37,13 +37,13 @@ class DispensaService:
         expired: bool = False,
         consumed: bool = False,
         show_all: bool = False,
-        environment_id: Optional[UUID] = None,
+        area_id: Optional[UUID] = None,
     ) -> list[DispensaItem]:
         """Get dispensa items with optional filters."""
         query = db.query(DispensaItem).filter(DispensaItem.house_id == house_id)
 
-        if environment_id:
-            query = query.filter(DispensaItem.environment_id == environment_id)
+        if area_id:
+            query = query.filter(DispensaItem.area_id == area_id)
 
         if not show_all:
             if consumed:
@@ -61,19 +61,21 @@ class DispensaService:
 
         if expiring:
             three_days = today + timedelta(days=3)
-            query = query.filter(
+            query = query.outerjoin(Area, DispensaItem.area_id == Area.id).filter(
                 and_(
                     DispensaItem.expiry_date != None,
                     DispensaItem.expiry_date > today,
-                    DispensaItem.expiry_date <= three_days
+                    DispensaItem.expiry_date <= three_days,
+                    (Area.disable_expiry_tracking == False) | (Area.id == None)
                 )
             )
 
         if expired:
-            query = query.filter(
+            query = query.outerjoin(Area, DispensaItem.area_id == Area.id).filter(
                 and_(
                     DispensaItem.expiry_date != None,
-                    DispensaItem.expiry_date <= today
+                    DispensaItem.expiry_date <= today,
+                    (Area.disable_expiry_tracking == False) | (Area.id == None)
                 )
             )
 
@@ -118,14 +120,17 @@ class DispensaService:
             unit=data.unit,
             category_id=data.category_id,
             expiry_date=data.expiry_date,
+            original_expiry_date=data.original_expiry_date,
             barcode=data.barcode,
             grocy_product_id=data.grocy_product_id,
             grocy_product_name=data.grocy_product_name,
             source_item_id=data.source_item_id,
-            environment_id=data.environment_id,
+            area_id=data.area_id,
             purchase_price=data.purchase_price,
             added_by=user_id,
             notes=data.notes,
+            warranty_expiry_date=data.warranty_expiry_date,
+            trial_expiry_date=data.trial_expiry_date,
         )
         db.add(item)
         db.flush()
@@ -207,17 +212,17 @@ class DispensaService:
         return item
 
     @staticmethod
-    def _resolve_environment_for_item(
+    def _resolve_area_for_item(
         db: Session,
         sl_item: ShoppingListItem,
     ) -> Optional[UUID]:
         """
-        Resolve the environment for a shopping list item using the fallback chain:
-        1. Barcode → ProductCatalog → ProductCategoryTag.default_environment_id
-        2. item.category_id → Category.default_environment_id
+        Resolve the area for a shopping list item using the fallback chain:
+        1. Barcode → ProductCatalog → ProductCategoryTag.default_area_id
+        2. item.category_id → Category.default_area_id
         3. None (user must choose)
         """
-        # 1. Try barcode → product → category tag default environment
+        # 1. Try barcode → product → category tag default area
         if sl_item.scanned_barcode:
             product = db.query(ProductCatalog).join(
                 ProductBarcode, ProductCatalog.id == ProductBarcode.product_id
@@ -227,14 +232,14 @@ class DispensaService:
             ).first()
             if product and product.category_tags:
                 for tag in product.category_tags:
-                    if tag.default_environment_id:
-                        return tag.default_environment_id
+                    if tag.default_area_id:
+                        return tag.default_area_id
 
-        # 2. Try category → default_environment_id
+        # 2. Try category → default_area_id
         if sl_item.category_id:
             category = db.query(Category).filter(Category.id == sl_item.category_id).first()
-            if category and category.default_environment_id:
-                return category.default_environment_id
+            if category and category.default_area_id:
+                return category.default_area_id
 
         return None
 
@@ -287,7 +292,7 @@ class DispensaService:
     ) -> Optional[Dict]:
         """
         Preview items from a shopping list before sending to dispensa.
-        Returns items with resolved environments and the list of available environments.
+        Returns items with resolved areas and the list of available areas.
         """
         shopping_list = db.query(ShoppingList).filter(
             and_(
@@ -308,39 +313,57 @@ class DispensaService:
             )
         ).all()
 
-        # Get all food_storage environments for this house
-        environments = db.query(Environment).filter(
+        # Get all food_storage areas for this house
+        areas = db.query(Area).filter(
             and_(
-                Environment.house_id == house_id,
-                Environment.env_type == "food_storage",
+                Area.house_id == house_id,
+                Area.area_type == "food_storage",
             )
-        ).order_by(Environment.position).all()
+        ).order_by(Area.position).all()
 
-        env_map = {env.id: env for env in environments}
+        area_map = {a.id: a for a in areas}
+
+        # Build category name map for items that have category_id
+        category_ids = {sl_item.category_id for sl_item in eligible_items if sl_item.category_id}
+        category_map = {}
+        if category_ids:
+            cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
+            category_map = {c.id: c.name for c in cats}
 
         items = []
         for sl_item in eligible_items:
             qty = sl_item.verified_quantity if sl_item.verified_quantity is not None else float(sl_item.quantity)
             unit = sl_item.verified_unit if sl_item.verified_unit else sl_item.unit
 
-            env_id = DispensaService._resolve_environment_for_item(db, sl_item)
-            env_name = env_map[env_id].name if env_id and env_id in env_map else None
+            resolved_area_id = DispensaService._resolve_area_for_item(db, sl_item)
+            area_name = area_map[resolved_area_id].name if resolved_area_id and resolved_area_id in area_map else None
 
             items.append({
                 "item_id": sl_item.id,
                 "name": sl_item.grocy_product_name or sl_item.name,
                 "quantity": qty,
                 "unit": unit,
-                "environment_id": env_id,
-                "environment_name": env_name,
+                "category_name": category_map.get(sl_item.category_id) if sl_item.category_id else None,
+                "area_id": resolved_area_id,
+                "area_name": area_name,
             })
 
-        env_list = [
-            {"id": env.id, "name": env.name, "icon": env.icon}
-            for env in environments
+        area_list = [
+            {
+                "id": a.id,
+                "name": a.name,
+                "icon": a.icon,
+                "expiry_extension_enabled": a.expiry_extension_enabled,
+                "disable_expiry_tracking": a.disable_expiry_tracking,
+                "warranty_tracking_enabled": a.warranty_tracking_enabled,
+                "default_warranty_months": a.default_warranty_months,
+                "trial_period_enabled": a.trial_period_enabled,
+                "default_trial_days": a.default_trial_days,
+            }
+            for a in areas
         ]
 
-        return {"items": items, "environments": env_list}
+        return {"items": items, "areas": area_list}
 
     @staticmethod
     def send_from_shopping_list(
@@ -348,7 +371,8 @@ class DispensaService:
         house_id: UUID,
         user_id: UUID,
         shopping_list_id: UUID,
-        item_environments: Optional[Dict[str, str]] = None,
+        item_areas: Optional[Dict[str, str]] = None,
+        item_expiry_extensions: Optional[Dict[str, int]] = None,
     ) -> Dict:
         """
         Send verified items from a shopping list to the dispensa.
@@ -400,13 +424,13 @@ class DispensaService:
             qty = sl_item.verified_quantity if sl_item.verified_quantity is not None else float(sl_item.quantity)
             unit = sl_item.verified_unit if sl_item.verified_unit else sl_item.unit
 
-            # Resolve environment: explicit override → auto-resolve
-            env_id = None
+            # Resolve area: explicit override → auto-resolve
+            resolved_area_id = None
             item_id_str = str(sl_item.id)
-            if item_environments and item_id_str in item_environments:
-                env_id = UUID(item_environments[item_id_str])
+            if item_areas and item_id_str in item_areas:
+                resolved_area_id = UUID(item_areas[item_id_str])
             else:
-                env_id = DispensaService._resolve_environment_for_item(db, sl_item)
+                resolved_area_id = DispensaService._resolve_area_for_item(db, sl_item)
 
             item_data = DispensaItemCreate(
                 name=sl_item.grocy_product_name or sl_item.name,
@@ -418,11 +442,21 @@ class DispensaService:
                 grocy_product_id=sl_item.grocy_product_id,
                 grocy_product_name=sl_item.grocy_product_name,
                 source_item_id=sl_item.id,
-                environment_id=env_id,
+                area_id=resolved_area_id,
             )
 
             item = DispensaService.create_item(db, house_id, user_id, item_data)
             item.source_list_id = shopping_list_id
+
+            # Apply expiry extension if requested
+            if item_expiry_extensions and item.expiry_date:
+                item_id_str = str(sl_item.id)
+                if item_id_str in item_expiry_extensions:
+                    extension_days = item_expiry_extensions[item_id_str]
+                    if extension_days > 0:
+                        item.original_expiry_date = item.expiry_date
+                        item.expiry_date = item.expiry_date + timedelta(days=extension_days)
+
             count += 1
 
         return {"count": count, "skipped": skipped}
@@ -497,7 +531,7 @@ class DispensaService:
     def get_stats(
         db: Session,
         house_id: UUID,
-        environment_id: Optional[UUID] = None
+        area_id: Optional[UUID] = None
     ) -> Dict:
         """Get dispensa statistics."""
         today = date.today()
@@ -510,12 +544,17 @@ class DispensaService:
             )
         )
 
-        if environment_id:
-            base_query = base_query.filter(DispensaItem.environment_id == environment_id)
+        if area_id:
+            base_query = base_query.filter(DispensaItem.area_id == area_id)
 
         total = base_query.count()
 
-        expiring_soon = base_query.filter(
+        # For expiry stats, exclude items in areas with disable_expiry_tracking
+        expiry_query = base_query.outerjoin(Area, DispensaItem.area_id == Area.id).filter(
+            (Area.disable_expiry_tracking == False) | (Area.id == None)
+        )
+
+        expiring_soon = expiry_query.filter(
             and_(
                 DispensaItem.expiry_date != None,
                 DispensaItem.expiry_date > today,
@@ -523,7 +562,7 @@ class DispensaService:
             )
         ).count()
 
-        expired = base_query.filter(
+        expired = expiry_query.filter(
             and_(
                 DispensaItem.expiry_date != None,
                 DispensaItem.expiry_date <= today

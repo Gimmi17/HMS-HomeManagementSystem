@@ -16,7 +16,7 @@ class CategoryCreate(BaseModel):
     icon: Optional[str] = Field(None, max_length=50, description="Icon or emoji")
     color: Optional[str] = Field(None, max_length=7, description="Hex color code (e.g., #FF5733)")
     sort_order: int = Field(0, description="Sort order for display")
-    default_environment_id: Optional[UUID] = Field(None, description="Default environment for items in this category")
+    default_area_id: Optional[UUID] = Field(None, description="Default area for items in this category")
 
 
 class CategoryUpdate(BaseModel):
@@ -26,7 +26,7 @@ class CategoryUpdate(BaseModel):
     icon: Optional[str] = Field(None, max_length=50)
     color: Optional[str] = Field(None, max_length=7)
     sort_order: Optional[int] = None
-    default_environment_id: Optional[UUID] = None
+    default_area_id: Optional[UUID] = None
 
 
 class CategoryResponse(BaseModel):
@@ -38,7 +38,7 @@ class CategoryResponse(BaseModel):
     icon: Optional[str] = None
     color: Optional[str] = None
     sort_order: int
-    default_environment_id: Optional[UUID] = None
+    default_area_id: Optional[UUID] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime

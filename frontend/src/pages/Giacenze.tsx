@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import dispensaService from '@/services/dispensa'
-import environmentsService from '@/services/environments'
-import type { DispensaItem, DispensaStats, Environment } from '@/types'
+import areasService from '@/services/areas'
+import type { DispensaItem, DispensaStats, Area } from '@/types'
 
 export function Giacenze() {
   const { currentHouse } = useHouse()
@@ -11,7 +11,7 @@ export function Giacenze() {
   const [stats, setStats] = useState<DispensaStats | null>(null)
   const [expiringItems, setExpiringItems] = useState<DispensaItem[]>([])
   const [expiredItems, setExpiredItems] = useState<DispensaItem[]>([])
-  const [zones, setZones] = useState<Environment[]>([])
+  const [zones, setZones] = useState<Area[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -20,18 +20,18 @@ export function Giacenze() {
     const fetchAll = async () => {
       setIsLoading(true)
       try {
-        const [statsRes, expiringRes, expiredRes, envsRes] = await Promise.all([
+        const [statsRes, expiringRes, expiredRes, areasRes] = await Promise.all([
           dispensaService.getStats(currentHouse.id).catch(() => null),
           dispensaService.getItems(currentHouse.id, { expiring: true }).catch(() => ({ items: [] })),
           dispensaService.getItems(currentHouse.id, { expired: true }).catch(() => ({ items: [] })),
-          environmentsService.getAll(currentHouse.id).catch(() => ({ environments: [] })),
+          areasService.getAll(currentHouse.id).catch(() => ({ areas: [] })),
         ])
 
         setStats(statsRes)
         setExpiringItems(expiringRes.items || [])
         setExpiredItems(expiredRes.items || [])
         setZones(
-          (envsRes.environments || []).filter((e) => e.env_type === 'food_storage')
+          (areasRes.areas || []).filter((e) => e.area_type === 'food_storage')
         )
       } catch (error) {
         console.error('Failed to fetch giacenze data:', error)
@@ -167,7 +167,7 @@ export function Giacenze() {
             {zones.map((zone) => (
               <Link
                 key={zone.id}
-                to={`/environments/${zone.id}`}
+                to={`/areas/${zone.id}`}
                 className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white border border-gray-100 hover:border-primary-200 hover:bg-primary-50/30 transition-colors shadow-sm"
               >
                 <span className="text-2xl">{zone.icon || '📦'}</span>

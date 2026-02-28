@@ -10,14 +10,14 @@ import { useState, useEffect } from 'react'
 import { useHouse } from '@/context/HouseContext'
 import productsService from '@/services/products'
 import type { ProductLookupResult } from '@/services/products'
-import environmentsService from '@/services/environments'
-import type { Environment } from '@/types'
+import areasService from '@/services/areas'
+import type { Area } from '@/types'
 
 export interface ProductSaveData {
   name: string
   barcode?: string
   expiryDate: string
-  environmentId: string
+  areaId: string
   fromApi: boolean
   nutrients?: ProductLookupResult['nutrients']
   imageUrl?: string
@@ -48,26 +48,26 @@ export function SaveAsProductModal({
   // Form state
   const [productName, setProductName] = useState('')
   const [expiryDate, setExpiryDate] = useState('')
-  const [environmentId, setEnvironmentId] = useState('')
+  const [areaId, setAreaId] = useState('')
 
-  // Environments
-  const [environments, setEnvironments] = useState<Environment[]>([])
-  const [loadingEnvs, setLoadingEnvs] = useState(false)
+  // Areas
+  const [areas, setAreas] = useState<Area[]>([])
+  const [loadingAreas, setLoadingAreas] = useState(false)
 
-  // Load environments on open
+  // Load areas on open
   useEffect(() => {
     if (!open || !currentHouse) return
 
-    setLoadingEnvs(true)
-    environmentsService.getAll(currentHouse.id)
+    setLoadingAreas(true)
+    areasService.getAll(currentHouse.id)
       .then((res) => {
-        const foodStorageEnvs = res.environments.filter((e) => e.env_type === 'food_storage')
-        setEnvironments(foodStorageEnvs)
-        const defaultEnv = foodStorageEnvs.find((e) => e.is_default) || foodStorageEnvs[0]
-        if (defaultEnv) setEnvironmentId(defaultEnv.id)
+        const foodStorageAreas = res.areas.filter((e) => e.area_type === 'food_storage')
+        setAreas(foodStorageAreas)
+        const defaultArea = foodStorageAreas.find((e) => e.is_default) || foodStorageAreas[0]
+        if (defaultArea) setAreaId(defaultArea.id)
       })
-      .catch((err) => console.error('Failed to load environments:', err))
-      .finally(() => setLoadingEnvs(false))
+      .catch((err) => console.error('Failed to load areas:', err))
+      .finally(() => setLoadingAreas(false))
   }, [open, currentHouse])
 
   // Reset state when modal opens
@@ -112,13 +112,13 @@ export function SaveAsProductModal({
   }
 
   const handleConfirm = () => {
-    if (!productName.trim() || !environmentId) return
+    if (!productName.trim() || !areaId) return
 
     onConfirm({
       name: productName.trim(),
       barcode: barcode.trim() || undefined,
       expiryDate,
-      environmentId,
+      areaId,
       fromApi: !!(lookupResult?.found && lookupResult.nutrients),
       nutrients: lookupResult?.found ? lookupResult.nutrients : undefined,
       imageUrl: lookupResult?.found ? lookupResult.image_url : undefined,
@@ -126,7 +126,7 @@ export function SaveAsProductModal({
   }
 
   const isNameEditable = skipped || !lookupResult?.found
-  const canConfirm = productName.trim() && environmentId
+  const canConfirm = productName.trim() && areaId
 
   if (!open) return null
 
@@ -290,23 +290,23 @@ export function SaveAsProductModal({
             </div>
           )}
 
-          {/* Environment zone */}
+          {/* Area zone */}
           {(lookupDone || skipped) && (
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Zona</label>
-              {loadingEnvs ? (
+              {loadingAreas ? (
                 <div className="text-sm text-gray-500">Caricamento zone...</div>
-              ) : environments.length === 0 ? (
+              ) : areas.length === 0 ? (
                 <div className="text-sm text-yellow-600">Nessuna zona dispensa configurata</div>
               ) : (
                 <select
-                  value={environmentId}
-                  onChange={(e) => setEnvironmentId(e.target.value)}
+                  value={areaId}
+                  onChange={(e) => setAreaId(e.target.value)}
                   className="input w-full"
                 >
-                  {environments.map((env) => (
-                    <option key={env.id} value={env.id}>
-                      {env.icon || ''} {env.name}
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.icon || ''} {area.name}
                     </option>
                   ))}
                 </select>

@@ -100,7 +100,7 @@ export function MealForm() {
     const minutes = String(now.getMinutes()).padStart(2, '0')
     return `${year}-${month}-${day}T${hours}:${minutes}`
   })
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(() => searchParams.get('notes') || '')
 
   // Recipe mode state
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(
@@ -361,7 +361,7 @@ export function MealForm() {
             unit: 'pz',
             expiry_date: productData.expiryDate || undefined,
             barcode: productData.barcode,
-            environment_id: productData.environmentId,
+            area_id: productData.areaId,
           })
 
           await dispensaService.consumeItem(currentHouse!.id, dispensaItem.id)

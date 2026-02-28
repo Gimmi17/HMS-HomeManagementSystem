@@ -17,19 +17,26 @@ export interface PreviewItem {
   name: string
   quantity: number
   unit: string | null
-  environment_id: string | null
-  environment_name: string | null
+  category_name: string | null
+  area_id: string | null
+  area_name: string | null
 }
 
-export interface PreviewEnvironment {
+export interface PreviewArea {
   id: string
   name: string
   icon: string | null
+  expiry_extension_enabled: boolean
+  disable_expiry_tracking: boolean
+  warranty_tracking_enabled: boolean
+  default_warranty_months: number | null
+  trial_period_enabled: boolean
+  default_trial_days: number | null
 }
 
 export interface PreviewFromShoppingListResponse {
   items: PreviewItem[]
-  environments: PreviewEnvironment[]
+  areas: PreviewArea[]
 }
 
 interface GetItemsParams {
@@ -39,7 +46,7 @@ interface GetItemsParams {
   expired?: boolean
   consumed?: boolean
   show_all?: boolean
-  environment_id?: string
+  area_id?: string
 }
 
 export const dispensaService = {
@@ -72,12 +79,15 @@ export const dispensaService = {
     unit?: string
     category_id?: string
     expiry_date?: string
+    original_expiry_date?: string
     barcode?: string
     grocy_product_id?: number
     grocy_product_name?: string
-    environment_id?: string
+    area_id?: string
     purchase_price?: number
     notes?: string
+    warranty_expiry_date?: string
+    trial_expiry_date?: string
   }): Promise<DispensaItem> {
     const response = await api.post('/dispensa', data, {
       params: { house_id: houseId },
@@ -134,7 +144,7 @@ export const dispensaService = {
   },
 
   /**
-   * Preview items from a shopping list with resolved environments
+   * Preview items from a shopping list with resolved areas
    */
   async previewFromShoppingList(houseId: string, listId: string): Promise<PreviewFromShoppingListResponse> {
     const response = await api.post('/dispensa/preview-from-shopping-list',
@@ -147,9 +157,13 @@ export const dispensaService = {
   /**
    * Send verified items from a shopping list to the dispensa
    */
-  async sendFromShoppingList(houseId: string, listId: string, itemEnvironments?: Record<string, string>): Promise<SendToDispensaResponse> {
+  async sendFromShoppingList(houseId: string, listId: string, itemAreas?: Record<string, string>, itemExpiryExtensions?: Record<string, number>): Promise<SendToDispensaResponse> {
     const response = await api.post('/dispensa/from-shopping-list',
-      { shopping_list_id: listId, item_environments: itemEnvironments || null },
+      {
+        shopping_list_id: listId,
+        item_areas: itemAreas || null,
+        item_expiry_extensions: itemExpiryExtensions || null,
+      },
       { params: { house_id: houseId } },
     )
     return response.data

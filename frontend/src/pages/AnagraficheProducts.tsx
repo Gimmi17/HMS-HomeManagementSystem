@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions, ProductBarcodeItem } from '@/services/anagrafiche'
 import CompositionModal from '@/components/CompositionModal'
-import environmentsService from '@/services/environments'
+import areasService from '@/services/areas'
 import { useHouse } from '@/context/HouseContext'
-import type { Environment } from '@/types'
+import type { Area } from '@/types'
 
 export function AnagraficheProducts() {
   const navigate = useNavigate()
@@ -17,7 +17,7 @@ export function AnagraficheProducts() {
 
   // Category manager modal
   const [showCategoryManager, setShowCategoryManager] = useState(false)
-  const [environments, setEnvironments] = useState<Environment[]>([])
+  const [areas, setAreas] = useState<Area[]>([])
   const [categorySearch, setCategorySearch] = useState('')
   const [managerCategories, setManagerCategories] = useState<ProductCategoryTag[]>([])
 
@@ -402,21 +402,21 @@ export function AnagraficheProducts() {
     setShowCategoryManager(true)
     setCategorySearch('')
     try {
-      const [catResponse, envResponse] = await Promise.all([
+      const [catResponse, areasResponse] = await Promise.all([
         anagraficheService.getProductCategories({ min_products: 1, limit: 500 }),
-        currentHouse ? environmentsService.getAll(currentHouse.id) : Promise.resolve({ environments: [] })
+        currentHouse ? areasService.getAll(currentHouse.id) : Promise.resolve({ areas: [] })
       ])
       setManagerCategories(catResponse.categories)
-      setEnvironments(envResponse.environments)
+      setAreas(areasResponse.areas)
     } catch (err) {
       console.error('Failed to load category manager data:', err)
       showToast('Errore nel caricamento classi', 'error')
     }
   }
 
-  const handleCategoryEnvironmentChange = async (categoryId: string, environmentId: string | null) => {
+  const handleCategoryAreaChange = async (categoryId: string, areaId: string | null) => {
     try {
-      const updated = await anagraficheService.updateCategoryDefaultEnvironment(categoryId, environmentId)
+      const updated = await anagraficheService.updateCategoryDefaultArea(categoryId, areaId)
       setManagerCategories(prev => prev.map(c => c.id === updated.id ? updated : c))
       // Also update the filter categories list
       setCategories(prev => prev.map(c => c.id === updated.id ? updated : c))
@@ -1323,13 +1323,13 @@ export function AnagraficheProducts() {
                         <p className="text-xs text-gray-500">{cat.product_count} prodotti</p>
                       </div>
                       <select
-                        value={cat.default_environment_id || ''}
-                        onChange={(e) => handleCategoryEnvironmentChange(cat.id, e.target.value || null)}
+                        value={cat.default_area_id || ''}
+                        onChange={(e) => handleCategoryAreaChange(cat.id, e.target.value || null)}
                         className="input text-sm py-1.5 w-40"
                       >
                         <option value="">-- Nessuna --</option>
-                        {environments.map((env) => (
-                          <option key={env.id} value={env.id}>{env.name}</option>
+                        {areas.map((area) => (
+                          <option key={area.id} value={area.id}>{area.name}</option>
                         ))}
                       </select>
                     </div>

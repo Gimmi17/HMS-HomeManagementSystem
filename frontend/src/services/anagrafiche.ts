@@ -259,8 +259,8 @@ export interface ProductCategoryTag {
   name: string | null
   lang: string | null
   product_count: number
-  default_environment_id: string | null
-  default_environment_name: string | null
+  default_area_id: string | null
+  default_area_name: string | null
 }
 
 // ============================================================
@@ -477,8 +477,8 @@ export const anagraficheService = {
     return response.data
   },
 
-  async updateCategoryDefaultEnvironment(categoryId: string, environmentId: string | null): Promise<ProductCategoryTag> {
-    const response = await api.patch(`/anagrafiche/product-categories/${categoryId}/default-environment`, { environment_id: environmentId })
+  async updateCategoryDefaultArea(categoryId: string, areaId: string | null): Promise<ProductCategoryTag> {
+    const response = await api.patch(`/anagrafiche/product-categories/${categoryId}/default-area`, { area_id: areaId })
     return response.data
   },
 

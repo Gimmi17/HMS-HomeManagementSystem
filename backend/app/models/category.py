@@ -45,10 +45,10 @@ class Category(BaseModel):
     # Sort order for display
     sort_order = Column(Integer, default=0, nullable=False)
 
-    # Default environment for items in this category
-    default_environment_id = Column(
+    # Default area for items in this category
+    default_area_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("environments.id", ondelete="SET NULL"),
+        ForeignKey("areas.id", ondelete="SET NULL"),
         nullable=True
     )
 
@@ -60,7 +60,7 @@ class Category(BaseModel):
     )
 
     # Relationships
-    default_environment = relationship("Environment")
+    default_area = relationship("Area")
     creator = relationship("User", foreign_keys=[created_by])
 
     def __repr__(self):

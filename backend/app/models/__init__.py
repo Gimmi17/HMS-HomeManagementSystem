@@ -26,7 +26,7 @@ from app.models.product_catalog import ProductCatalog
 from app.models.error_log import ErrorLog
 from app.models.receipt import Receipt, ReceiptImage, ReceiptItem, ReceiptStatus, ReceiptItemMatchStatus
 from app.models.category import Category
-from app.models.environment import Environment, EnvironmentType
+from app.models.area import Area, AreaType
 from app.models.dispensa import DispensaItem
 from app.models.product_nutrition import ProductNutrition
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
@@ -62,8 +62,8 @@ __all__ = [
     "ReceiptStatus",
     "ReceiptItemMatchStatus",
     "Category",
-    "Environment",
-    "EnvironmentType",
+    "Area",
+    "AreaType",
     "DispensaItem",
     "ProductNutrition",
     "ProductCategoryTag",

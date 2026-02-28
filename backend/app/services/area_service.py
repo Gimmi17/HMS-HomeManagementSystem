@@ -1,6 +1,6 @@
 """
-Environment Service - Business Logic Layer
-Handles all business logic for environment management.
+Area Service - Business Logic Layer
+Handles all business logic for area management.
 """
 
 from sqlalchemy.orm import Session
@@ -8,116 +8,123 @@ from sqlalchemy import and_, func, extract
 from typing import Optional, Dict
 from uuid import UUID
 
-from app.models.environment import Environment, EnvironmentType
+from app.models.area import Area, AreaType
 from app.models.dispensa import DispensaItem
 from app.models.category import Category
-from app.schemas.environment import EnvironmentCreate, EnvironmentUpdate
+from app.schemas.area import AreaCreate, AreaUpdate
 
 
-DEFAULT_ENVIRONMENTS = [
-    {"name": "Dispensa", "icon": "\U0001f3e0", "env_type": EnvironmentType.FOOD_STORAGE, "position": 0},
-    {"name": "Frigorifero", "icon": "\u2744\ufe0f", "env_type": EnvironmentType.FOOD_STORAGE, "position": 1},
-    {"name": "Congelatore", "icon": "\U0001f9ca", "env_type": EnvironmentType.FOOD_STORAGE, "position": 2},
+DEFAULT_AREAS = [
+    {"name": "Dispensa", "icon": "\U0001f3e0", "area_type": AreaType.FOOD_STORAGE, "position": 0},
+    {"name": "Frigorifero", "icon": "\u2744\ufe0f", "area_type": AreaType.FOOD_STORAGE, "position": 1},
+    {"name": "Congelatore", "icon": "\U0001f9ca", "area_type": AreaType.FOOD_STORAGE, "position": 2, "expiry_extension_enabled": True},
 ]
 
 
-class EnvironmentService:
+class AreaService:
 
     @staticmethod
-    def get_environments(db: Session, house_id: UUID) -> list[Environment]:
-        return db.query(Environment).filter(
-            Environment.house_id == house_id
-        ).order_by(Environment.position.asc(), Environment.name.asc()).all()
+    def get_areas(db: Session, house_id: UUID) -> list[Area]:
+        return db.query(Area).filter(
+            Area.house_id == house_id
+        ).order_by(Area.position.asc(), Area.name.asc()).all()
 
     @staticmethod
-    def get_environment_by_id(db: Session, env_id: UUID, house_id: UUID) -> Optional[Environment]:
-        return db.query(Environment).filter(
+    def get_area_by_id(db: Session, area_id: UUID, house_id: UUID) -> Optional[Area]:
+        return db.query(Area).filter(
             and_(
-                Environment.id == env_id,
-                Environment.house_id == house_id
+                Area.id == area_id,
+                Area.house_id == house_id
             )
         ).first()
 
     @staticmethod
-    def create_environment(db: Session, house_id: UUID, data: EnvironmentCreate) -> Environment:
-        env = Environment(
+    def create_area(db: Session, house_id: UUID, data: AreaCreate) -> Area:
+        area = Area(
             house_id=house_id,
             name=data.name,
             icon=data.icon,
-            env_type=data.env_type or EnvironmentType.GENERAL,
+            area_type=data.area_type or AreaType.GENERAL,
             description=data.description,
             is_default=False,
             position=data.position or 0,
+            expiry_extension_enabled=data.expiry_extension_enabled or False,
+            disable_expiry_tracking=data.disable_expiry_tracking or False,
+            warranty_tracking_enabled=data.warranty_tracking_enabled or False,
+            default_warranty_months=data.default_warranty_months,
+            trial_period_enabled=data.trial_period_enabled or False,
+            default_trial_days=data.default_trial_days,
         )
-        db.add(env)
+        db.add(area)
         db.flush()
-        return env
+        return area
 
     @staticmethod
-    def update_environment(db: Session, env_id: UUID, house_id: UUID, data: EnvironmentUpdate) -> Optional[Environment]:
-        env = EnvironmentService.get_environment_by_id(db, env_id, house_id)
-        if not env:
+    def update_area(db: Session, area_id: UUID, house_id: UUID, data: AreaUpdate) -> Optional[Area]:
+        area = AreaService.get_area_by_id(db, area_id, house_id)
+        if not area:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
-            setattr(env, field, value)
+            setattr(area, field, value)
 
         db.flush()
-        return env
+        return area
 
     @staticmethod
-    def delete_environment(db: Session, env_id: UUID, house_id: UUID) -> Dict:
-        env = EnvironmentService.get_environment_by_id(db, env_id, house_id)
-        if not env:
-            return {"error": "Ambiente non trovato"}
+    def delete_area(db: Session, area_id: UUID, house_id: UUID) -> Dict:
+        area = AreaService.get_area_by_id(db, area_id, house_id)
+        if not area:
+            return {"error": "Area non trovata"}
 
-        if env.is_default:
-            return {"error": "Non puoi eliminare un ambiente predefinito"}
+        if area.is_default:
+            return {"error": "Non puoi eliminare un'area predefinita"}
 
         item_count = db.query(DispensaItem).filter(
             and_(
-                DispensaItem.environment_id == env_id,
+                DispensaItem.area_id == area_id,
                 DispensaItem.is_consumed == False
             )
         ).count()
 
         if item_count > 0:
-            return {"error": f"L'ambiente contiene {item_count} articoli attivi. Spostali prima di eliminare."}
+            return {"error": f"L'area contiene {item_count} articoli attivi. Spostali prima di eliminare."}
 
-        db.delete(env)
+        db.delete(area)
         db.flush()
         return {"success": True}
 
     @staticmethod
-    def get_item_count(db: Session, env_id: UUID) -> int:
+    def get_item_count(db: Session, area_id: UUID) -> int:
         return db.query(DispensaItem).filter(
             and_(
-                DispensaItem.environment_id == env_id,
+                DispensaItem.area_id == area_id,
                 DispensaItem.is_consumed == False
             )
         ).count()
 
     @staticmethod
     def seed_defaults(db: Session, house_id: UUID) -> int:
-        existing = db.query(Environment).filter(
-            Environment.house_id == house_id
+        existing = db.query(Area).filter(
+            Area.house_id == house_id
         ).count()
 
         if existing > 0:
             return 0
 
         count = 0
-        for env_data in DEFAULT_ENVIRONMENTS:
-            env = Environment(
+        for area_data in DEFAULT_AREAS:
+            area = Area(
                 house_id=house_id,
-                name=env_data["name"],
-                icon=env_data["icon"],
-                env_type=env_data["env_type"],
+                name=area_data["name"],
+                icon=area_data["icon"],
+                area_type=area_data["area_type"],
                 is_default=True,
-                position=env_data["position"],
+                position=area_data["position"],
+                expiry_extension_enabled=area_data.get("expiry_extension_enabled", False),
             )
-            db.add(env)
+            db.add(area)
             count += 1
 
         db.flush()
@@ -125,27 +132,27 @@ class EnvironmentService:
 
     @staticmethod
     def assign_orphaned_items(db: Session, house_id: UUID) -> int:
-        dispensa_env = db.query(Environment).filter(
+        dispensa_area = db.query(Area).filter(
             and_(
-                Environment.house_id == house_id,
-                Environment.name == "Dispensa",
-                Environment.is_default == True
+                Area.house_id == house_id,
+                Area.name == "Dispensa",
+                Area.is_default == True
             )
         ).first()
 
-        if not dispensa_env:
+        if not dispensa_area:
             return 0
 
         orphaned = db.query(DispensaItem).filter(
             and_(
                 DispensaItem.house_id == house_id,
-                DispensaItem.environment_id == None
+                DispensaItem.area_id == None
             )
         ).all()
 
         count = 0
         for item in orphaned:
-            item.environment_id = dispensa_env.id
+            item.area_id = dispensa_area.id
             count += 1
 
         if count > 0:
@@ -154,10 +161,10 @@ class EnvironmentService:
         return count
 
     @staticmethod
-    def get_expense_stats(db: Session, environment_id: UUID) -> Dict:
+    def get_expense_stats(db: Session, area_id: UUID) -> Dict:
         base_query = db.query(DispensaItem).filter(
             and_(
-                DispensaItem.environment_id == environment_id,
+                DispensaItem.area_id == area_id,
                 DispensaItem.purchase_price != None
             )
         )
@@ -177,7 +184,7 @@ class EnvironmentService:
             Category, DispensaItem.category_id == Category.id
         ).filter(
             and_(
-                DispensaItem.environment_id == environment_id,
+                DispensaItem.area_id == area_id,
                 DispensaItem.purchase_price != None
             )
         ).group_by(
@@ -199,7 +206,7 @@ class EnvironmentService:
             func.sum(DispensaItem.purchase_price).label("total")
         ).filter(
             and_(
-                DispensaItem.environment_id == environment_id,
+                DispensaItem.area_id == area_id,
                 DispensaItem.purchase_price != None
             )
         ).group_by(
