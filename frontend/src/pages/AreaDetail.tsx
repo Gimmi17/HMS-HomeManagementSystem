@@ -25,6 +25,7 @@ export function AreaDetail() {
   const { currentHouse } = useHouse()
 
   const [area, setArea] = useState<Area | null>(null)
+  const [allAreas, setAllAreas] = useState<Area[]>([])
   const [items, setItems] = useState<DispensaItem[]>([])
   const [stats, setStats] = useState<DispensaStats>({ total: 0, expiring_soon: 0, expired: 0 })
   const [expenseStats, setExpenseStats] = useState<AreaExpenseStats | null>(null)
@@ -66,6 +67,9 @@ export function AreaDetail() {
   // Delete area
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  // Move item to another zone
+  const [movingItem, setMovingItem] = useState<DispensaItem | null>(null)
+
   // Consume date selection
   const [consumeDateItem, setConsumeDateItem] = useState<DispensaItem | null>(null)
   const [consumeDate, setConsumeDate] = useState(() => {
@@ -88,6 +92,7 @@ export function AreaDetail() {
 
       const foundArea = areasResponse.areas.find(e => e.id === id)
       setArea(foundArea || null)
+      setAllAreas(areasResponse.areas)
       setItems(itemsResponse.items)
       setStats(itemsResponse.stats)
       setCategories(catsResponse.categories)
@@ -199,6 +204,17 @@ export function AreaDetail() {
       loadData()
     } catch (error) {
       console.error('Failed to delete item:', error)
+    }
+  }
+
+  const handleMoveItem = async (targetAreaId: string) => {
+    if (!currentHouse || !movingItem) return
+    try {
+      await dispensaService.updateItem(currentHouse.id, movingItem.id, { area_id: targetAreaId })
+      setMovingItem(null)
+      loadData()
+    } catch (error) {
+      console.error('Failed to move item:', error)
     }
   }
 
@@ -430,6 +446,9 @@ export function AreaDetail() {
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                       </button>
                     )}
+                    <button onClick={() => setMovingItem(item)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Sposta in altra zona">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                    </button>
                     <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Elimina">
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                     </button>
@@ -637,6 +656,39 @@ export function AreaDetail() {
                 Conferma
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Item Modal */}
+      {movingItem && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+          <div className="bg-white w-full sm:w-auto sm:min-w-[320px] sm:rounded-xl rounded-t-xl p-4 space-y-4">
+            <div>
+              <h3 className="font-semibold text-lg">Sposta in altra zona</h3>
+              <p className="text-sm text-gray-500 mt-1">{movingItem.name}</p>
+            </div>
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+              {allAreas.filter(a => a.id !== id).map((targetArea) => (
+                <button
+                  key={targetArea.id}
+                  onClick={() => handleMoveItem(targetArea.id)}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-primary-50 hover:border-primary-200 transition-colors text-left"
+                >
+                  <span className="text-xl">{targetArea.icon || '📦'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{targetArea.name}</p>
+                    <p className="text-xs text-gray-500">{targetArea.item_count} articoli</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setMovingItem(null)}
+              className="btn btn-secondary w-full text-sm"
+            >
+              Annulla
+            </button>
           </div>
         </div>
       )}

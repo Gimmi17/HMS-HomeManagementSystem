@@ -106,6 +106,7 @@ export const dispensaService = {
     expiry_date?: string
     barcode?: string
     notes?: string
+    area_id?: string
   }): Promise<DispensaItem> {
     const response = await api.put(`/dispensa/${itemId}`, data, {
       params: { house_id: houseId },

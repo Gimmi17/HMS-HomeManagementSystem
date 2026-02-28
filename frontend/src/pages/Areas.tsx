@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import areasService from '@/services/areas'
 import type { Area, AreaType } from '@/types'
@@ -230,6 +230,16 @@ export function Areas() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Link to full pantry */}
+      {!isLoading && areas.length > 0 && (
+        <Link
+          to="/pantry"
+          className="btn btn-primary w-full py-2.5 text-center flex items-center justify-center gap-2 text-sm"
+        >
+          Vedi tutti gli articoli in casa
+        </Link>
       )}
 
       {/* Create/Edit Modal */}
