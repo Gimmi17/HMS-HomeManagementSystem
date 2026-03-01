@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions, BrandListItem, ProductWithoutBrand } from '@/services/anagrafiche'
 import CompositionModal from '@/components/CompositionModal'
 import EanManagerPanel from '@/components/EanManagerPanel'
@@ -9,11 +9,14 @@ import type { Area } from '@/types'
 
 export function AnagraficheProducts() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { currentHouse } = useHouse()
   const [products, setProducts] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const filterBrandId = searchParams.get('brand_id') || undefined
+  const filterBrandName = searchParams.get('brand_name') || undefined
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   // Category manager modal
@@ -139,6 +142,7 @@ export function AnagraficheProducts() {
       const response = await anagraficheService.getProducts({
         search: searchQuery || undefined,
         category_tag_id: selectedCategoryId || undefined,
+        brand_id: filterBrandId,
         certified: certificationFilter === 'all' ? undefined : certificationFilter === 'certified',
         limit: 100
       })
@@ -173,7 +177,7 @@ export function AnagraficheProducts() {
 
   useEffect(() => {
     fetchProducts()
-  }, [searchQuery, selectedCategoryId, certificationFilter])
+  }, [searchQuery, selectedCategoryId, certificationFilter, filterBrandId])
 
   const openCreateModal = () => {
     setEditingProduct(null)
@@ -560,7 +564,19 @@ export function AnagraficheProducts() {
         </button>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-gray-900">Catalogo Prodotti</h1>
-          <p className="text-sm text-gray-500">{total} prodotti (mostrando {products.length})</p>
+          <p className="text-sm text-gray-500">
+            {total} prodotti (mostrando {products.length})
+            {filterBrandName && (
+              <>
+                {' '}&middot; Brand: <strong>{filterBrandName}</strong>
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="ml-1 text-red-500 hover:text-red-700"
+                  title="Rimuovi filtro"
+                >&times;</button>
+              </>
+            )}
+          </p>
         </div>
         <button
           onClick={startBulkScan}
@@ -791,6 +807,15 @@ export function AnagraficheProducts() {
                   <p className="text-sm text-gray-500 font-mono">{viewingProduct.barcode}</p>
                 )}
               </div>
+              <button
+                onClick={() => openEditModal(viewingProduct)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg"
+                title="Modifica prodotto"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
               <button
                 onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}
                 className="p-1 hover:bg-gray-100 rounded-lg"

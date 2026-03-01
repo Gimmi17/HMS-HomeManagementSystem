@@ -470,7 +470,7 @@ export const anagraficheService = {
   },
 
   // Products
-  async getProducts(params?: { search?: string; category_tag_id?: string; certified?: boolean; limit?: number; offset?: number }): Promise<{ products: ProductListItem[]; total: number }> {
+  async getProducts(params?: { search?: string; category_tag_id?: string; brand_id?: string; certified?: boolean; limit?: number; offset?: number }): Promise<{ products: ProductListItem[]; total: number }> {
     const response = await api.get('/anagrafiche/products', { params })
     return response.data
   },

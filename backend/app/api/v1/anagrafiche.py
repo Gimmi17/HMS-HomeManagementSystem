@@ -1099,6 +1099,7 @@ class ProductUpdateRequest(BaseModel):
 def list_products(
     search: Optional[str] = Query(None),
     category_tag_id: Optional[UUID] = Query(None, description="Filter by category tag ID"),
+    brand_id: Optional[UUID] = Query(None, description="Filter by brand ID"),
     certified: Optional[bool] = Query(None, description="Filter by certification: true=certified, false=not certified, null=all"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -1120,6 +1121,10 @@ def list_products(
     ).filter(
         ProductCatalog.cancelled == False
     )
+
+    # Filter by brand
+    if brand_id:
+        query = query.filter(ProductCatalog.brand_id == brand_id)
 
     # Filter by certification status
     if certified is True:

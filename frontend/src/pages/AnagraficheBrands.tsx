@@ -256,9 +256,16 @@ export function AnagraficheBrands() {
                   <p className="text-xs text-gray-500 truncate">{brand.notes}</p>
                 )}
               </div>
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600 flex-shrink-0">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigate(`/anagrafiche/products?brand_id=${brand.id}&brand_name=${encodeURIComponent(brand.name)}`)
+                }}
+                className="px-2 py-0.5 rounded-full bg-gray-100 text-xs text-gray-600 flex-shrink-0 hover:bg-primary-100 hover:text-primary-700 transition-colors"
+                title="Vedi prodotti"
+              >
                 {brand.product_count} prodotti
-              </span>
+              </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation()

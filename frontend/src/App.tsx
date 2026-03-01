@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, Admin, ReceiptUpload, LLMSettings, Areas, AreaDetail, MealPlannerWizard } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, AnagraficheZones, Admin, ReceiptUpload, LLMSettings, Areas, AreaDetail, MealPlannerWizard } from './pages'
 import { ShoppingListUnified } from './pages/ShoppingList'
 import RecipeForm from './pages/RecipeForm'
 
@@ -399,6 +399,16 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <AnagraficheBarcodeSources />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/anagrafiche/zones"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AnagraficheZones />
             </MainLayout>
           </PrivateRoute>
         }

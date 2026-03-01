@@ -75,6 +75,15 @@ const anagrafiche: AnagraficaItem[] = [
     implemented: true,
   },
   {
+    id: 'zones',
+    label: 'Zone',
+    description: 'Zone di stoccaggio e aree della casa',
+    icon: '🗄️',
+    path: '/anagrafiche/zones',
+    color: 'bg-cyan-500',
+    implemented: true,
+  },
+  {
     id: 'recipes',
     label: 'Ricette',
     description: 'Ricette salvate con ingredienti e procedimenti',
