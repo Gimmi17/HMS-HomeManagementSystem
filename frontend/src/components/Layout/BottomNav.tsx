@@ -53,7 +53,7 @@ export function BottomNav() {
   if (keyboardVisible) return null
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 sm:hidden safe-area-bottom">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-30 sm:hidden safe-area-bottom">
       <div className="flex justify-around items-center h-16 relative">
         {/* Left items */}
         {leftItems.map((item) => (

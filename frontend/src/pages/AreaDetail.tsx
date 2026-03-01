@@ -1,12 +1,14 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import areasService from '@/services/areas'
 import dispensaService from '@/services/dispensa'
 import categoriesService from '@/services/categories'
+import productsService from '@/services/products'
 import { useDebounce } from '@/hooks/useDebounce'
 import ProductDetailCard from '@/components/ProductDetailCard'
 import ExpiryGroupActionsModal, { type ExpiryDateGroup } from '@/components/ExpiryGroupActionsModal'
+import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 import type { Area, AreaExpenseStats, DispensaItem, DispensaStats, Category, AreaType, AreaUpdate } from '@/types'
 
 const TYPE_COLORS: Record<AreaType, string> = {
@@ -81,6 +83,88 @@ export function AreaDetail() {
 
   // Expiry group actions modal
   const [selectedExpiryGroup, setSelectedExpiryGroup] = useState<{ product: AggregatedProduct; group: ExpiryDateGroup } | null>(null)
+
+  // Continuous scanner
+  const [showScanner, setShowScanner] = useState(false)
+  const [scanLog, setScanLog] = useState<ScanLogEntry[]>([])
+  const scanLogRef = useRef<ScanLogEntry[]>([])
+
+  const handleBarcodeDetected = useCallback(async (barcode: string) => {
+    if (!currentHouse || !id) return
+
+    // Check if already scanned in this session
+    const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
+    if (existingIdx >= 0) {
+      // Increment quantity
+      const entry = scanLogRef.current[existingIdx]
+      const newQty = entry.quantity + 1
+      scanLogRef.current[existingIdx] = { ...entry, quantity: newQty, timestamp: Date.now() }
+      setScanLog([...scanLogRef.current])
+      // Create another dispensa item
+      try {
+        await dispensaService.createItem(currentHouse.id, {
+          name: entry.productName || barcode,
+          barcode,
+          area_id: id,
+          brand_text: entry.brandText || undefined,
+        })
+      } catch { /* ignore */ }
+      return
+    }
+
+    // Look up product
+    try {
+      const result = await productsService.lookupBarcode(barcode)
+      const name = result.product_name || barcode
+      const brand = result.brand || undefined
+
+      const newEntry: ScanLogEntry = {
+        barcode,
+        productName: name,
+        brandText: brand,
+        matched: result.found,
+        quantity: 1,
+        timestamp: Date.now(),
+      }
+      scanLogRef.current = [...scanLogRef.current, newEntry]
+      setScanLog([...scanLogRef.current])
+
+      // Create dispensa item in this area
+      await dispensaService.createItem(currentHouse.id, {
+        name,
+        barcode,
+        area_id: id,
+        brand_text: brand,
+        category_id: result.category_id || undefined,
+      })
+    } catch {
+      // Fallback: add with barcode as name
+      const newEntry: ScanLogEntry = {
+        barcode,
+        productName: barcode,
+        matched: false,
+        quantity: 1,
+        timestamp: Date.now(),
+      }
+      scanLogRef.current = [...scanLogRef.current, newEntry]
+      setScanLog([...scanLogRef.current])
+
+      try {
+        await dispensaService.createItem(currentHouse.id, {
+          name: barcode,
+          barcode,
+          area_id: id,
+        })
+      } catch { /* ignore */ }
+    }
+  }, [currentHouse, id])
+
+  const handleScannerClose = useCallback(() => {
+    setShowScanner(false)
+    scanLogRef.current = []
+    setScanLog([])
+    loadData()
+  }, [currentHouse, id])
 
   const loadData = async () => {
     if (!currentHouse || !id) return
@@ -499,6 +583,15 @@ export function AreaDetail() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold text-gray-800 flex-1">Articoli ({stats.total})</h2>
+          <button
+            onClick={() => setShowScanner(true)}
+            className="btn bg-teal-600 text-white hover:bg-teal-700 text-sm px-3 py-1.5 flex items-center gap-1"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+            </svg>
+            Scansione
+          </button>
           <button onClick={() => setShowAddModal(true)} className="btn btn-primary text-sm px-3 py-1.5">+ Aggiungi</button>
         </div>
         <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Cerca articoli..." className="input w-full" />
@@ -859,6 +952,15 @@ export function AreaDetail() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Continuous Barcode Scanner */}
+      {showScanner && (
+        <ContinuousBarcodeScanner
+          onBarcodeDetected={handleBarcodeDetected}
+          onClose={handleScannerClose}
+          scanLog={scanLog}
+        />
       )}
 
       {/* Delete Confirmation Modal */}
