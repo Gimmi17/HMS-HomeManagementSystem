@@ -138,3 +138,49 @@ class PreviewFromShoppingListResponse(BaseModel):
 class ConsumeItemRequest(BaseModel):
     """Schema for consuming an item (partial or total)"""
     quantity: Optional[float] = Field(None, gt=0, description="Quantity to consume (None = consume all)")
+
+
+# --- Missing Catalogs (Crea Anagrafiche Mancanti) ---
+
+class MissingCatalogItem(BaseModel):
+    barcode: str
+    dispensa_name: str
+    brand_text: Optional[str] = None
+    dispensa_item_ids: list[UUID]
+
+
+class ConflictCatalogItem(BaseModel):
+    barcode: str
+    dispensa_name: str
+    catalog_name: str
+    product_id: UUID
+    dispensa_item_ids: list[UUID]
+
+
+class ScanMissingCatalogsResponse(BaseModel):
+    to_create: list[MissingCatalogItem]
+    conflicts: list[ConflictCatalogItem]
+    already_linked: int
+    no_barcode: int
+
+
+class ApplyCreateCatalogItem(BaseModel):
+    barcode: str
+    name: str
+    brand_text: Optional[str] = None
+
+
+class ApplyConflictResolution(BaseModel):
+    barcode: str
+    keep: str = Field(..., pattern=r"^(dispensa|catalog)$")
+
+
+class ApplyMissingCatalogsRequest(BaseModel):
+    create_items: list[ApplyCreateCatalogItem]
+    conflict_resolutions: list[ApplyConflictResolution]
+
+
+class ApplyMissingCatalogsResponse(BaseModel):
+    created: int
+    conflicts_resolved: int
+    errors: list[str]

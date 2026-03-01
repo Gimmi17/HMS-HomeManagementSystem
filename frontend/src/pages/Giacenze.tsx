@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import dispensaService from '@/services/dispensa'
+import type { MissingCatalogItem, ConflictCatalogItem, ApplyConflictResolution } from '@/services/dispensa'
 import areasService from '@/services/areas'
 import type { DispensaItem, DispensaStats, Area } from '@/types'
 
@@ -13,6 +14,17 @@ export function Giacenze() {
   const [expiredItems, setExpiredItems] = useState<DispensaItem[]>([])
   const [zones, setZones] = useState<Area[]>([])
   const [isLoading, setIsLoading] = useState(true)
+
+  // Missing catalogs state
+  const [showMissingModal, setShowMissingModal] = useState(false)
+  const [isScanning, setIsScanning] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
+  const [toCreate, setToCreate] = useState<MissingCatalogItem[]>([])
+  const [conflicts, setConflicts] = useState<ConflictCatalogItem[]>([])
+  const [conflictResolutions, setConflictResolutions] = useState<Map<string, 'dispensa' | 'catalog'>>(new Map())
+  const [dismissedBarcodes, setDismissedBarcodes] = useState<Set<string>>(new Set())
+  const [scanSummary, setScanSummary] = useState<{ already_linked: number; no_barcode: number } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
     if (!currentHouse) return
@@ -42,6 +54,74 @@ export function Giacenze() {
 
     fetchAll()
   }, [currentHouse])
+
+  // Auto-hide toast
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  const handleScanMissing = async () => {
+    if (!currentHouse) return
+    setShowMissingModal(true)
+    setIsScanning(true)
+    setDismissedBarcodes(new Set())
+    setConflictResolutions(new Map())
+    try {
+      const result = await dispensaService.scanMissingCatalogs(currentHouse.id)
+      setToCreate(result.to_create)
+      setConflicts(result.conflicts)
+      setScanSummary({ already_linked: result.already_linked, no_barcode: result.no_barcode })
+    } catch {
+      setToast({ message: 'Errore durante la scansione', type: 'error' })
+      setShowMissingModal(false)
+    } finally {
+      setIsScanning(false)
+    }
+  }
+
+  const handleApplyAll = async () => {
+    if (!currentHouse) return
+    setIsApplying(true)
+    try {
+      const createItems = toCreate
+        .filter((item) => !dismissedBarcodes.has(item.barcode))
+        .map((item) => ({
+          barcode: item.barcode,
+          name: item.dispensa_name,
+          brand_text: item.brand_text,
+        }))
+
+      const conflictRes: ApplyConflictResolution[] = []
+      conflictResolutions.forEach((keep, barcode) => {
+        conflictRes.push({ barcode, keep })
+      })
+
+      const result = await dispensaService.applyMissingCatalogs(currentHouse.id, {
+        create_items: createItems,
+        conflict_resolutions: conflictRes,
+      })
+
+      const parts: string[] = []
+      if (result.created > 0) parts.push(`${result.created} anagrafiche create`)
+      if (result.conflicts_resolved > 0) parts.push(`${result.conflicts_resolved} conflitti risolti`)
+      if (result.errors.length > 0) parts.push(`${result.errors.length} errori`)
+
+      setToast({
+        message: parts.join(', ') || 'Nessuna modifica',
+        type: result.errors.length > 0 ? 'error' : 'success',
+      })
+      setShowMissingModal(false)
+    } catch {
+      setToast({ message: 'Errore durante l\'applicazione', type: 'error' })
+    } finally {
+      setIsApplying(false)
+    }
+  }
+
+  const activeCreates = toCreate.filter((item) => !dismissedBarcodes.has(item.barcode))
+  const hasWork = activeCreates.length > 0 || conflictResolutions.size > 0
 
   if (!currentHouse) {
     return (
@@ -74,7 +154,158 @@ export function Giacenze() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Giacenze</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Giacenze</h1>
+        <button
+          onClick={handleScanMissing}
+          className="px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+        >
+          Crea Anagrafiche
+        </button>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium text-white ${
+            toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Missing Catalogs Modal */}
+      {showMissingModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold">Crea Anagrafiche Mancanti</h2>
+              {scanSummary && !isScanning && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {scanSummary.already_linked} già collegati &middot; {scanSummary.no_barcode} senza barcode
+                </p>
+              )}
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {isScanning ? (
+                <p className="text-gray-500 text-sm text-center py-8">Scansione in corso...</p>
+              ) : (
+                <>
+                  {/* Section: Da creare */}
+                  {toCreate.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                        Da creare ({activeCreates.length})
+                      </h3>
+                      <div className="space-y-2">
+                        {toCreate.map((item) => {
+                          if (dismissedBarcodes.has(item.barcode)) return null
+                          return (
+                            <div
+                              key={item.barcode}
+                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium truncate">{item.dispensa_name}</p>
+                                <p className="text-xs text-gray-500">
+                                  EAN: {item.barcode}
+                                  {item.brand_text && <> &middot; {item.brand_text}</>}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => setDismissedBarcodes((prev) => new Set(prev).add(item.barcode))}
+                                className="ml-2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                                title="Ignora"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Section: Conflitti */}
+                  {conflicts.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-orange-700 mb-2">
+                        Conflitti ({conflicts.length})
+                      </h3>
+                      <div className="space-y-2">
+                        {conflicts.map((item) => (
+                          <div
+                            key={item.barcode}
+                            className="p-3 bg-orange-50 border border-orange-200 rounded-lg"
+                          >
+                            <p className="text-xs text-gray-500 mb-2">EAN: {item.barcode}</p>
+                            <label className="flex items-center gap-2 text-sm cursor-pointer">
+                              <input
+                                type="radio"
+                                name={`conflict-${item.barcode}`}
+                                checked={conflictResolutions.get(item.barcode) === 'dispensa'}
+                                onChange={() => setConflictResolutions((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(item.barcode, 'dispensa')
+                                  return next
+                                })}
+                                className="accent-teal-600"
+                              />
+                              <span>Dispensa: <strong>{item.dispensa_name}</strong></span>
+                            </label>
+                            <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+                              <input
+                                type="radio"
+                                name={`conflict-${item.barcode}`}
+                                checked={conflictResolutions.get(item.barcode) === 'catalog'}
+                                onChange={() => setConflictResolutions((prev) => {
+                                  const next = new Map(prev)
+                                  next.set(item.barcode, 'catalog')
+                                  return next
+                                })}
+                                className="accent-teal-600"
+                              />
+                              <span>Anagrafica: <strong>{item.catalog_name}</strong></span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {toCreate.length === 0 && conflicts.length === 0 && (
+                    <p className="text-gray-500 text-sm text-center py-8">
+                      Tutti gli articoli con barcode hanno già un'anagrafica.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowMissingModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Chiudi
+              </button>
+              <button
+                onClick={handleApplyAll}
+                disabled={!hasWork || isApplying || isScanning}
+                className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                {isApplying ? 'Applicazione...' : 'Conferma'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sezione Scadenze */}
       <div className="card p-4">

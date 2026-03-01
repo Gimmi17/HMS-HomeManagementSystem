@@ -5,12 +5,18 @@ CRUD operations for dispensa (pantry) items.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Optional
 from uuid import UUID
+from collections import defaultdict
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
+from app.models.product_catalog import ProductCatalog
+from app.models.product_barcode import ProductBarcode
+from app.models.brand import Brand
+from app.models.dispensa import DispensaItem
 from app.services.dispensa_service import DispensaService
 from app.schemas.dispensa import (
     DispensaItemCreate,
@@ -22,6 +28,11 @@ from app.schemas.dispensa import (
     ConsumeItemRequest,
     PreviewFromShoppingListRequest,
     PreviewFromShoppingListResponse,
+    ScanMissingCatalogsResponse,
+    MissingCatalogItem,
+    ConflictCatalogItem,
+    ApplyMissingCatalogsRequest,
+    ApplyMissingCatalogsResponse,
 )
 
 
@@ -128,6 +139,202 @@ def send_from_shopping_list(
 
     db.commit()
     return {"message": f"{result['count']} articoli inviati alla dispensa", "count": result["count"]}
+
+
+@router.get("/missing-catalogs", response_model=ScanMissingCatalogsResponse)
+def scan_missing_catalogs(
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Scan dispensa items and find those without a ProductCatalog entry."""
+    # Get active dispensa items with barcode
+    items_with_barcode = (
+        db.query(DispensaItem)
+        .filter(
+            DispensaItem.house_id == house_id,
+            DispensaItem.is_consumed == False,
+            DispensaItem.barcode.isnot(None),
+            DispensaItem.barcode != "",
+        )
+        .all()
+    )
+
+    # Count items without barcode
+    no_barcode = (
+        db.query(func.count(DispensaItem.id))
+        .filter(
+            DispensaItem.house_id == house_id,
+            DispensaItem.is_consumed == False,
+            (DispensaItem.barcode.is_(None)) | (DispensaItem.barcode == ""),
+        )
+        .scalar()
+    )
+
+    # Group by barcode
+    by_barcode: dict[str, list] = defaultdict(list)
+    for item in items_with_barcode:
+        by_barcode[item.barcode].append(item)
+
+    to_create: list[MissingCatalogItem] = []
+    conflicts: list[ConflictCatalogItem] = []
+    already_linked = 0
+
+    for barcode, dispensa_items in by_barcode.items():
+        representative = dispensa_items[0]
+        item_ids = [item.id for item in dispensa_items]
+
+        # Look up ProductBarcode
+        pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == barcode).first()
+
+        if not pb:
+            # No barcode entry at all → to_create
+            to_create.append(MissingCatalogItem(
+                barcode=barcode,
+                dispensa_name=representative.name,
+                brand_text=representative.brand_text,
+                dispensa_item_ids=item_ids,
+            ))
+            continue
+
+        # Barcode exists, check product
+        product = db.query(ProductCatalog).filter(ProductCatalog.id == pb.product_id).first()
+
+        if not product or product.cancelled:
+            # Product cancelled or missing → to_create
+            to_create.append(MissingCatalogItem(
+                barcode=barcode,
+                dispensa_name=representative.name,
+                brand_text=representative.brand_text,
+                dispensa_item_ids=item_ids,
+            ))
+            continue
+
+        # Product exists and active — compare names
+        if product.name.strip().lower() == representative.name.strip().lower():
+            already_linked += 1
+        else:
+            conflicts.append(ConflictCatalogItem(
+                barcode=barcode,
+                dispensa_name=representative.name,
+                catalog_name=product.name,
+                product_id=product.id,
+                dispensa_item_ids=item_ids,
+            ))
+
+    return ScanMissingCatalogsResponse(
+        to_create=to_create,
+        conflicts=conflicts,
+        already_linked=already_linked,
+        no_barcode=no_barcode,
+    )
+
+
+@router.post("/missing-catalogs/apply", response_model=ApplyMissingCatalogsResponse)
+def apply_missing_catalogs(
+    data: ApplyMissingCatalogsRequest,
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create missing ProductCatalog entries and resolve conflicts."""
+    created = 0
+    conflicts_resolved = 0
+    errors: list[str] = []
+
+    # --- Create missing catalog entries ---
+    for item in data.create_items:
+        # Double-check barcode doesn't already exist
+        existing_pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == item.barcode).first()
+        if existing_pb:
+            # Check if product is cancelled → reactivate
+            existing_product = db.query(ProductCatalog).filter(ProductCatalog.id == existing_pb.product_id).first()
+            if existing_product and existing_product.cancelled:
+                existing_product.cancelled = False
+                existing_product.name = item.name
+                created += 1
+                continue
+            errors.append(f"Barcode {item.barcode} già esistente in anagrafica")
+            continue
+
+        # Find-or-create brand
+        brand_id = None
+        brand_name = None
+        if item.brand_text and item.brand_text.strip():
+            brand_name = item.brand_text.strip()
+            brand = db.query(Brand).filter(func.lower(Brand.name) == brand_name.lower()).first()
+            if brand:
+                if brand.cancelled:
+                    brand.cancelled = False
+            else:
+                brand = Brand(name=brand_name)
+                db.add(brand)
+                db.flush()
+            brand_id = brand.id
+
+        # Create ProductCatalog
+        product = ProductCatalog(
+            house_id=house_id,
+            name=item.name,
+            barcode=item.barcode,
+            brand=brand_name,
+            brand_id=brand_id,
+            source="manual",
+        )
+        db.add(product)
+        db.flush()
+
+        # Create ProductBarcode
+        db.add(ProductBarcode(
+            product_id=product.id,
+            barcode=item.barcode,
+            is_primary=True,
+            source="manual",
+        ))
+        created += 1
+
+    # --- Resolve conflicts ---
+    for resolution in data.conflict_resolutions:
+        pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == resolution.barcode).first()
+        if not pb:
+            errors.append(f"Barcode {resolution.barcode} non trovato")
+            continue
+
+        product = db.query(ProductCatalog).filter(ProductCatalog.id == pb.product_id).first()
+        if not product:
+            errors.append(f"Prodotto per barcode {resolution.barcode} non trovato")
+            continue
+
+        if resolution.keep == "dispensa":
+            # Get the dispensa name for this barcode
+            dispensa_item = (
+                db.query(DispensaItem)
+                .filter(
+                    DispensaItem.house_id == house_id,
+                    DispensaItem.barcode == resolution.barcode,
+                    DispensaItem.is_consumed == False,
+                )
+                .first()
+            )
+            if dispensa_item:
+                product.name = dispensa_item.name
+        elif resolution.keep == "catalog":
+            # Update all dispensa items with this barcode to match catalog name
+            db.query(DispensaItem).filter(
+                DispensaItem.house_id == house_id,
+                DispensaItem.barcode == resolution.barcode,
+                DispensaItem.is_consumed == False,
+            ).update({DispensaItem.name: product.name})
+
+        conflicts_resolved += 1
+
+    db.commit()
+
+    return ApplyMissingCatalogsResponse(
+        created=created,
+        conflicts_resolved=conflicts_resolved,
+        errors=errors,
+    )
 
 
 @router.get("/{item_id}", response_model=DispensaItemResponse)

@@ -40,6 +40,46 @@ export interface PreviewFromShoppingListResponse {
   areas: PreviewArea[]
 }
 
+// --- Missing Catalogs ---
+
+export interface MissingCatalogItem {
+  barcode: string
+  dispensa_name: string
+  brand_text: string | null
+  dispensa_item_ids: string[]
+}
+
+export interface ConflictCatalogItem {
+  barcode: string
+  dispensa_name: string
+  catalog_name: string
+  product_id: string
+  dispensa_item_ids: string[]
+}
+
+export interface ScanMissingCatalogsResponse {
+  to_create: MissingCatalogItem[]
+  conflicts: ConflictCatalogItem[]
+  already_linked: number
+  no_barcode: number
+}
+
+export interface ApplyConflictResolution {
+  barcode: string
+  keep: 'dispensa' | 'catalog'
+}
+
+interface ApplyMissingCatalogsRequest {
+  create_items: { barcode: string; name: string; brand_text?: string | null }[]
+  conflict_resolutions: ApplyConflictResolution[]
+}
+
+interface ApplyMissingCatalogsResponse {
+  created: number
+  conflicts_resolved: number
+  errors: string[]
+}
+
 interface GetItemsParams {
   search?: string
   category_id?: string
@@ -170,6 +210,26 @@ export const dispensaService = {
       },
       { params: { house_id: houseId } },
     )
+    return response.data
+  },
+
+  /**
+   * Scan dispensa items to find those without a ProductCatalog entry
+   */
+  async scanMissingCatalogs(houseId: string): Promise<ScanMissingCatalogsResponse> {
+    const response = await api.get('/dispensa/missing-catalogs', {
+      params: { house_id: houseId },
+    })
+    return response.data
+  },
+
+  /**
+   * Create missing catalog entries and resolve conflicts
+   */
+  async applyMissingCatalogs(houseId: string, data: ApplyMissingCatalogsRequest): Promise<ApplyMissingCatalogsResponse> {
+    const response = await api.post('/dispensa/missing-catalogs/apply', data, {
+      params: { house_id: houseId },
+    })
     return response.data
   },
 }
