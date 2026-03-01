@@ -358,6 +358,7 @@ export interface ShoppingListItem {
   urgent: boolean
   expiry_date?: string  // formato YYYY-MM-DD dal backend
   category_id?: string
+  brand_text?: string
   catalog_barcode?: string  // EAN noto da acquisti precedenti
   product_notes?: string  // Commento utente dal catalogo prodotti
   created_at: string
@@ -603,6 +604,7 @@ export interface DispensaItem {
   source_list_id: string | null
   source_item_id: string | null
   added_by: string | null
+  brand_text: string | null
   area_id: string | null
   purchase_price: number | null
   is_consumed: boolean

@@ -26,6 +26,7 @@ class DispensaItemCreate(BaseModel):
     notes: Optional[str] = Field(None, max_length=500, description="Notes")
     warranty_expiry_date: Optional[date] = Field(None, description="Warranty expiry date")
     trial_expiry_date: Optional[date] = Field(None, description="Trial/return period expiry date")
+    brand_text: Optional[str] = Field(None, max_length=255, description="Brand name")
 
 
 class DispensaItemUpdate(BaseModel):
@@ -44,6 +45,7 @@ class DispensaItemUpdate(BaseModel):
     notes: Optional[str] = Field(None, max_length=500)
     warranty_expiry_date: Optional[date] = None
     trial_expiry_date: Optional[date] = None
+    brand_text: Optional[str] = Field(None, max_length=255)
 
 
 class DispensaItemResponse(BaseModel):
@@ -66,6 +68,7 @@ class DispensaItemResponse(BaseModel):
     purchase_price: Optional[float] = None
     is_consumed: bool
     consumed_at: Optional[datetime] = None
+    brand_text: Optional[str] = None
     notes: Optional[str] = None
     warranty_expiry_date: Optional[date] = None
     trial_expiry_date: Optional[date] = None
@@ -107,6 +110,7 @@ class PreviewItemResponse(BaseModel):
     name: str
     quantity: float
     unit: Optional[str] = None
+    brand_text: Optional[str] = None
     category_name: Optional[str] = None
     area_id: Optional[UUID] = None
     area_name: Optional[str] = None

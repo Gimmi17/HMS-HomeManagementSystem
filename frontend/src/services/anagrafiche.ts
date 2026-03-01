@@ -165,6 +165,39 @@ export interface CompositionResponse {
 }
 
 // ============================================================
+// BRANDS
+// ============================================================
+
+export interface BrandListItem {
+  id: string
+  name: string
+  logo_url: string | null
+  notes: string | null
+  product_count: number
+  created_at: string
+}
+
+export interface BrandCreateRequest {
+  name: string
+  logo_url?: string
+  notes?: string
+}
+
+export interface BrandUpdateRequest {
+  name?: string
+  logo_url?: string
+  notes?: string
+}
+
+export interface ProductWithoutBrand {
+  id: string
+  name: string | null
+  barcode: string | null
+  brand_text: string | null
+  image_small_url: string | null
+}
+
+// ============================================================
 // PRODUCTS
 // ============================================================
 
@@ -207,6 +240,9 @@ export interface ProductListItem {
   // Linked food
   food_id: string | null
   food_name: string | null
+  // Linked brand
+  brand_id: string | null
+  brand_name: string | null
   // Composition
   composition: CompositionItem[] | null
   // Meta
@@ -384,6 +420,36 @@ export const anagraficheService = {
 
   async deleteFood(foodId: string): Promise<void> {
     await api.delete(`/anagrafiche/foods/${foodId}`)
+  },
+
+  // Brands
+  async getBrands(params?: { search?: string }): Promise<{ brands: BrandListItem[]; total: number }> {
+    const response = await api.get('/anagrafiche/brands', { params })
+    return response.data
+  },
+
+  async createBrand(data: BrandCreateRequest): Promise<BrandListItem> {
+    const response = await api.post('/anagrafiche/brands', data)
+    return response.data
+  },
+
+  async updateBrand(id: string, data: BrandUpdateRequest): Promise<BrandListItem> {
+    const response = await api.put(`/anagrafiche/brands/${id}`, data)
+    return response.data
+  },
+
+  async deleteBrand(id: string): Promise<void> {
+    await api.delete(`/anagrafiche/brands/${id}`)
+  },
+
+  async getProductsWithoutBrand(): Promise<{ products: ProductWithoutBrand[]; total: number }> {
+    const response = await api.get('/anagrafiche/products/without-brand')
+    return response.data
+  },
+
+  async setProductBrand(productId: string, brandId: string): Promise<ProductListItem> {
+    const response = await api.patch(`/anagrafiche/products/${productId}/brand`, { brand_id: brandId })
+    return response.data
   },
 
   // Products

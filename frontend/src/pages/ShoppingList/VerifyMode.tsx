@@ -345,6 +345,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-gray-900">{item.grocy_product_name || item.name}</div>
+                        {item.brand_text && <div className="text-xs text-purple-600 mt-0.5">{item.brand_text}</div>}
                         <div className="text-xs text-gray-600 mt-0.5">
                           {item.quantity} {item.unit}
                           {item.catalog_barcode && <span className="ml-2 text-gray-400">EAN: {item.catalog_barcode}</span>}
@@ -399,6 +400,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-gray-900">{item.grocy_product_name || item.name}</div>
+                          {item.brand_text && <div className="text-xs text-purple-600 mt-0.5">{item.brand_text}</div>}
                           <div className="text-xs text-gray-600 mt-0.5">
                             {item.verified_quantity ?? item.quantity} {item.verified_unit || item.unit}
                             {item.scanned_barcode && <span className="ml-2 text-gray-400">EAN: {item.scanned_barcode}</span>}
@@ -530,6 +532,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                         <div className="flex justify-between text-sm">
                           <div className="truncate">
                             <span className="font-medium">{item.name}</span>
+                            {item.brand_text && <span className="text-xs text-purple-600 ml-1">{item.brand_text}</span>}
                             {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
                           </div>
                           <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
@@ -607,6 +610,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                               <div className="flex justify-between">
                                 <div className="truncate">
                                   <span>{item.name}</span>
+                                  {item.brand_text && <span className="text-xs text-purple-600 ml-1">{item.brand_text}</span>}
                                   {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
                                 </div>
                                 <span className="text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>
@@ -653,6 +657,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                           <div className="flex items-center justify-between mb-1.5">
                             <div className="truncate">
                               <span className="text-sm font-medium text-gray-900">{item.name}</span>
+                              {item.brand_text && <span className="text-xs text-purple-600 ml-1">{item.brand_text}</span>}
                               {item.category_name && <p className="text-xs text-gray-400">{item.category_name}</p>}
                             </div>
                             <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{item.quantity} {item.unit || 'pz'}</span>

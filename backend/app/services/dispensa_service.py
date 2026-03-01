@@ -131,6 +131,7 @@ class DispensaService:
             notes=data.notes,
             warranty_expiry_date=data.warranty_expiry_date,
             trial_expiry_date=data.trial_expiry_date,
+            brand_text=data.brand_text,
         )
         db.add(item)
         db.flush()
@@ -343,6 +344,7 @@ class DispensaService:
                 "name": sl_item.grocy_product_name or sl_item.name,
                 "quantity": qty,
                 "unit": unit,
+                "brand_text": sl_item.brand_text,
                 "category_name": category_map.get(sl_item.category_id) if sl_item.category_id else None,
                 "area_id": resolved_area_id,
                 "area_name": area_name,
@@ -443,6 +445,7 @@ class DispensaService:
                 grocy_product_name=sl_item.grocy_product_name,
                 source_item_id=sl_item.id,
                 area_id=resolved_area_id,
+                brand_text=sl_item.brand_text,
             )
 
             item = DispensaService.create_item(db, house_id, user_id, item_data)
@@ -503,6 +506,7 @@ class DispensaService:
         dispensa_item.barcode = sl_item.scanned_barcode
         dispensa_item.grocy_product_id = sl_item.grocy_product_id
         dispensa_item.grocy_product_name = sl_item.grocy_product_name
+        dispensa_item.brand_text = sl_item.brand_text
 
         db.flush()
         return dispensa_item

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import productsService from '@/services/products'
+import { anagraficheService, type BrandListItem } from '@/services/anagrafiche'
 import LiveBarcodeScanner from './LiveBarcodeScanner'
 import type { ShoppingListItem, Category } from '@/types'
 
@@ -59,6 +60,7 @@ export interface ItemDetailModalData {
   categoryId?: string
   barcode?: string
   productName?: string
+  brandText?: string
 }
 
 export type ItemDetailModalMode = 'view' | 'verify' | 'certify'
@@ -90,6 +92,13 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
   const [showVerifiedConfirm, setShowVerifiedConfirm] = useState(false)
   const [expiryError, setExpiryError] = useState('')
 
+  // Brand field states
+  const [brandText, setBrandText] = useState(item.brand_text || '')
+  const [brandSuggestions, setBrandSuggestions] = useState<BrandListItem[]>([])
+  const [showBrandSuggestions, setShowBrandSuggestions] = useState(false)
+  const brandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const brandRef = useRef<HTMLDivElement | null>(null)
+
   // Barcode lookup states
   const [productName, setProductName] = useState<string | null>(null)
   const [sourceName, setSourceName] = useState<string | null>(null)
@@ -112,12 +121,15 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
     try {
       const result = await productsService.lookupBarcode(barcode)
       if (result.found) {
-        const foundName = result.brand ? `${result.product_name} (${result.brand})` : result.product_name
-        setProductName(foundName || null)
+        setProductName(result.product_name || null)
         setSourceName(result.source_name || null)
-        // Auto-update the name field with the found product name
-        if (foundName) {
-          setName(foundName)
+        // Auto-update the name field with the found product name (without brand)
+        if (result.product_name) {
+          setName(result.product_name)
+        }
+        // Auto-update brand separately
+        if (result.brand) {
+          setBrandText(result.brand)
         }
       } else {
         setProductName(null)
@@ -191,6 +203,7 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
       categoryId: selectedCategoryId,
       barcode: barcodeInput.trim() || undefined,
       productName: productName || undefined,
+      brandText: brandText.trim() || undefined,
     })
   }
 
@@ -261,6 +274,54 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
             />
           </div>
         )}
+
+        {/* Brand */}
+        <div ref={brandRef} className="relative">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Marca (opzionale)</label>
+          <input
+            type="text"
+            value={brandText}
+            onChange={(e) => {
+              setBrandText(e.target.value)
+              if (brandTimeoutRef.current) clearTimeout(brandTimeoutRef.current)
+              if (e.target.value.length >= 2) {
+                brandTimeoutRef.current = setTimeout(async () => {
+                  try {
+                    const result = await anagraficheService.getBrands({ search: e.target.value })
+                    setBrandSuggestions(result.brands)
+                    setShowBrandSuggestions(result.brands.length > 0)
+                  } catch {
+                    setBrandSuggestions([])
+                  }
+                }, 300)
+              } else {
+                setBrandSuggestions([])
+                setShowBrandSuggestions(false)
+              }
+            }}
+            onFocus={() => { if (brandSuggestions.length > 0) setShowBrandSuggestions(true) }}
+            placeholder="Es. Barilla, Mutti..."
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          {showBrandSuggestions && brandSuggestions.length > 0 && (
+            <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+              {brandSuggestions.map((brand) => (
+                <button
+                  key={brand.id}
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 text-gray-700"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setBrandText(brand.name)
+                    setShowBrandSuggestions(false)
+                  }}
+                >
+                  {brand.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Category */}
         {categories.length > 0 && (

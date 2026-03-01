@@ -55,9 +55,10 @@ export default function ShoppingListUnified() {
         data.productName
       )
 
-      const updateData: { expiry_date?: string; category_id?: string } = {}
+      const updateData: { expiry_date?: string; category_id?: string; brand_text?: string } = {}
       if (data.expiryDate) updateData.expiry_date = data.expiryDate
       if (data.categoryId) updateData.category_id = data.categoryId
+      if (data.brandText !== undefined) updateData.brand_text = data.brandText
       if (Object.keys(updateData).length > 0) {
         await shoppingListsService.updateItem(state.list.id, item.id, updateData)
       }
@@ -112,6 +113,7 @@ export default function ShoppingListUnified() {
       if (data.expiryDate) updateData.expiry_date = data.expiryDate
       if (data.categoryId) updateData.category_id = data.categoryId
       if (data.barcode) updateData.scanned_barcode = data.barcode
+      if (data.brandText !== undefined) updateData.brand_text = data.brandText
 
       await shoppingListsService.updateItem(state.list.id, state.editingItem.id, updateData)
 
@@ -145,6 +147,7 @@ export default function ShoppingListUnified() {
       if (data.expiryDate) updateData.expiry_date = data.expiryDate
       if (data.categoryId) updateData.category_id = data.categoryId
       if (data.barcode) updateData.scanned_barcode = data.barcode
+      if (data.brandText !== undefined) updateData.brand_text = data.brandText
 
       await shoppingListsService.updateItem(state.list.id, state.editingItem.id, updateData)
       await state.refreshList()

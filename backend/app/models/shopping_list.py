@@ -164,6 +164,9 @@ class ShoppingListItem(BaseModel):
     # Expiry date of the purchased product
     expiry_date = Column(Date, nullable=True)
 
+    # Brand (free text, separate from name)
+    brand_text = Column(String(255), nullable=True)
+
     # Product category
     category_id = Column(
         UUID(as_uuid=True),

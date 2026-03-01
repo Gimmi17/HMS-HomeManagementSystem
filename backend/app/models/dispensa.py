@@ -38,6 +38,9 @@ class DispensaItem(BaseModel):
     quantity = Column(Float, default=1.0, nullable=False)
     unit = Column(String(50), nullable=True)  # pz, kg, g, l, ml
 
+    # Brand (free text, separate from name)
+    brand_text = Column(String(255), nullable=True)
+
     # Category
     category_id = Column(
         UUID(as_uuid=True),

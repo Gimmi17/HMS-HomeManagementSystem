@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 export interface ScanLogEntry {
   barcode: string
   productName?: string
+  cleanName?: string  // Product name without brand
+  brandText?: string  // Brand as separate field
   matched: boolean
   quantity: number
   timestamp: number

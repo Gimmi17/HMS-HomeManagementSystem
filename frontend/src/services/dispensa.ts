@@ -17,6 +17,7 @@ export interface PreviewItem {
   name: string
   quantity: number
   unit: string | null
+  brand_text: string | null
   category_name: string | null
   area_id: string | null
   area_name: string | null
@@ -88,6 +89,7 @@ export const dispensaService = {
     notes?: string
     warranty_expiry_date?: string
     trial_expiry_date?: string
+    brand_text?: string
   }): Promise<DispensaItem> {
     const response = await api.post('/dispensa', data, {
       params: { house_id: houseId },
@@ -107,6 +109,7 @@ export const dispensaService = {
     barcode?: string
     notes?: string
     area_id?: string
+    brand_text?: string
   }): Promise<DispensaItem> {
     const response = await api.put(`/dispensa/${itemId}`, data, {
       params: { house_id: houseId },

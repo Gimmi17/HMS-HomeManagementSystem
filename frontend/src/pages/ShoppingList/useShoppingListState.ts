@@ -320,10 +320,15 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
       try {
         const lookup = await productsService.lookupBarcode(barcode)
         if (lookup.found && lookup.product_name) {
-          const name = lookup.brand ? `${lookup.product_name} (${lookup.brand})` : lookup.product_name
+          const displayName = lookup.brand ? `${lookup.product_name} (${lookup.brand})` : lookup.product_name
           const idx = scanLogRef.current.findIndex(e => e.barcode === barcode && !e.matched)
           if (idx >= 0) {
-            scanLogRef.current[idx] = { ...scanLogRef.current[idx], productName: name }
+            scanLogRef.current[idx] = {
+              ...scanLogRef.current[idx],
+              productName: displayName,
+              brandText: lookup.brand || undefined,
+              cleanName: lookup.product_name,
+            }
             setScanLog([...scanLogRef.current])
           }
         }
@@ -371,9 +376,14 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
 
     for (const entry of extraEntries) {
       try {
-        await shoppingListsService.addExtraItem(
-          id, entry.barcode, entry.quantity, 'pz', entry.productName
+        const itemName = entry.cleanName || entry.productName
+        const newItem = await shoppingListsService.addExtraItem(
+          id, entry.barcode, entry.quantity, 'pz', itemName
         )
+        // Save brand_text separately if available
+        if (entry.brandText && newItem.id) {
+          await shoppingListsService.updateItem(id, newItem.id, { brand_text: entry.brandText })
+        }
         extraCount++
       } catch (err) {
         console.error('Failed to add extra item:', err)

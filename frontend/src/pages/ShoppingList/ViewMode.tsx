@@ -369,6 +369,9 @@ export default function ViewMode({ state, onEdit, onMoveItem }: ViewModeProps) {
                   <div className={`font-medium ${item.checked || item.not_purchased ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                     {item.name}
                   </div>
+                  {item.brand_text && (
+                    <div className={`text-xs ${item.checked || item.not_purchased ? 'text-gray-400' : 'text-purple-600'}`}>{item.brand_text}</div>
+                  )}
                   <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                     <span>{item.quantity} {item.unit}</span>
                     {item.urgent && (

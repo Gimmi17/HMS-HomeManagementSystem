@@ -148,6 +148,7 @@ export function AreaDetail() {
   interface AggregatedProduct {
     key: string
     name: string
+    brandText: string | null
     totalQuantity: number
     unit: string | null
     entries: DispensaItem[]
@@ -173,6 +174,7 @@ export function AreaDetail() {
         groupMap.set(key, {
           key,
           name: item.name,
+          brandText: item.brand_text,
           totalQuantity: item.quantity,
           unit: item.unit,
           entries: [item],
@@ -560,6 +562,9 @@ export function AreaDetail() {
                                 <div className="flex-1 min-w-0" onClick={() => toggleProduct(product.key)}>
                                   <div className="flex items-center gap-1.5">
                                     <span className="font-medium text-sm text-gray-900">{product.name}</span>
+                                    {product.brandText && (
+                                      <span className="text-xs text-purple-600">{product.brandText}</span>
+                                    )}
                                     <button
                                       onClick={(e) => { e.stopPropagation(); setSelectedProductForDetail(product) }}
                                       className="p-0.5 text-gray-400 hover:text-blue-600 flex-shrink-0"

@@ -42,6 +42,7 @@ class ShoppingListItemCreate(ShoppingListItemBase):
     position: Optional[int] = Field(None, description="Position in list")
     category_id: Optional[UUID] = Field(None, description="Category ID")
     urgent: bool = False
+    brand_text: Optional[str] = Field(None, max_length=255, description="Brand name")
 
 
 class ShoppingListItemUpdate(BaseModel):
@@ -58,6 +59,7 @@ class ShoppingListItemUpdate(BaseModel):
     expiry_date: Optional[date] = Field(None, description="Expiry date of the purchased product")
     category_id: Optional[UUID] = Field(None, description="Category ID")
     urgent: Optional[bool] = None
+    brand_text: Optional[str] = Field(None, max_length=255, description="Brand name")
 
 
 class ShoppingListItemResponse(ShoppingListItemBase):
@@ -76,6 +78,7 @@ class ShoppingListItemResponse(ShoppingListItemBase):
     urgent: bool = False
     expiry_date: Optional[date] = None
     category_id: Optional[UUID] = None
+    brand_text: Optional[str] = None
     catalog_barcode: Optional[str] = None  # EAN noto da acquisti precedenti
     product_notes: Optional[str] = None  # User notes from product catalog
     created_at: datetime
