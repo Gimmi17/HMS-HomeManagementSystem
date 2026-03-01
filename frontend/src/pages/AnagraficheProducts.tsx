@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions, ProductBarcodeItem } from '@/services/anagrafiche'
+import anagraficheService, { ProductListItem, ProductCreateRequest, ProductUpdateRequest, ProductCategoryTag, UnnamedProductWithDescriptions, BrandListItem, ProductWithoutBrand } from '@/services/anagrafiche'
 import CompositionModal from '@/components/CompositionModal'
+import EanManagerPanel from '@/components/EanManagerPanel'
 import areasService from '@/services/areas'
 import { useHouse } from '@/context/HouseContext'
 import type { Area } from '@/types'
@@ -65,16 +66,20 @@ export function AnagraficheProducts() {
   // Composition modal
   const [showCompositionModal, setShowCompositionModal] = useState(false)
 
-  // Product barcodes
-  const [productBarcodes, setProductBarcodes] = useState<ProductBarcodeItem[]>([])
-  const [newBarcodeValue, setNewBarcodeValue] = useState('')
-  const [isAddingBarcode, setIsAddingBarcode] = useState(false)
 
   // Name recovery from receipts
   const [isRecoveringNames, setIsRecoveringNames] = useState(false)
   const [nameRecoveryProducts, setNameRecoveryProducts] = useState<UnnamedProductWithDescriptions[]>([])
   const [currentRecoveryIndex, setCurrentRecoveryIndex] = useState(0)
   const [recoveryStats, setRecoveryStats] = useState<{ found: number; updated: number } | null>(null)
+
+  // Brand wizard
+  const [brandWizardProducts, setBrandWizardProducts] = useState<ProductWithoutBrand[]>([])
+  const [currentBrandIndex, setCurrentBrandIndex] = useState(0)
+  const [brandWizardStats, setBrandWizardStats] = useState<{ total: number; assigned: number } | null>(null)
+  const [brandSearchQuery, setBrandSearchQuery] = useState('')
+  const [brandSearchResults, setBrandSearchResults] = useState<BrandListItem[]>([])
+  const [isBrandWizardLoading, setIsBrandWizardLoading] = useState(false)
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
@@ -125,53 +130,8 @@ export function AnagraficheProducts() {
     }
   }
 
-  const loadProductBarcodes = async (productId: string) => {
-    try {
-      const barcodes = await anagraficheService.getProductBarcodes(productId)
-      setProductBarcodes(barcodes)
-    } catch (err) {
-      console.error('Failed to load barcodes:', err)
-    }
-  }
-
-  const handleAddBarcode = async () => {
-    if (!viewingProduct || !newBarcodeValue.trim()) return
-    setIsAddingBarcode(true)
-    try {
-      await anagraficheService.addProductBarcode(viewingProduct.id, newBarcodeValue.trim())
-      setNewBarcodeValue('')
-      await loadProductBarcodes(viewingProduct.id)
-      showToast('Barcode aggiunto', 'success')
-      fetchProducts()
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Errore aggiunta barcode', 'error')
-    } finally {
-      setIsAddingBarcode(false)
-    }
-  }
-
-  const handleDeleteBarcode = async (barcodeId: string) => {
-    if (!viewingProduct) return
-    if (!confirm('Rimuovere questo barcode?')) return
-    try {
-      await anagraficheService.deleteProductBarcode(viewingProduct.id, barcodeId)
-      await loadProductBarcodes(viewingProduct.id)
-      showToast('Barcode rimosso', 'success')
-      fetchProducts()
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Errore rimozione barcode', 'error')
-    }
-  }
-
-  const handleSetBarcodePrimary = async (barcodeId: string) => {
-    if (!viewingProduct) return
-    try {
-      await anagraficheService.setProductBarcodePrimary(viewingProduct.id, barcodeId)
-      await loadProductBarcodes(viewingProduct.id)
-      showToast('Barcode principale impostato', 'success')
-    } catch (err: any) {
-      showToast(err.response?.data?.detail || 'Errore', 'error')
-    }
+  const handleBarcodeChanged = () => {
+    fetchProducts()
   }
 
   const fetchProducts = async () => {
@@ -398,6 +358,90 @@ export function AnagraficheProducts() {
     fetchProducts()
   }
 
+  // Brand wizard logic
+  const startBrandWizard = async () => {
+    setIsBrandWizardLoading(true)
+    try {
+      const response = await anagraficheService.getProductsWithoutBrand()
+      if (response.products.length === 0) {
+        showToast('Tutti i prodotti hanno un brand assegnato', 'success')
+        setIsBrandWizardLoading(false)
+        return
+      }
+      setBrandWizardProducts(response.products)
+      setCurrentBrandIndex(0)
+      setBrandWizardStats({ total: response.products.length, assigned: 0 })
+      setBrandSearchQuery('')
+      setBrandSearchResults([])
+      // Load initial brand list
+      const brandsResp = await anagraficheService.getBrands()
+      setBrandSearchResults(brandsResp.brands)
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore nel caricamento', 'error')
+    } finally {
+      setIsBrandWizardLoading(false)
+    }
+  }
+
+  const searchBrands = async (query: string) => {
+    setBrandSearchQuery(query)
+    try {
+      const resp = await anagraficheService.getBrands(query ? { search: query } : undefined)
+      setBrandSearchResults(resp.brands)
+    } catch (err) {
+      console.error('Brand search failed:', err)
+    }
+  }
+
+  const handleBrandSelection = async (brandId: string) => {
+    const currentProduct = brandWizardProducts[currentBrandIndex]
+    try {
+      await anagraficheService.setProductBrand(currentProduct.id, brandId)
+      if (currentBrandIndex < brandWizardProducts.length - 1) {
+        setCurrentBrandIndex(currentBrandIndex + 1)
+        setBrandWizardStats(prev => prev ? { ...prev, assigned: prev.assigned + 1 } : null)
+        setBrandSearchQuery('')
+        // Reload brands to update counts
+        const resp = await anagraficheService.getBrands()
+        setBrandSearchResults(resp.brands)
+      } else {
+        const totalAssigned = (brandWizardStats?.assigned || 0) + 1
+        showToast(`Brand assegnati: ${totalAssigned} prodotti aggiornati`, 'success')
+        closeBrandWizard()
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore', 'error')
+    }
+  }
+
+  const handleCreateAndAssignBrand = async (name: string) => {
+    try {
+      const newBrand = await anagraficheService.createBrand({ name })
+      await handleBrandSelection(newBrand.id)
+    } catch (err: any) {
+      showToast(err.response?.data?.detail || 'Errore nella creazione brand', 'error')
+    }
+  }
+
+  const skipBrandProduct = () => {
+    if (currentBrandIndex < brandWizardProducts.length - 1) {
+      setCurrentBrandIndex(currentBrandIndex + 1)
+      setBrandSearchQuery('')
+    } else {
+      showToast(`Brand assegnati: ${brandWizardStats?.assigned || 0} prodotti aggiornati`, 'success')
+      closeBrandWizard()
+    }
+  }
+
+  const closeBrandWizard = () => {
+    setBrandWizardProducts([])
+    setCurrentBrandIndex(0)
+    setBrandWizardStats(null)
+    setBrandSearchQuery('')
+    setBrandSearchResults([])
+    fetchProducts()
+  }
+
   const openCategoryManager = async () => {
     setShowCategoryManager(true)
     setCategorySearch('')
@@ -548,6 +592,22 @@ export function AnagraficheProducts() {
           <span className="hidden sm:inline">Recupera Nomi</span>
         </button>
         <button
+          onClick={startBrandWizard}
+          disabled={isBrandWizardLoading || isScanning || isRecoveringNames}
+          className="px-3 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 text-sm font-medium disabled:opacity-50 flex items-center gap-1"
+          title="Assegna brand ai prodotti"
+        >
+          {isBrandWizardLoading ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <span className="text-sm">🏭</span>
+          )}
+          <span className="hidden sm:inline">Brand</span>
+        </button>
+        <button
           onClick={openCreateModal}
           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
         >
@@ -653,7 +713,7 @@ export function AnagraficheProducts() {
               className={`card p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${
                 !isProductCertified(product) ? 'border-l-4 border-l-amber-400 bg-amber-50/50' : ''
               }`}
-              onClick={() => { setImageLoaded(false); setEditingNotes(false); setNotesValue(product.user_notes || ''); setNewBarcodeValue(''); setViewingProduct(product); loadProductBarcodes(product.id) }}
+              onClick={() => { setImageLoaded(false); setEditingNotes(false); setNotesValue(product.user_notes || ''); setViewingProduct(product) }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -707,7 +767,7 @@ export function AnagraficheProducts() {
 
       {/* Detail Modal */}
       {viewingProduct && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false); setProductBarcodes([]) }}>
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}>
           <div
             className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:max-w-lg max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
@@ -732,7 +792,7 @@ export function AnagraficheProducts() {
                 )}
               </div>
               <button
-                onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false); setProductBarcodes([]) }}
+                onClick={() => { setViewingProduct(null); setFullscreenImage(null); setImageLoaded(false) }}
                 className="p-1 hover:bg-gray-100 rounded-lg"
               >
                 <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -810,57 +870,7 @@ export function AnagraficheProducts() {
               </div>
 
               {/* Barcodes */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Barcode</h4>
-                <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                  {productBarcodes.length === 0 ? (
-                    <p className="text-sm text-gray-400 italic">Nessun barcode</p>
-                  ) : (
-                    productBarcodes.map((pb) => (
-                      <div key={pb.id} className="flex items-center gap-2">
-                        <span className="font-mono text-sm flex-1">{pb.barcode}</span>
-                        {pb.is_primary ? (
-                          <span className="text-xs text-amber-600 font-medium">★ primario</span>
-                        ) : (
-                          <button
-                            onClick={() => handleSetBarcodePrimary(pb.id)}
-                            className="text-xs text-gray-400 hover:text-amber-600"
-                            title="Imposta come primario"
-                          >
-                            ☆
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteBarcode(pb.id)}
-                          className="p-1 text-gray-400 hover:text-red-500 rounded"
-                          title="Rimuovi barcode"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                  <div className="flex gap-2 mt-2">
-                    <input
-                      type="text"
-                      value={newBarcodeValue}
-                      onChange={(e) => setNewBarcodeValue(e.target.value)}
-                      placeholder="Aggiungi barcode..."
-                      className="input flex-1 text-sm py-1.5"
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddBarcode() }}
-                    />
-                    <button
-                      onClick={handleAddBarcode}
-                      disabled={!newBarcodeValue.trim() || isAddingBarcode}
-                      className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50"
-                    >
-                      {isAddingBarcode ? '...' : '+'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <EanManagerPanel productId={viewingProduct.id} onChanged={handleBarcodeChanged} />
 
               {/* Commento utente */}
               <div className="space-y-2">
@@ -1204,6 +1214,124 @@ export function AnagraficheProducts() {
               </button>
               <button
                 onClick={skipCurrentProduct}
+                className="flex-1 py-2.5 rounded-lg bg-gray-200 text-gray-700 font-medium hover:bg-gray-300"
+              >
+                Salta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Brand Wizard Modal */}
+      {brandWizardProducts.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 border-b bg-teal-50 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-lg text-gray-900">Assegna Brand</h3>
+                <span className="text-sm text-gray-500">
+                  {currentBrandIndex + 1} di {brandWizardProducts.length}
+                </span>
+              </div>
+              {brandWizardStats && (
+                <div className="mt-2">
+                  <div className="w-full bg-teal-200 rounded-full h-1.5">
+                    <div
+                      className="bg-teal-500 h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${((currentBrandIndex + 1) / brandWizardProducts.length) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-teal-700 mt-1">
+                    {brandWizardStats.assigned} assegnati
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Current Product */}
+            <div className="p-4 border-b flex-shrink-0">
+              <div className="flex items-center gap-3">
+                {brandWizardProducts[currentBrandIndex]?.image_small_url ? (
+                  <img
+                    src={brandWizardProducts[currentBrandIndex].image_small_url!}
+                    alt=""
+                    className="w-14 h-14 object-contain rounded-lg bg-gray-50"
+                  />
+                ) : (
+                  <div className="w-14 h-14 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-2xl">
+                    📦
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">
+                    {brandWizardProducts[currentBrandIndex]?.name || 'Prodotto senza nome'}
+                  </p>
+                  {brandWizardProducts[currentBrandIndex]?.barcode && (
+                    <p className="text-xs text-gray-500 font-mono">
+                      {brandWizardProducts[currentBrandIndex].barcode}
+                    </p>
+                  )}
+                  {brandWizardProducts[currentBrandIndex]?.brand_text && (
+                    <p className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded mt-1 inline-block">
+                      Suggerimento: {brandWizardProducts[currentBrandIndex].brand_text}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Brand Search */}
+            <div className="p-4 pb-2 flex-shrink-0">
+              <input
+                type="text"
+                value={brandSearchQuery}
+                onChange={(e) => searchBrands(e.target.value)}
+                className="input w-full"
+                placeholder="Cerca o crea brand..."
+                autoFocus
+              />
+            </div>
+
+            {/* Brand Results */}
+            <div className="flex-1 overflow-y-auto px-4 pb-2 min-h-0">
+              <div className="space-y-1">
+                {brandSearchResults.map((brand) => (
+                  <button
+                    key={brand.id}
+                    onClick={() => handleBrandSelection(brand.id)}
+                    className="w-full text-left p-2.5 rounded-lg border border-gray-200 hover:border-teal-500 hover:bg-teal-50 transition-colors flex items-center justify-between"
+                  >
+                    <span className="font-medium text-gray-900">{brand.name}</span>
+                    <span className="text-xs text-gray-400">{brand.product_count}</span>
+                  </button>
+                ))}
+                {brandSearchQuery.trim() && !brandSearchResults.some(
+                  b => b.name.toLowerCase() === brandSearchQuery.trim().toLowerCase()
+                ) && (
+                  <button
+                    onClick={() => handleCreateAndAssignBrand(brandSearchQuery.trim())}
+                    className="w-full text-left p-2.5 rounded-lg border-2 border-dashed border-teal-300 hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                  >
+                    <span className="text-teal-700 font-medium">
+                      + Crea &quot;{brandSearchQuery.trim()}&quot;
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 border-t flex gap-3 flex-shrink-0">
+              <button
+                onClick={closeBrandWizard}
+                className="flex-1 py-2.5 rounded-lg text-gray-600 font-medium hover:bg-gray-100"
+              >
+                Annulla tutto
+              </button>
+              <button
+                onClick={skipBrandProduct}
                 className="flex-1 py-2.5 rounded-lg bg-gray-200 text-gray-700 font-medium hover:bg-gray-300"
               >
                 Salta

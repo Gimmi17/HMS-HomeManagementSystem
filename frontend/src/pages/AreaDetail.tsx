@@ -5,6 +5,8 @@ import areasService from '@/services/areas'
 import dispensaService from '@/services/dispensa'
 import categoriesService from '@/services/categories'
 import { useDebounce } from '@/hooks/useDebounce'
+import ProductDetailCard from '@/components/ProductDetailCard'
+import ExpiryGroupActionsModal, { type ExpiryDateGroup } from '@/components/ExpiryGroupActionsModal'
 import type { Area, AreaExpenseStats, DispensaItem, DispensaStats, Category, AreaType, AreaUpdate } from '@/types'
 
 const TYPE_COLORS: Record<AreaType, string> = {
@@ -74,12 +76,11 @@ export function AreaDetail() {
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
 
-  // Consume date selection
-  const [consumeDateItem, setConsumeDateItem] = useState<DispensaItem | null>(null)
-  const [consumeDate, setConsumeDate] = useState(() => {
-    const now = new Date()
-    return now.toISOString().split('T')[0]
-  })
+  // Product detail card
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<AggregatedProduct | null>(null)
+
+  // Expiry group actions modal
+  const [selectedExpiryGroup, setSelectedExpiryGroup] = useState<{ product: AggregatedProduct; group: ExpiryDateGroup } | null>(null)
 
   const loadData = async () => {
     if (!currentHouse || !id) return
@@ -144,17 +145,6 @@ export function AreaDetail() {
     return `${day}/${month}/${year}`
   }
 
-  const getExpiryBadge = (dateStr: string | null) => {
-    if (!dateStr) return null
-    if (isExpired(dateStr)) {
-      return <span className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700 font-medium">Scaduto</span>
-    }
-    if (isExpiring(dateStr)) {
-      return <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-700 font-medium">In scadenza</span>
-    }
-    return <span className="px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-700">OK</span>
-  }
-
   interface AggregatedProduct {
     key: string
     name: string
@@ -164,6 +154,8 @@ export function AreaDetail() {
     hasExpired: boolean
     hasExpiring: boolean
     categoryId: string | null
+    barcode: string | null
+    dateGroups: ExpiryDateGroup[]
   }
 
   const aggregatedProducts = useMemo((): AggregatedProduct[] => {
@@ -176,6 +168,7 @@ export function AreaDetail() {
         existing.entries.push(item)
         if (isExpired(item.expiry_date)) existing.hasExpired = true
         if (isExpiring(item.expiry_date)) existing.hasExpiring = true
+        if (!existing.barcode && item.barcode) existing.barcode = item.barcode
       } else {
         groupMap.set(key, {
           key,
@@ -186,6 +179,8 @@ export function AreaDetail() {
           hasExpired: isExpired(item.expiry_date),
           hasExpiring: isExpiring(item.expiry_date),
           categoryId: item.category_id,
+          barcode: item.barcode,
+          dateGroups: [],
         })
       }
     }
@@ -196,6 +191,29 @@ export function AreaDetail() {
         if (!b.expiry_date) return -1
         return a.expiry_date.localeCompare(b.expiry_date)
       })
+      // Build date groups
+      const dateMap = new Map<string, ExpiryDateGroup>()
+      for (const entry of product.entries) {
+        const dk = entry.expiry_date || '__none__'
+        const existing = dateMap.get(dk)
+        if (existing) {
+          existing.totalQuantity += entry.quantity
+          existing.entries.push(entry)
+          if (isExpired(entry.expiry_date)) existing.hasExpired = true
+          if (isExpiring(entry.expiry_date)) existing.hasExpiring = true
+        } else {
+          dateMap.set(dk, {
+            dateKey: dk,
+            label: dk === '__none__' ? 'Senza scadenza' : formatDate(entry.expiry_date),
+            totalQuantity: entry.quantity,
+            unit: entry.unit,
+            entries: [entry],
+            hasExpired: isExpired(entry.expiry_date),
+            hasExpiring: isExpiring(entry.expiry_date),
+          })
+        }
+      }
+      product.dateGroups = Array.from(dateMap.values())
     }
     return Array.from(groupMap.values())
   }, [items])
@@ -300,37 +318,7 @@ export function AreaDetail() {
     }
   }
 
-  const handleConsumeItem = (item: DispensaItem) => {
-    setConsumeDate(new Date().toISOString().split('T')[0])
-    setConsumeDateItem(item)
-  }
 
-  const handleConfirmConsumeDate = async () => {
-    if (!currentHouse || !consumeDateItem) return
-    try {
-      await dispensaService.consumeItem(currentHouse.id, consumeDateItem.id)
-      const itemName = consumeDateItem.name
-      setConsumeDateItem(null)
-      loadData()
-      // Navigate to MealForm with the date and item name pre-filled
-      const params = new URLSearchParams()
-      params.set('date', consumeDate)
-      params.set('notes', itemName)
-      navigate(`/meals/new?${params.toString()}`)
-    } catch (error) {
-      console.error('Failed to consume item:', error)
-    }
-  }
-
-  const handleDeleteItem = async (itemId: string) => {
-    if (!currentHouse) return
-    try {
-      await dispensaService.deleteItem(currentHouse.id, itemId)
-      loadData()
-    } catch (error) {
-      console.error('Failed to delete item:', error)
-    }
-  }
 
   const handleMoveItem = async (targetAreaId: string) => {
     if (!currentHouse || !movingItem) return
@@ -570,7 +558,18 @@ export function AreaDetail() {
                                   </svg>
                                 </button>
                                 <div className="flex-1 min-w-0" onClick={() => toggleProduct(product.key)}>
-                                  <div className="font-medium text-sm text-gray-900">{product.name}</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-sm text-gray-900">{product.name}</span>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setSelectedProductForDetail(product) }}
+                                      className="p-0.5 text-gray-400 hover:text-blue-600 flex-shrink-0"
+                                      title="Scheda prodotto"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                    </button>
+                                  </div>
                                   <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
                                     <span className="font-medium text-gray-700">
                                       {product.totalQuantity} {product.unit || 'pz'}
@@ -589,81 +588,36 @@ export function AreaDetail() {
                               </div>
                             </div>
 
-                            {/* Expanded entries */}
+                            {/* Expanded: date groups */}
                             {isExpanded && (
                               <div className="bg-gray-50 border-t">
-                                {product.entries.map((entry) => (
-                                  <div
-                                    key={entry.id}
-                                    className={`px-3 py-2.5 pl-10 border-b border-gray-100 last:border-b-0 ${
-                                      !area.disable_expiry_tracking && isExpired(entry.expiry_date) ? 'bg-red-50/50' : ''
+                                {product.dateGroups.map((dg) => (
+                                  <button
+                                    key={dg.dateKey}
+                                    onClick={() => setSelectedExpiryGroup({ product, group: dg })}
+                                    className={`w-full px-3 py-2.5 pl-10 border-b border-gray-100 last:border-b-0 text-left hover:bg-gray-100 transition-colors ${
+                                      !area.disable_expiry_tracking && dg.hasExpired ? 'bg-red-50/50' : ''
                                     } ${
-                                      !area.disable_expiry_tracking && isExpiring(entry.expiry_date) ? 'bg-yellow-50/50' : ''
+                                      !area.disable_expiry_tracking && dg.hasExpiring && !dg.hasExpired ? 'bg-yellow-50/50' : ''
                                     }`}
                                   >
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
-                                          <span className="font-medium">{entry.quantity} {entry.unit || 'pz'}</span>
-                                          <span className="text-gray-400">-</span>
-                                          {entry.expiry_date ? (
-                                            area.disable_expiry_tracking ? (
-                                              <span className="text-gray-400">Scad: {formatDate(entry.expiry_date)} (non tracciata)</span>
-                                            ) : (
-                                              <>
-                                                <span>Scad: {formatDate(entry.expiry_date)}</span>
-                                                {getExpiryBadge(entry.expiry_date)}
-                                              </>
-                                            )
-                                          ) : (
-                                            <span>Senza scadenza</span>
-                                          )}
-                                          {entry.purchase_price != null && (
-                                            <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-medium">{entry.purchase_price.toFixed(2)} EUR</span>
-                                          )}
-                                        </div>
-                                        {(entry.original_expiry_date || entry.warranty_expiry_date || entry.trial_expiry_date || entry.notes) && (
-                                          <div className="flex items-center gap-2 mt-1 flex-wrap text-xs">
-                                            {entry.original_expiry_date && (
-                                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">Orig. {formatDate(entry.original_expiry_date)}</span>
-                                            )}
-                                            {entry.warranty_expiry_date && (
-                                              <span className={`px-1.5 py-0.5 rounded ${
-                                                isExpired(entry.warranty_expiry_date) ? 'bg-red-100 text-red-700'
-                                                : (new Date(entry.warranty_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
-                                                : 'bg-green-100 text-green-700'
-                                              }`}>
-                                                Garanzia {formatDate(entry.warranty_expiry_date)}
-                                              </span>
-                                            )}
-                                            {entry.trial_expiry_date && (
-                                              <span className={`px-1.5 py-0.5 rounded ${
-                                                isExpired(entry.trial_expiry_date) ? 'bg-red-100 text-red-700'
-                                                : (new Date(entry.trial_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
-                                                : 'bg-green-100 text-green-700'
-                                              }`}>
-                                                Prova/Reso {formatDate(entry.trial_expiry_date)}
-                                              </span>
-                                            )}
-                                            {entry.notes && <span className="text-gray-400 italic truncate max-w-[120px]">{entry.notes}</span>}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1 shrink-0">
-                                        {area.area_type === 'food_storage' && (
-                                          <button onClick={() => handleConsumeItem(entry)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Consuma">
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                          </button>
-                                        )}
-                                        <button onClick={() => setMovingItem(entry)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Sposta">
-                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                                        </button>
-                                        <button onClick={() => handleDeleteItem(entry.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Elimina">
-                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
-                                      </div>
+                                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                                      <span className="font-medium">{dg.label}</span>
+                                      <span className="text-gray-400">-</span>
+                                      <span className="font-medium text-gray-700">
+                                        {dg.totalQuantity} {dg.unit || 'pz'}
+                                      </span>
+                                      {dg.entries.length > 1 && (
+                                        <span className="text-gray-400">({dg.entries.length})</span>
+                                      )}
+                                      {!area.disable_expiry_tracking && dg.hasExpired && (
+                                        <span className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700 font-medium">Scaduto</span>
+                                      )}
+                                      {!area.disable_expiry_tracking && dg.hasExpiring && !dg.hasExpired && (
+                                        <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-700 font-medium">In scadenza</span>
+                                      )}
                                     </div>
-                                  </div>
+                                  </button>
                                 ))}
                               </div>
                             )}
@@ -844,39 +798,28 @@ export function AreaDetail() {
         </div>
       )}
 
-      {/* Consume Date Modal */}
-      {consumeDateItem && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-white w-full sm:w-auto sm:min-w-[320px] sm:rounded-xl rounded-t-xl p-4 space-y-4">
-            <div>
-              <h3 className="font-semibold text-lg">Quando l'hai consumato?</h3>
-              <p className="text-sm text-gray-500 mt-1">{consumeDateItem.name}</p>
-            </div>
-            <div>
-              <label className="label text-xs">Data</label>
-              <input
-                type="date"
-                value={consumeDate}
-                onChange={(e) => setConsumeDate(e.target.value)}
-                className="input w-full"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConsumeDateItem(null)}
-                className="btn btn-secondary flex-1 text-sm"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={handleConfirmConsumeDate}
-                className="btn btn-primary flex-1 text-sm"
-              >
-                Conferma
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Product Detail Card */}
+      {selectedProductForDetail && (
+        <ProductDetailCard
+          barcode={selectedProductForDetail.barcode}
+          productName={selectedProductForDetail.name}
+          onClose={() => setSelectedProductForDetail(null)}
+        />
+      )}
+
+      {/* Expiry Group Actions Modal */}
+      {selectedExpiryGroup && currentHouse && id && (
+        <ExpiryGroupActionsModal
+          productName={selectedExpiryGroup.product.name}
+          group={selectedExpiryGroup.group}
+          areaId={id}
+          houseId={currentHouse.id}
+          onComplete={() => {
+            setSelectedExpiryGroup(null)
+            loadData()
+          }}
+          onClose={() => setSelectedExpiryGroup(null)}
+        />
       )}
 
       {/* Move Item Modal */}
