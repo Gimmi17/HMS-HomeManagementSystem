@@ -33,6 +33,7 @@ from app.models.product_category_tag import ProductCategoryTag, product_category
 from app.models.barcode_source import BarcodeLookupSource
 from app.models.product_report import ProductReport, ReportStatus
 from app.models.product_barcode import ProductBarcode
+from app.models.brand import Brand
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -72,4 +73,5 @@ __all__ = [
     "ProductReport",
     "ReportStatus",
     "ProductBarcode",
+    "Brand",
 ]

@@ -13,12 +13,15 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 
+from sqlalchemy import func
+
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User, UserRole
 from app.models.house import House
 from app.models.user_house import UserHouse
 from app.models.food import Food
+from app.models.brand import Brand
 from app.models.product_catalog import ProductCatalog
 from app.models.product_barcode import ProductBarcode
 from app.models.product_category_tag import ProductCategoryTag, product_category_association
@@ -634,6 +637,365 @@ def delete_food(
 
 
 # ============================================================
+# BRAND MANAGEMENT
+# ============================================================
+
+class BrandListItem(BaseModel):
+    id: UUID
+    name: str
+    logo_url: Optional[str] = None
+    notes: Optional[str] = None
+    product_count: int = 0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BrandListResponse(BaseModel):
+    brands: List[BrandListItem]
+    total: int
+
+
+class BrandCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    logo_url: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class BrandUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ProductWithoutBrand(BaseModel):
+    id: UUID
+    name: Optional[str] = None
+    barcode: Optional[str] = None
+    brand_text: Optional[str] = None
+    image_small_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SetProductBrandRequest(BaseModel):
+    brand_id: UUID
+
+
+class BrandExtractionProposal(BaseModel):
+    product_id: UUID
+    original_name: str
+    detected_brand: str
+    proposed_clean_name: str
+
+
+class BrandExtractionProposalsResponse(BaseModel):
+    proposals: List[BrandExtractionProposal]
+    total: int
+
+
+class ApplyBrandExtractionItem(BaseModel):
+    product_id: UUID
+    brand_name: str
+    new_product_name: str
+
+
+class ApplyBrandExtractionRequest(BaseModel):
+    items: List[ApplyBrandExtractionItem]
+
+
+class ApplyBrandExtractionResultItem(BaseModel):
+    product_id: UUID
+    status: str
+    brand_id: Optional[UUID] = None
+    new_name: Optional[str] = None
+
+
+class ApplyBrandExtractionResponse(BaseModel):
+    results: List[ApplyBrandExtractionResultItem]
+    applied: int
+
+
+def _extract_brand_from_name(name: str) -> Optional[tuple]:
+    """Extract brand from product name with pattern 'BRAND - Product'."""
+    if " - " not in name:
+        return None
+    idx = name.index(" - ")
+    brand_part = name[:idx].strip()
+    clean_name = name[idx + 3:].strip()
+    if not brand_part or not clean_name:
+        return None
+    if len(brand_part) < 2 or len(brand_part) > 40:
+        return None
+    return (brand_part, clean_name)
+
+
+@router.get("/brands", response_model=BrandListResponse)
+def list_brands(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all brands with product count."""
+    query = db.query(
+        Brand,
+        func.count(ProductCatalog.id).label("product_count"),
+    ).outerjoin(
+        ProductCatalog,
+        (ProductCatalog.brand_id == Brand.id) & (ProductCatalog.cancelled == False),
+    ).filter(
+        Brand.cancelled == False
+    ).group_by(Brand.id)
+
+    if search:
+        query = query.filter(Brand.name.ilike(f"%{search}%"))
+
+    total = query.count()
+    rows = query.order_by(Brand.name).all()
+
+    return BrandListResponse(
+        brands=[
+            BrandListItem(
+                id=b.id,
+                name=b.name,
+                logo_url=b.logo_url,
+                notes=b.notes,
+                product_count=cnt,
+                created_at=b.created_at,
+            )
+            for b, cnt in rows
+        ],
+        total=total,
+    )
+
+
+@router.post("/brands", response_model=BrandListItem, status_code=status.HTTP_201_CREATED)
+def create_brand(
+    data: BrandCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new brand. Reactivates if previously cancelled."""
+    name = data.name.strip()
+    existing = db.query(Brand).filter(func.lower(Brand.name) == name.lower()).first()
+    if existing:
+        if existing.cancelled:
+            existing.cancelled = False
+            existing.notes = data.notes
+            existing.logo_url = data.logo_url
+            db.commit()
+            db.refresh(existing)
+            cnt = db.query(func.count(ProductCatalog.id)).filter(
+                ProductCatalog.brand_id == existing.id,
+                ProductCatalog.cancelled == False,
+            ).scalar() or 0
+            return BrandListItem(
+                id=existing.id, name=existing.name, logo_url=existing.logo_url,
+                notes=existing.notes, product_count=cnt, created_at=existing.created_at,
+            )
+        raise HTTPException(status_code=400, detail="Brand già esistente")
+
+    brand = Brand(name=name, logo_url=data.logo_url, notes=data.notes)
+    db.add(brand)
+    db.commit()
+    db.refresh(brand)
+    return BrandListItem(
+        id=brand.id, name=brand.name, logo_url=brand.logo_url,
+        notes=brand.notes, product_count=0, created_at=brand.created_at,
+    )
+
+
+@router.get("/brands/extract-proposals", response_model=BrandExtractionProposalsResponse)
+def get_brand_extraction_proposals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Scan products for 'BRAND - Product' pattern and return extraction proposals."""
+    products = db.query(ProductCatalog).filter(
+        ProductCatalog.cancelled == False,
+        ProductCatalog.brand_id == None,
+        ProductCatalog.name != None,
+    ).all()
+
+    proposals = []
+    for p in products:
+        result = _extract_brand_from_name(p.name)
+        if result:
+            brand_part, clean_name = result
+            proposals.append(BrandExtractionProposal(
+                product_id=p.id,
+                original_name=p.name,
+                detected_brand=brand_part,
+                proposed_clean_name=clean_name,
+            ))
+
+    return BrandExtractionProposalsResponse(proposals=proposals, total=len(proposals))
+
+
+@router.post("/brands/apply-extraction", response_model=ApplyBrandExtractionResponse)
+def apply_brand_extraction(
+    data: ApplyBrandExtractionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Apply brand extraction: find-or-create brands and update product names."""
+    results = []
+    applied = 0
+
+    for item in data.items:
+        product = db.query(ProductCatalog).filter(
+            ProductCatalog.id == item.product_id,
+            ProductCatalog.cancelled == False,
+        ).first()
+        if not product:
+            results.append(ApplyBrandExtractionResultItem(
+                product_id=item.product_id, status="not_found",
+            ))
+            continue
+
+        brand_name = item.brand_name.strip()
+        brand = db.query(Brand).filter(func.lower(Brand.name) == brand_name.lower()).first()
+        if brand:
+            if brand.cancelled:
+                brand.cancelled = False
+        else:
+            brand = Brand(name=brand_name)
+            db.add(brand)
+            db.flush()
+
+        product.brand_id = brand.id
+        product.brand = brand.name
+        product.name = item.new_product_name.strip()
+        applied += 1
+
+        results.append(ApplyBrandExtractionResultItem(
+            product_id=product.id,
+            status="applied",
+            brand_id=brand.id,
+            new_name=product.name,
+        ))
+
+    db.commit()
+    return ApplyBrandExtractionResponse(results=results, applied=applied)
+
+
+@router.put("/brands/{brand_id}", response_model=BrandListItem)
+def update_brand(
+    brand_id: UUID,
+    data: BrandUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a brand."""
+    brand = db.query(Brand).filter(Brand.id == brand_id, Brand.cancelled == False).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand non trovato")
+
+    if data.name is not None:
+        new_name = data.name.strip()
+        dup = db.query(Brand).filter(
+            func.lower(Brand.name) == new_name.lower(),
+            Brand.id != brand_id,
+        ).first()
+        if dup:
+            raise HTTPException(status_code=400, detail="Nome brand già in uso")
+        brand.name = new_name
+    if data.logo_url is not None:
+        brand.logo_url = data.logo_url
+    if data.notes is not None:
+        brand.notes = data.notes
+
+    db.commit()
+    db.refresh(brand)
+    cnt = db.query(func.count(ProductCatalog.id)).filter(
+        ProductCatalog.brand_id == brand.id,
+        ProductCatalog.cancelled == False,
+    ).scalar() or 0
+    return BrandListItem(
+        id=brand.id, name=brand.name, logo_url=brand.logo_url,
+        notes=brand.notes, product_count=cnt, created_at=brand.created_at,
+    )
+
+
+@router.delete("/brands/{brand_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_brand(
+    brand_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Soft delete a brand."""
+    brand = db.query(Brand).filter(Brand.id == brand_id, Brand.cancelled == False).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand non trovato")
+    brand.cancelled = True
+    db.commit()
+
+
+# Wizard: products without brand — must be before /products/{product_id}
+@router.get("/products/without-brand")
+def get_products_without_brand(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get products that have no brand_id assigned."""
+    products = db.query(ProductCatalog).filter(
+        ProductCatalog.cancelled == False,
+        ProductCatalog.brand_id.is_(None),
+    ).order_by(ProductCatalog.name).all()
+
+    # Build barcode map
+    product_ids = [p.id for p in products]
+    bc_map: dict = {}
+    if product_ids:
+        barcodes = db.query(ProductBarcode).filter(
+            ProductBarcode.product_id.in_(product_ids)
+        ).all()
+        for pb in barcodes:
+            pid = str(pb.product_id)
+            if pid not in bc_map or pb.is_primary:
+                bc_map[pid] = pb.barcode
+
+    return {
+        "products": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "barcode": bc_map.get(str(p.id), p.barcode),
+                "brand_text": p.brand,
+                "image_small_url": p.image_small_url,
+            }
+            for p in products
+        ],
+        "total": len(products),
+    }
+
+
+@router.patch("/products/{product_id}/brand", response_model=ProductListItem)
+def set_product_brand(
+    product_id: UUID,
+    data: SetProductBrandRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Set the brand_id on a product and sync brand text."""
+    product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Prodotto non trovato")
+
+    brand = db.query(Brand).filter(Brand.id == data.brand_id, Brand.cancelled == False).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand non trovato")
+
+    product.brand_id = brand.id
+    product.brand = brand.name
+    db.commit()
+    db.refresh(product)
+    return _product_to_list_item(product)
+
+
+# ============================================================
 # PRODUCT CATALOG MANAGEMENT
 # ============================================================
 
@@ -668,6 +1030,9 @@ class ProductListItem(BaseModel):
     # Linked food
     food_id: Optional[UUID] = None
     food_name: Optional[str] = None
+    # Linked brand
+    brand_id: Optional[UUID] = None
+    brand_name: Optional[str] = None
     # Composition
     composition: Optional[list] = None
     # Meta
@@ -698,6 +1063,8 @@ def _product_to_list_item(product: ProductCatalog) -> ProductListItem:
     item = ProductListItem.model_validate(product)
     item.barcode = _get_display_barcode(product)
     item.food_name = product.food.name if product.food else None
+    item.brand_id = product.brand_id
+    item.brand_name = product.brand_entity.name if product.brand_entity else None
     return item
 
 
@@ -743,10 +1110,13 @@ def list_products(
         ProductCatalog,
         House.name.label("house_name"),
         Food.name.label("food_name"),
+        Brand.name.label("brand_name"),
     ).outerjoin(
         House, ProductCatalog.house_id == House.id
     ).outerjoin(
         Food, ProductCatalog.food_id == Food.id
+    ).outerjoin(
+        Brand, ProductCatalog.brand_id == Brand.id
     ).filter(
         ProductCatalog.cancelled == False
     )
@@ -783,7 +1153,7 @@ def list_products(
     rows = query.order_by(ProductCatalog.created_at.desc()).offset(offset).limit(limit).all()
 
     # Batch load primary barcodes to avoid N+1 queries
-    product_ids = [p.id for p, _, _ in rows]
+    product_ids = [p.id for p, _, _, _ in rows]
     bc_map: dict = {}
     if product_ids:
         barcodes = db.query(ProductBarcode).filter(
@@ -821,11 +1191,13 @@ def list_products(
                 user_notes=p.user_notes,
                 food_id=p.food_id,
                 food_name=food_name,
+                brand_id=p.brand_id,
+                brand_name=brand_name,
                 composition=p.composition,
                 source=p.source,
                 created_at=p.created_at
             )
-            for p, house_name, food_name in rows
+            for p, house_name, food_name, brand_name in rows
         ],
         total=total
     )
@@ -861,6 +1233,15 @@ def create_product(
     )
     db.add(product)
     db.flush()
+
+    # Auto-link brand entity
+    if product.brand and product.brand.strip():
+        brand_entity = db.query(Brand).filter(func.lower(Brand.name) == product.brand.strip().lower()).first()
+        if not brand_entity:
+            brand_entity = Brand(name=product.brand.strip())
+            db.add(brand_entity)
+            db.flush()
+        product.brand_id = brand_entity.id
 
     # Create ProductBarcode entry if barcode provided
     if product_data.barcode:
@@ -1326,6 +1707,14 @@ async def refetch_product_from_api(
     # Update product with fetched data
     product.name = result.get("product_name") or product.name
     product.brand = result.get("brand") or product.brand
+    # Auto-link brand entity after updating brand text
+    if product.brand and product.brand.strip():
+        brand_entity = db.query(Brand).filter(func.lower(Brand.name) == product.brand.strip().lower()).first()
+        if not brand_entity:
+            brand_entity = Brand(name=product.brand.strip())
+            db.add(brand_entity)
+            db.flush()
+        product.brand_id = brand_entity.id
     product.quantity_text = result.get("quantity") or product.quantity_text
     product.categories = result.get("categories") or product.categories
     # Score fields are varchar(1) — only store single-char values (e.g. "a", "b", "4")

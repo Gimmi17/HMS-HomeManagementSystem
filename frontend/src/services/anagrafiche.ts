@@ -197,6 +197,13 @@ export interface ProductWithoutBrand {
   image_small_url: string | null
 }
 
+export interface BrandExtractionProposal {
+  product_id: string
+  original_name: string
+  detected_brand: string
+  proposed_clean_name: string
+}
+
 // ============================================================
 // PRODUCTS
 // ============================================================
@@ -440,6 +447,16 @@ export const anagraficheService = {
 
   async deleteBrand(id: string): Promise<void> {
     await api.delete(`/anagrafiche/brands/${id}`)
+  },
+
+  async getBrandExtractionProposals(): Promise<{ proposals: BrandExtractionProposal[]; total: number }> {
+    const response = await api.get('/anagrafiche/brands/extract-proposals')
+    return response.data
+  },
+
+  async applyBrandExtraction(items: { product_id: string; brand_name: string; new_product_name: string }[]): Promise<{ results: { product_id: string; status: string; brand_id?: string; new_name?: string }[]; applied: number }> {
+    const response = await api.post('/anagrafiche/brands/apply-extraction', { items })
+    return response.data
   },
 
   async getProductsWithoutBrand(): Promise<{ products: ProductWithoutBrand[]; total: number }> {

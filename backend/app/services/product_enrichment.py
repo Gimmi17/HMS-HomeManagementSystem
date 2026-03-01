@@ -304,6 +304,18 @@ async def enrich_product_async(db: Session, barcode: str) -> Optional[ProductCat
     db.add(product)
     db.flush()
 
+    # Auto-link brand entity
+    brand_name = result.get("brand")
+    if brand_name and brand_name.strip():
+        from app.models.brand import Brand
+        from sqlalchemy import func as sa_func
+        brand_entity = db.query(Brand).filter(sa_func.lower(Brand.name) == brand_name.strip().lower()).first()
+        if not brand_entity:
+            brand_entity = Brand(name=brand_name.strip())
+            db.add(brand_entity)
+            db.flush()
+        product.brand_id = brand_entity.id
+
     # Create ProductBarcode entry
     db.add(ProductBarcode(
         product_id=product.id,

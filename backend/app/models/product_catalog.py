@@ -39,6 +39,12 @@ class ProductCatalog(BaseModel):
     # Basic info
     name = Column(String(255), nullable=True)
     brand = Column(String(255), nullable=True)
+    brand_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("brands.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Quantity/packaging info
     quantity_text = Column(String(100), nullable=True)  # e.g. "500g", "6 x 330ml"
@@ -101,6 +107,7 @@ class ProductCatalog(BaseModel):
     # Relationships
     category = relationship("Category")
     food = relationship("Food", backref="products")
+    brand_entity = relationship("Brand", back_populates="products")
     barcodes = relationship(
         "ProductBarcode",
         back_populates="product",

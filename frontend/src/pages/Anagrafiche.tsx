@@ -66,6 +66,15 @@ const anagrafiche: AnagraficaItem[] = [
     implemented: true,
   },
   {
+    id: 'brands',
+    label: 'Brand',
+    description: 'Marche e produttori dei prodotti',
+    icon: '🏭',
+    path: '/anagrafiche/brands',
+    color: 'bg-teal-500',
+    implemented: true,
+  },
+  {
     id: 'recipes',
     label: 'Ricette',
     description: 'Ricette salvate con ingredienti e procedimenti',

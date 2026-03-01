@@ -276,6 +276,59 @@ async def startup_event():
     finally:
         db.close()
 
+    # Migrate: extract brand text into Brand entities and link products
+    from app.models.brand import Brand
+    from sqlalchemy import func as sa_func
+    db = SessionLocal()
+    try:
+        # Get distinct brand names from products that have brand text but no brand_id
+        brand_rows = db.query(ProductCatalog.brand).filter(
+            ProductCatalog.brand.isnot(None),
+            ProductCatalog.brand != '',
+        ).distinct().all()
+
+        created = 0
+        for (brand_name,) in brand_rows:
+            normalized = brand_name.strip()
+            if not normalized:
+                continue
+            existing = db.query(Brand).filter(
+                sa_func.lower(Brand.name) == normalized.lower()
+            ).first()
+            if not existing:
+                db.add(Brand(name=normalized))
+                created += 1
+        if created:
+            db.commit()
+
+        # Link products: set brand_id where brand text exists but brand_id is NULL
+        linked = 0
+        products_to_link = db.query(ProductCatalog).filter(
+            ProductCatalog.brand.isnot(None),
+            ProductCatalog.brand != '',
+            ProductCatalog.brand_id.is_(None),
+        ).all()
+        # Build lookup map
+        all_brands = db.query(Brand).all()
+        brand_map = {b.name.lower(): b.id for b in all_brands}
+        for p in products_to_link:
+            bid = brand_map.get(p.brand.strip().lower())
+            if bid:
+                p.brand_id = bid
+                linked += 1
+        if linked:
+            db.commit()
+
+        if created or linked:
+            print(f"✓ Brand migration: {created} brands created, {linked} products linked")
+        else:
+            print(f"✓ Brand data already up to date")
+    except Exception as e:
+        db.rollback()
+        print(f"  ⚠ Brand migration error: {e}")
+    finally:
+        db.close()
+
     # Configure error logging system
     configure_error_logging(SessionLocal)
     print(f"✓ Error logging system configured")
