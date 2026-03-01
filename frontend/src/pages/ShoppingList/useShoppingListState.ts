@@ -8,6 +8,11 @@ import type { ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 
 export type UnifiedMode = 'view' | 'edit' | 'verify'
 
+export interface WeightAlertData {
+  item: ShoppingListItem
+  barcode: string
+}
+
 export interface ShoppingListState {
   // Core data
   list: ShoppingList | null
@@ -29,6 +34,11 @@ export interface ShoppingListState {
   setIsScanProcessing: React.Dispatch<React.SetStateAction<boolean>>
   handleBarcodeDetected: (barcode: string) => Promise<void>
   handleScannerClose: () => Promise<void>
+
+  // Weight alert (kg item scanned again during continuous scan)
+  weightAlert: WeightAlertData | null
+  handleWeightAlertConfirm: (newQuantity: number) => Promise<void>
+  dismissWeightAlert: () => void
 
   // Shared modals
   editingItem: ShoppingListItem | null
@@ -64,6 +74,9 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
   const [scanLog, setScanLog] = useState<ScanLogEntry[]>([])
   const scanLogRef = useRef<ScanLogEntry[]>([])
   const [isScanProcessing, setIsScanProcessing] = useState(false)
+
+  // Weight alert for kg items scanned again
+  const [weightAlert, setWeightAlert] = useState<WeightAlertData | null>(null)
 
   // Shared modals
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
@@ -135,44 +148,104 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
     if (!list || !id) return
 
     if (mode === 'view') {
-      // View mode: match against unchecked items
+      // View mode: match against ALL items by catalog_barcode or scanned_barcode
       const matchedItem = list.items.find(
-        item => item.catalog_barcode === barcode && !item.not_purchased
+        item => (item.catalog_barcode === barcode || item.scanned_barcode === barcode) && !item.not_purchased
       )
 
       if (matchedItem) {
-        const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
-        let newQuantity = 1
-        if (existingIdx >= 0) {
-          newQuantity = scanLogRef.current[existingIdx].quantity + 1
-          scanLogRef.current[existingIdx] = {
-            ...scanLogRef.current[existingIdx],
-            quantity: newQuantity,
-            timestamp: Date.now(),
+        if (matchedItem.checked) {
+          // Already in cart — handle as "add more"
+          const unit = matchedItem.unit || 'pz'
+          const isWeight = unit === 'kg' || unit === 'g'
+
+          if (isWeight) {
+            // Weight item: show popup for manual correction
+            setWeightAlert({ item: matchedItem, barcode })
+            // Add to scan log for visual feedback
+            const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
+            if (existingIdx < 0) {
+              scanLogRef.current = [
+                ...scanLogRef.current,
+                {
+                  barcode,
+                  productName: `⚖️ ${matchedItem.grocy_product_name || matchedItem.name}`,
+                  matched: true,
+                  quantity: matchedItem.quantity,
+                  timestamp: Date.now(),
+                },
+              ]
+              setScanLog([...scanLogRef.current])
+            }
+          } else {
+            // Piece item: auto +1
+            const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
+            let newQuantity: number
+            if (existingIdx >= 0) {
+              newQuantity = scanLogRef.current[existingIdx].quantity + 1
+              scanLogRef.current[existingIdx] = {
+                ...scanLogRef.current[existingIdx],
+                quantity: newQuantity,
+                timestamp: Date.now(),
+              }
+            } else {
+              newQuantity = matchedItem.quantity + 1
+              scanLogRef.current = [
+                ...scanLogRef.current,
+                {
+                  barcode,
+                  productName: matchedItem.grocy_product_name || matchedItem.name,
+                  matched: true,
+                  quantity: newQuantity,
+                  timestamp: Date.now(),
+                },
+              ]
+            }
+            setScanLog([...scanLogRef.current])
+
+            try {
+              await shoppingListsService.updateItem(id, matchedItem.id, { quantity: newQuantity })
+              const updated = await shoppingListsService.getById(id)
+              setList(updated)
+            } catch (err) {
+              console.error('Failed to increment quantity:', err)
+            }
           }
         } else {
-          scanLogRef.current = [
-            ...scanLogRef.current,
-            {
-              barcode,
-              productName: matchedItem.name,
-              matched: true,
-              quantity: 1,
+          // Unchecked item: verify and check as before
+          const existingIdx = scanLogRef.current.findIndex(e => e.barcode === barcode)
+          let newQuantity = 1
+          if (existingIdx >= 0) {
+            newQuantity = scanLogRef.current[existingIdx].quantity + 1
+            scanLogRef.current[existingIdx] = {
+              ...scanLogRef.current[existingIdx],
+              quantity: newQuantity,
               timestamp: Date.now(),
-            },
-          ]
-        }
-        setScanLog([...scanLogRef.current])
+            }
+          } else {
+            scanLogRef.current = [
+              ...scanLogRef.current,
+              {
+                barcode,
+                productName: matchedItem.name,
+                matched: true,
+                quantity: 1,
+                timestamp: Date.now(),
+              },
+            ]
+          }
+          setScanLog([...scanLogRef.current])
 
-        try {
-          await shoppingListsService.verifyItemWithQuantity(
-            id, matchedItem.id, barcode, newQuantity,
-            matchedItem.unit || 'pz', matchedItem.name
-          )
-          const updated = await shoppingListsService.getById(id)
-          setList(updated)
-        } catch (err) {
-          console.error('Verify failed:', err)
+          try {
+            await shoppingListsService.verifyItemWithQuantity(
+              id, matchedItem.id, barcode, newQuantity,
+              matchedItem.unit || 'pz', matchedItem.name
+            )
+            const updated = await shoppingListsService.getById(id)
+            setList(updated)
+          } catch (err) {
+            console.error('Verify failed:', err)
+          }
         }
       } else {
         addExtraScanEntry(barcode)
@@ -260,6 +333,29 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
     }
   }, [])
 
+  // Weight alert handlers
+  const handleWeightAlertConfirm = useCallback(async (newQuantity: number) => {
+    if (!weightAlert || !id) return
+    try {
+      await shoppingListsService.updateItem(id, weightAlert.item.id, { quantity: newQuantity })
+      const updated = await shoppingListsService.getById(id)
+      setList(updated)
+      // Update scan log entry
+      const idx = scanLogRef.current.findIndex(e => e.barcode === weightAlert.barcode)
+      if (idx >= 0) {
+        scanLogRef.current[idx] = { ...scanLogRef.current[idx], quantity: newQuantity }
+        setScanLog([...scanLogRef.current])
+      }
+    } catch (err) {
+      console.error('Failed to update weight:', err)
+    }
+    setWeightAlert(null)
+  }, [weightAlert, id])
+
+  const dismissWeightAlert = useCallback(() => {
+    setWeightAlert(null)
+  }, [])
+
   const handleScannerClose = useCallback(async () => {
     setShowScanner(false)
     if (!id) return
@@ -320,6 +416,9 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
     setIsScanProcessing,
     handleBarcodeDetected,
     handleScannerClose,
+    weightAlert,
+    handleWeightAlertConfirm,
+    dismissWeightAlert,
     editingItem,
     setEditingItem,
     actionMenuItem,

@@ -32,6 +32,7 @@ export default function ShoppingListUnified() {
   const state = useShoppingListState(id!, mode)
   const [moveItem, setMoveItem] = useState<ShoppingListItem | null>(null)
   const [mergeItem, setMergeItem] = useState<ShoppingListItem | null>(null)
+  const [weightInput, setWeightInput] = useState('')
 
   const setMode = (newMode: UnifiedMode) => {
     if (newMode === 'view') {
@@ -276,6 +277,70 @@ export default function ShoppingListUnified() {
           onClose={state.handleScannerClose}
           scanLog={state.scanLog}
         />
+      )}
+
+      {/* Weight alert popup (shown over scanner for kg items) */}
+      {state.weightAlert && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Articolo a peso</h3>
+                <p className="text-sm text-gray-500">{state.weightAlert.item.grocy_product_name || state.weightAlert.item.name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Questo articolo era già nel carrello con <strong>{state.weightAlert.item.quantity} {state.weightAlert.item.unit}</strong>. Inserisci la nuova quantità totale.
+            </p>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={weightInput}
+              onChange={(e) => setWeightInput(e.target.value.replace(/[^0-9.,]/g, ''))}
+              placeholder={String(state.weightAlert.item.quantity).replace('.', ',')}
+              className="w-full px-4 py-3 border rounded-lg text-center text-xl font-bold focus:ring-2 focus:ring-orange-500 focus:border-orange-500 mb-4"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const parsed = parseFloat(weightInput.replace(',', '.'))
+                  if (!isNaN(parsed) && parsed > 0) {
+                    state.handleWeightAlertConfirm(parsed)
+                    setWeightInput('')
+                  }
+                }
+              }}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  state.dismissWeightAlert()
+                  setWeightInput('')
+                }}
+                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200"
+              >
+                Ignora
+              </button>
+              <button
+                onClick={() => {
+                  const parsed = parseFloat(weightInput.replace(',', '.'))
+                  if (!isNaN(parsed) && parsed > 0) {
+                    state.handleWeightAlertConfirm(parsed)
+                    setWeightInput('')
+                  }
+                }}
+                disabled={!weightInput || isNaN(parseFloat(weightInput.replace(',', '.')))}
+                className="flex-1 py-2.5 bg-orange-500 text-white rounded-lg font-bold hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Aggiorna
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Processing overlay after scanner close */}
