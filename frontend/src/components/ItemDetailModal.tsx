@@ -115,6 +115,10 @@ export function ItemDetailModal({ item, categories, mode, onSave, onCancel, onMa
         const foundName = result.brand ? `${result.product_name} (${result.brand})` : result.product_name
         setProductName(foundName || null)
         setSourceName(result.source_name || null)
+        // Auto-update the name field with the found product name
+        if (foundName) {
+          setName(foundName)
+        }
       } else {
         setProductName(null)
         setSourceName(null)

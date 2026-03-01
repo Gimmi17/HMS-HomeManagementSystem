@@ -4,11 +4,12 @@ interface ItemActionMenuProps {
   item: ShoppingListItem
   onEdit: () => void
   onEditNote: () => void
+  onMerge: () => void
   onSendTo: () => void
   onClose: () => void
 }
 
-export function ItemActionMenu({ item, onEdit, onEditNote, onSendTo, onClose }: ItemActionMenuProps) {
+export function ItemActionMenu({ item, onEdit, onEditNote, onMerge, onSendTo, onClose }: ItemActionMenuProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={onClose}>
       <div
@@ -64,6 +65,22 @@ export function ItemActionMenu({ item, onEdit, onEditNote, onSendTo, onClose }: 
               {item.product_notes && (
                 <p className="text-xs text-blue-600 italic mt-1 truncate">{item.product_notes}</p>
               )}
+            </div>
+          </button>
+
+          {/* Unisci con... */}
+          <button
+            onClick={onMerge}
+            className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <span className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </span>
+            <div className="text-left">
+              <p className="font-medium">Unisci con...</p>
+              <p className="text-xs text-gray-500">Unisci questo articolo con un altro</p>
             </div>
           </button>
 

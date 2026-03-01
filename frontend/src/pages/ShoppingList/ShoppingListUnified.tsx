@@ -8,6 +8,7 @@ import ItemDetailModal, { type ItemDetailModalData } from '@/components/ItemDeta
 import ItemActionMenu from '@/components/ItemActionMenu'
 import ProductNoteModal from '@/components/ProductNoteModal'
 import MoveToListModal from '@/components/MoveToListModal'
+import MergeItemModal from '@/components/MergeItemModal'
 import ContinuousBarcodeScanner from '@/components/ContinuousBarcodeScanner'
 import shoppingListsService from '@/services/shoppingLists'
 import type { ShoppingListItem } from '@/types'
@@ -30,6 +31,7 @@ export default function ShoppingListUnified() {
 
   const state = useShoppingListState(id!, mode)
   const [moveItem, setMoveItem] = useState<ShoppingListItem | null>(null)
+  const [mergeItem, setMergeItem] = useState<ShoppingListItem | null>(null)
 
   const setMode = (newMode: UnifiedMode) => {
     if (newMode === 'view') {
@@ -301,6 +303,10 @@ export default function ShoppingListUnified() {
             state.setNoteEditItem(state.actionMenuItem)
             state.setActionMenuItem(null)
           }}
+          onMerge={() => {
+            setMergeItem(state.actionMenuItem)
+            state.setActionMenuItem(null)
+          }}
           onSendTo={() => {
             setMoveItem(state.actionMenuItem)
             state.setActionMenuItem(null)
@@ -341,6 +347,20 @@ export default function ShoppingListUnified() {
             state.showToast(true, `Articolo spostato in "${targetListName}"`)
           }}
           onCancel={() => setMoveItem(null)}
+        />
+      )}
+
+      {mergeItem && state.list && (
+        <MergeItemModal
+          item={mergeItem}
+          allItems={state.list.items}
+          listId={state.list.id}
+          onComplete={async () => {
+            setMergeItem(null)
+            await state.refreshList()
+            state.showToast(true, 'Articoli uniti')
+          }}
+          onClose={() => setMergeItem(null)}
         />
       )}
     </div>
