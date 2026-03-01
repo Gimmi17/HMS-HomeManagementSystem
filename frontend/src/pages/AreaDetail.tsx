@@ -819,6 +819,7 @@ export function AreaDetail() {
           group={selectedExpiryGroup.group}
           areaId={id}
           houseId={currentHouse.id}
+          allAreas={allAreas}
           onComplete={() => {
             setSelectedExpiryGroup(null)
             loadData()

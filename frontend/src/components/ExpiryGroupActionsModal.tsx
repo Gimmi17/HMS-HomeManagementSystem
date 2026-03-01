@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import dispensaService from '@/services/dispensa'
-import type { DispensaItem } from '@/types'
+import type { DispensaItem, Area } from '@/types'
 
 export interface ExpiryDateGroup {
   dateKey: string
@@ -17,6 +17,7 @@ interface ExpiryGroupActionsModalProps {
   group: ExpiryDateGroup
   areaId: string
   houseId: string
+  allAreas?: Area[]
   onComplete: () => void
   onClose: () => void
 }
@@ -26,10 +27,11 @@ export default function ExpiryGroupActionsModal({
   group,
   areaId,
   houseId,
+  allAreas,
   onComplete,
   onClose,
 }: ExpiryGroupActionsModalProps) {
-  const [activeTab, setActiveTab] = useState<'consume' | 'add' | 'change_date'>('consume')
+  const [activeTab, setActiveTab] = useState<'consume' | 'add' | 'change_date' | 'move'>('consume')
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Consume state
@@ -106,10 +108,28 @@ export default function ExpiryGroupActionsModal({
     }
   }
 
-  const tabs = [
-    { id: 'consume' as const, label: 'Consuma', color: 'text-green-600' },
-    { id: 'add' as const, label: 'Aggiungi', color: 'text-blue-600' },
-    { id: 'change_date' as const, label: 'Cambia data', color: 'text-amber-600' },
+  const handleMove = async (targetAreaId: string) => {
+    setIsProcessing(true)
+    try {
+      for (const entry of group.entries) {
+        await dispensaService.updateItem(houseId, entry.id, { area_id: targetAreaId })
+      }
+      onComplete()
+    } catch (err) {
+      console.error('Move failed:', err)
+      alert('Errore durante lo spostamento')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const moveTargets = (allAreas || []).filter(a => a.id !== areaId)
+
+  const tabs: { id: typeof activeTab; label: string; color: string }[] = [
+    { id: 'consume', label: 'Consuma', color: 'text-green-600' },
+    { id: 'add', label: 'Aggiungi', color: 'text-blue-600' },
+    { id: 'change_date', label: 'Cambia data', color: 'text-amber-600' },
+    ...(moveTargets.length > 0 ? [{ id: 'move' as const, label: 'Sposta', color: 'text-purple-600' }] : []),
   ]
 
   return (
@@ -237,6 +257,30 @@ export default function ExpiryGroupActionsModal({
               >
                 {isProcessing ? 'Aggiornamento...' : 'Cambia data'}
               </button>
+            </>
+          )}
+
+          {activeTab === 'move' && (
+            <>
+              <p className="text-xs text-gray-500">
+                Sposta {group.entries.length} {group.entries.length === 1 ? 'articolo' : 'articoli'} in un'altra zona
+              </p>
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                {moveTargets.map((targetArea) => (
+                  <button
+                    key={targetArea.id}
+                    onClick={() => handleMove(targetArea.id)}
+                    disabled={isProcessing}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-purple-50 hover:border-purple-200 transition-colors text-left disabled:opacity-50"
+                  >
+                    <span className="text-xl">{targetArea.icon || '📦'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{targetArea.name}</p>
+                      <p className="text-xs text-gray-500">{targetArea.item_count} articoli</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </>
           )}
         </div>
