@@ -972,7 +972,7 @@ def get_products_without_brand(
     }
 
 
-@router.patch("/products/{product_id}/brand", response_model=ProductListItem)
+@router.patch("/products/{product_id}/brand")
 def set_product_brand(
     product_id: UUID,
     data: SetProductBrandRequest,
