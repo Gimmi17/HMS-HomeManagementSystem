@@ -17,6 +17,7 @@ class StoreCreate(BaseModel):
     """Schema for creating a store"""
     chain: Optional[str] = Field(None, max_length=255, description="Chain name (e.g., Esselunga, Lidl)")
     name: str = Field(..., min_length=1, max_length=255, description="Store name")
+    city: Optional[str] = Field(None, max_length=255, description="City/locality")
     address: Optional[str] = Field(None, max_length=500, description="Store address")
     country: Optional[str] = Field(None, max_length=100, description="Country")
     size: Optional[StoreSize] = Field(None, description="Store size (S, M, L, XL, XXL)")
@@ -26,6 +27,7 @@ class StoreUpdate(BaseModel):
     """Schema for updating a store"""
     chain: Optional[str] = Field(None, max_length=255)
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    city: Optional[str] = Field(None, max_length=255)
     address: Optional[str] = Field(None, max_length=500)
     country: Optional[str] = Field(None, max_length=100)
     size: Optional[StoreSize] = Field(None)
@@ -37,6 +39,7 @@ class StoreResponse(BaseModel):
     house_id: Optional[UUID] = None
     chain: Optional[str] = None
     name: str
+    city: Optional[str] = None
     address: Optional[str] = None
     country: Optional[str] = None
     size: Optional[str] = None

@@ -72,6 +72,7 @@ def create_store(
         house_id=house_id,
         chain=data.chain,
         name=data.name,
+        city=data.city,
         address=data.address,
         country=data.country,
         size=data.size,
@@ -259,6 +260,8 @@ def update_store(
         store.chain = data.chain
     if data.name is not None:
         store.name = data.name
+    if data.city is not None:
+        store.city = data.city
     if data.address is not None:
         store.address = data.address
     if data.country is not None:

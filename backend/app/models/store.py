@@ -45,6 +45,9 @@ class Store(BaseModel):
     # Store name (e.g., "Via Roma", "Centro Commerciale")
     name = Column(String(255), nullable=False, index=True)
 
+    # City/locality (e.g., "Padova", "Venezia")
+    city = Column(String(255), nullable=True)
+
     # Optional address for identification
     address = Column(String(500), nullable=True)
 
@@ -67,10 +70,11 @@ class Store(BaseModel):
 
     @property
     def display_name(self) -> str:
-        """Get full display name including chain"""
-        if self.chain:
-            return f"{self.chain} - {self.name}"
-        return self.name
+        """Get full display name including chain and city"""
+        base = f"{self.chain} - {self.name}" if self.chain else self.name
+        if self.city:
+            return f"{base} - {self.city}"
+        return base
 
     def __repr__(self):
         return f"<Store(id={self.id}, chain='{self.chain}', name='{self.name}')>"

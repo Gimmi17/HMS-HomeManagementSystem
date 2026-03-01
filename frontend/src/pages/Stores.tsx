@@ -23,6 +23,7 @@ const SIZE_COLORS: Record<StoreSize, string> = {
 interface StoreFormData {
   chain: string
   name: string
+  city: string
   address: string
   country: string
   size: StoreSize | ''
@@ -31,6 +32,7 @@ interface StoreFormData {
 const emptyForm: StoreFormData = {
   chain: '',
   name: '',
+  city: '',
   address: '',
   country: 'Italia',
   size: '',
@@ -75,6 +77,7 @@ export function Stores() {
     setFormData({
       chain: store.chain || '',
       name: store.name,
+      city: store.city || '',
       address: store.address || '',
       country: store.country || 'Italia',
       size: store.size || '',
@@ -101,6 +104,7 @@ export function Stores() {
       const data = {
         chain: formData.chain.trim() || undefined,
         name: formData.name.trim(),
+        city: formData.city.trim() || undefined,
         address: formData.address.trim() || undefined,
         country: formData.country.trim() || undefined,
         size: formData.size || undefined,
@@ -223,13 +227,13 @@ export function Stores() {
                   </div>
 
                   <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                    {store.country && (
+                    {(store.city || store.country) && (
                       <span className="flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
-                        {store.country}
+                        {[store.city, store.country].filter(Boolean).join(', ')}
                       </span>
                     )}
                     {store.address && (
@@ -304,6 +308,21 @@ export function Stores() {
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Identificativo del punto vendita
+                  </p>
+                </div>
+
+                {/* City */}
+                <div>
+                  <label className="label text-xs">Città/Località</label>
+                  <input
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    placeholder="es. Padova, Venezia..."
+                    className="input w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Se compilato, verrà mostrato come Nome - Città
                   </p>
                 </div>
 

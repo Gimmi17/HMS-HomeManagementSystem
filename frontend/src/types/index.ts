@@ -306,6 +306,7 @@ export interface Store {
   house_id?: string  // null = global template
   chain?: string
   name: string
+  city?: string
   address?: string
   country?: string
   size?: StoreSize
@@ -318,6 +319,7 @@ export interface Store {
 export interface StoreCreate {
   chain?: string
   name: string
+  city?: string
   address?: string
   country?: string
   size?: StoreSize
@@ -326,6 +328,7 @@ export interface StoreCreate {
 export interface StoreUpdate {
   chain?: string
   name?: string
+  city?: string
   address?: string
   country?: string
   size?: StoreSize
