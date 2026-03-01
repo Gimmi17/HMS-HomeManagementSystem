@@ -70,6 +70,10 @@ export function AreaDetail() {
   // Move item to another zone
   const [movingItem, setMovingItem] = useState<DispensaItem | null>(null)
 
+  // Aggregated view state
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+
   // Consume date selection
   const [consumeDateItem, setConsumeDateItem] = useState<DispensaItem | null>(null)
   const [consumeDate, setConsumeDate] = useState(() => {
@@ -132,6 +136,127 @@ export function AreaDetail() {
     const now = new Date()
     const threeDays = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
     return expiry > now && expiry <= threeDays
+  }
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '-'
+    const [year, month, day] = dateStr.split('-')
+    return `${day}/${month}/${year}`
+  }
+
+  const getExpiryBadge = (dateStr: string | null) => {
+    if (!dateStr) return null
+    if (isExpired(dateStr)) {
+      return <span className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700 font-medium">Scaduto</span>
+    }
+    if (isExpiring(dateStr)) {
+      return <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-700 font-medium">In scadenza</span>
+    }
+    return <span className="px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-700">OK</span>
+  }
+
+  interface AggregatedProduct {
+    key: string
+    name: string
+    totalQuantity: number
+    unit: string | null
+    entries: DispensaItem[]
+    hasExpired: boolean
+    hasExpiring: boolean
+    categoryId: string | null
+  }
+
+  const aggregatedProducts = useMemo((): AggregatedProduct[] => {
+    const groupMap = new Map<string, AggregatedProduct>()
+    for (const item of items) {
+      const key = `${item.name.toLowerCase()}_${(item.unit || 'pz').toLowerCase()}`
+      const existing = groupMap.get(key)
+      if (existing) {
+        existing.totalQuantity += item.quantity
+        existing.entries.push(item)
+        if (isExpired(item.expiry_date)) existing.hasExpired = true
+        if (isExpiring(item.expiry_date)) existing.hasExpiring = true
+      } else {
+        groupMap.set(key, {
+          key,
+          name: item.name,
+          totalQuantity: item.quantity,
+          unit: item.unit,
+          entries: [item],
+          hasExpired: isExpired(item.expiry_date),
+          hasExpiring: isExpiring(item.expiry_date),
+          categoryId: item.category_id,
+        })
+      }
+    }
+    for (const product of groupMap.values()) {
+      product.entries.sort((a, b) => {
+        if (!a.expiry_date && !b.expiry_date) return 0
+        if (!a.expiry_date) return 1
+        if (!b.expiry_date) return -1
+        return a.expiry_date.localeCompare(b.expiry_date)
+      })
+    }
+    return Array.from(groupMap.values())
+  }, [items])
+
+  const groupedProducts = useMemo(() => {
+    const groups: { key: string; label: string; icon?: string; color?: string; products: AggregatedProduct[] }[] = []
+    const catMap = new Map<string, AggregatedProduct[]>()
+    const uncategorized: AggregatedProduct[] = []
+
+    for (const product of aggregatedProducts) {
+      if (product.categoryId) {
+        const arr = catMap.get(product.categoryId) || []
+        arr.push(product)
+        catMap.set(product.categoryId, arr)
+      } else {
+        uncategorized.push(product)
+      }
+    }
+
+    for (const cat of categories) {
+      const catProducts = catMap.get(cat.id)
+      if (catProducts && catProducts.length > 0) {
+        groups.push({
+          key: cat.id,
+          label: cat.name,
+          icon: cat.icon || undefined,
+          color: cat.color || undefined,
+          products: catProducts,
+        })
+      }
+    }
+
+    for (const [catId] of catMap) {
+      if (!groups.find(g => g.key === catId)) {
+        groups.push({ key: catId, label: 'Altro', products: catMap.get(catId)! })
+      }
+    }
+
+    if (uncategorized.length > 0) {
+      groups.push({ key: '_none', label: 'Senza categoria', products: uncategorized })
+    }
+
+    return groups
+  }, [aggregatedProducts, categories])
+
+  const toggleProduct = (key: string) => {
+    setExpandedProducts(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   const handleAddItem = async (e: React.FormEvent) => {
@@ -390,72 +515,166 @@ export function AreaDetail() {
         {items.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-4">Nessun articolo in questa area</p>
         ) : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <div key={item.id} className="card p-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="font-medium text-sm">{item.name}</h4>
-                      <span className="text-xs text-gray-500">{item.quantity} {item.unit || 'pz'}</span>
-                      {item.purchase_price != null && (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">{item.purchase_price.toFixed(2)} EUR</span>
+          <div className="space-y-3">
+            {groupedProducts.map((group) => {
+              const isCollapsed = collapsedSections.has(group.key)
+              return (
+                <div key={group.key} className="card overflow-hidden">
+                  {/* Category header */}
+                  <button
+                    onClick={() => toggleSection(group.key)}
+                    className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {group.color && (
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: group.color }} />
                       )}
+                      <span className="font-semibold text-sm text-gray-800">
+                        {group.icon ? `${group.icon} ` : ''}{group.label}
+                      </span>
+                      <span className="text-xs text-gray-400">({group.products.length})</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {item.expiry_date && (
-                        area.disable_expiry_tracking ? (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">
-                            Scad. {item.expiry_date} (non tracciata)
-                          </span>
-                        ) : (
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${isExpired(item.expiry_date) ? 'bg-red-100 text-red-700' : isExpiring(item.expiry_date) ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
-                            Scad. {item.expiry_date}
-                          </span>
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {/* Aggregated products */}
+                  {!isCollapsed && (
+                    <div className="border-t divide-y">
+                      {group.products.map((product) => {
+                        const isExpanded = expandedProducts.has(product.key)
+                        return (
+                          <div key={product.key}>
+                            {/* Product row */}
+                            <div
+                              className={`p-3 transition-colors ${
+                                product.hasExpired && !area.disable_expiry_tracking ? 'bg-red-50' : ''
+                              } ${
+                                product.hasExpiring && !product.hasExpired && !area.disable_expiry_tracking ? 'bg-yellow-50' : ''
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <button
+                                  onClick={() => toggleProduct(product.key)}
+                                  className="mt-0.5 p-0.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+                                >
+                                  <svg
+                                    className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                                <div className="flex-1 min-w-0" onClick={() => toggleProduct(product.key)}>
+                                  <div className="font-medium text-sm text-gray-900">{product.name}</div>
+                                  <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
+                                    <span className="font-medium text-gray-700">
+                                      {product.totalQuantity} {product.unit || 'pz'}
+                                    </span>
+                                    {product.entries.length > 1 && (
+                                      <span className="text-gray-400">({product.entries.length} giacenze)</span>
+                                    )}
+                                    {!area.disable_expiry_tracking && product.hasExpired && (
+                                      <span className="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700 font-medium">Scaduto</span>
+                                    )}
+                                    {!area.disable_expiry_tracking && product.hasExpiring && !product.hasExpired && (
+                                      <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-700 font-medium">In scadenza</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded entries */}
+                            {isExpanded && (
+                              <div className="bg-gray-50 border-t">
+                                {product.entries.map((entry) => (
+                                  <div
+                                    key={entry.id}
+                                    className={`px-3 py-2.5 pl-10 border-b border-gray-100 last:border-b-0 ${
+                                      !area.disable_expiry_tracking && isExpired(entry.expiry_date) ? 'bg-red-50/50' : ''
+                                    } ${
+                                      !area.disable_expiry_tracking && isExpiring(entry.expiry_date) ? 'bg-yellow-50/50' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
+                                          <span className="font-medium">{entry.quantity} {entry.unit || 'pz'}</span>
+                                          <span className="text-gray-400">-</span>
+                                          {entry.expiry_date ? (
+                                            area.disable_expiry_tracking ? (
+                                              <span className="text-gray-400">Scad: {formatDate(entry.expiry_date)} (non tracciata)</span>
+                                            ) : (
+                                              <>
+                                                <span>Scad: {formatDate(entry.expiry_date)}</span>
+                                                {getExpiryBadge(entry.expiry_date)}
+                                              </>
+                                            )
+                                          ) : (
+                                            <span>Senza scadenza</span>
+                                          )}
+                                          {entry.purchase_price != null && (
+                                            <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-medium">{entry.purchase_price.toFixed(2)} EUR</span>
+                                          )}
+                                        </div>
+                                        {(entry.original_expiry_date || entry.warranty_expiry_date || entry.trial_expiry_date || entry.notes) && (
+                                          <div className="flex items-center gap-2 mt-1 flex-wrap text-xs">
+                                            {entry.original_expiry_date && (
+                                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">Orig. {formatDate(entry.original_expiry_date)}</span>
+                                            )}
+                                            {entry.warranty_expiry_date && (
+                                              <span className={`px-1.5 py-0.5 rounded ${
+                                                isExpired(entry.warranty_expiry_date) ? 'bg-red-100 text-red-700'
+                                                : (new Date(entry.warranty_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
+                                                : 'bg-green-100 text-green-700'
+                                              }`}>
+                                                Garanzia {formatDate(entry.warranty_expiry_date)}
+                                              </span>
+                                            )}
+                                            {entry.trial_expiry_date && (
+                                              <span className={`px-1.5 py-0.5 rounded ${
+                                                isExpired(entry.trial_expiry_date) ? 'bg-red-100 text-red-700'
+                                                : (new Date(entry.trial_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
+                                                : 'bg-green-100 text-green-700'
+                                              }`}>
+                                                Prova/Reso {formatDate(entry.trial_expiry_date)}
+                                              </span>
+                                            )}
+                                            {entry.notes && <span className="text-gray-400 italic truncate max-w-[120px]">{entry.notes}</span>}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {area.area_type === 'food_storage' && (
+                                          <button onClick={() => handleConsumeItem(entry)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Consuma">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                          </button>
+                                        )}
+                                        <button onClick={() => setMovingItem(entry)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Sposta">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                        </button>
+                                        <button onClick={() => handleDeleteItem(entry.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Elimina">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )
-                      )}
-                      {item.original_expiry_date && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
-                          Orig. {item.original_expiry_date}
-                        </span>
-                      )}
-                      {item.warranty_expiry_date && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${
-                          isExpired(item.warranty_expiry_date) ? 'bg-red-100 text-red-700'
-                          : isExpiring(item.warranty_expiry_date) || (new Date(item.warranty_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
-                        }`}>
-                          Garanzia {item.warranty_expiry_date}
-                        </span>
-                      )}
-                      {item.trial_expiry_date && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${
-                          isExpired(item.trial_expiry_date) ? 'bg-red-100 text-red-700'
-                          : isExpiring(item.trial_expiry_date) || (new Date(item.trial_expiry_date) <= new Date(Date.now() + 30 * 86400000)) ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
-                        }`}>
-                          Prova/Reso {item.trial_expiry_date}
-                        </span>
-                      )}
-                      {item.notes && <span className="text-xs text-gray-400 truncate">{item.notes}</span>}
+                      })}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {area.area_type === 'food_storage' && (
-                      <button onClick={() => handleConsumeItem(item)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Consuma">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                      </button>
-                    )}
-                    <button onClick={() => setMovingItem(item)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Sposta in altra zona">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
-                    </button>
-                    <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Elimina">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
-                  </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

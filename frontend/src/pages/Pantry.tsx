@@ -521,7 +521,7 @@ export function Pantry() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dispensa</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Giacenze</h1>
         <button
           onClick={() => setShowAddModal(true)}
           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium flex items-center gap-1"
@@ -584,7 +584,7 @@ export function Pantry() {
           <p className="text-gray-500">
             {searchQuery || filterMode !== 'all'
               ? 'Nessun prodotto trovato'
-              : 'Dispensa vuota'}
+              : 'Nessun articolo'}
           </p>
           {!searchQuery && filterMode === 'all' && (
             <p className="text-sm text-gray-400 mt-2">
