@@ -5,10 +5,10 @@ import areasService from '@/services/areas'
 import dispensaService from '@/services/dispensa'
 import categoriesService from '@/services/categories'
 import productsService from '@/services/products'
-import { useDebounce } from '@/hooks/useDebounce'
 import ProductDetailCard from '@/components/ProductDetailCard'
 import ExpiryGroupActionsModal, { type ExpiryDateGroup } from '@/components/ExpiryGroupActionsModal'
 import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
+import BatchScanReviewModal, { type BatchItemData } from '@/components/BatchScanReviewModal'
 import type { Area, AreaExpenseStats, DispensaItem, DispensaStats, Category, AreaType, AreaUpdate } from '@/types'
 
 const TYPE_COLORS: Record<AreaType, string> = {
@@ -36,7 +36,6 @@ export function AreaDetail() {
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const debouncedSearch = useDebounce(searchQuery)
 
   // Add item modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -88,6 +87,8 @@ export function AreaDetail() {
   const [showScanner, setShowScanner] = useState(false)
   const [scanLog, setScanLog] = useState<ScanLogEntry[]>([])
   const scanLogRef = useRef<ScanLogEntry[]>([])
+  const [showBatchReview, setShowBatchReview] = useState(false)
+  const [batchItems, setBatchItems] = useState<BatchItemData[]>([])
 
   const handleBarcodeDetected = useCallback(async (barcode: string) => {
     if (!currentHouse || !id) return
@@ -100,15 +101,6 @@ export function AreaDetail() {
       const newQty = entry.quantity + 1
       scanLogRef.current[existingIdx] = { ...entry, quantity: newQty, timestamp: Date.now() }
       setScanLog([...scanLogRef.current])
-      // Create another dispensa item
-      try {
-        await dispensaService.createItem(currentHouse.id, {
-          name: entry.productName || barcode,
-          barcode,
-          area_id: id,
-          brand_text: entry.brandText || undefined,
-        })
-      } catch { /* ignore */ }
       return
     }
 
@@ -128,15 +120,6 @@ export function AreaDetail() {
       }
       scanLogRef.current = [...scanLogRef.current, newEntry]
       setScanLog([...scanLogRef.current])
-
-      // Create dispensa item in this area
-      await dispensaService.createItem(currentHouse.id, {
-        name,
-        barcode,
-        area_id: id,
-        brand_text: brand,
-        category_id: result.category_id || undefined,
-      })
     } catch {
       // Fallback: add with barcode as name
       const newEntry: ScanLogEntry = {
@@ -148,23 +131,56 @@ export function AreaDetail() {
       }
       scanLogRef.current = [...scanLogRef.current, newEntry]
       setScanLog([...scanLogRef.current])
-
-      try {
-        await dispensaService.createItem(currentHouse.id, {
-          name: barcode,
-          barcode,
-          area_id: id,
-        })
-      } catch { /* ignore */ }
     }
   }, [currentHouse, id])
 
   const handleScannerClose = useCallback(() => {
     setShowScanner(false)
+    const log = scanLogRef.current
+    if (log.length > 0) {
+      const batch: BatchItemData[] = log.map(entry => ({
+        barcode: entry.barcode,
+        name: entry.productName || entry.barcode,
+        brandText: entry.brandText || '',
+        categoryId: '',
+        expiryDate: '',
+        quantity: entry.quantity,
+        notes: '',
+        matched: entry.matched,
+      }))
+      setBatchItems(batch)
+      setShowBatchReview(true)
+    }
     scanLogRef.current = []
     setScanLog([])
+  }, [])
+
+  const handleBatchSave = async (batchToSave: BatchItemData[]) => {
+    if (!currentHouse || !id) return
+    let errors = 0
+    for (const item of batchToSave) {
+      try {
+        await dispensaService.createItem(currentHouse.id, {
+          name: item.name,
+          barcode: item.barcode,
+          area_id: id,
+          brand_text: item.brandText || undefined,
+          category_id: item.categoryId || undefined,
+          expiry_date: item.expiryDate || undefined,
+          quantity: item.quantity,
+          notes: item.notes || undefined,
+        })
+      } catch {
+        errors++
+      }
+    }
+    setShowBatchReview(false)
+    setBatchItems([])
+    if (errors > 0) {
+      alert(`${errors} articol${errors === 1 ? 'o non salvato' : 'i non salvati'}`)
+    }
     loadData()
-  }, [currentHouse, id])
+  }
 
   const loadData = async () => {
     if (!currentHouse || !id) return
@@ -174,7 +190,6 @@ export function AreaDetail() {
         areasService.getAll(currentHouse.id),
         dispensaService.getItems(currentHouse.id, {
           area_id: id,
-          ...(debouncedSearch ? { search: debouncedSearch } : {}),
         }),
         categoriesService.getAll(currentHouse.id),
       ])
@@ -198,7 +213,7 @@ export function AreaDetail() {
 
   useEffect(() => {
     loadData()
-  }, [currentHouse, id, debouncedSearch])
+  }, [currentHouse, id])
 
   const maxCategoryTotal = useMemo(() => {
     if (!expenseStats?.by_category.length) return 0
@@ -244,8 +259,16 @@ export function AreaDetail() {
   }
 
   const aggregatedProducts = useMemo((): AggregatedProduct[] => {
+    const query = searchQuery.toLowerCase().trim()
+    const filtered = query
+      ? items.filter(item =>
+          item.name.toLowerCase().includes(query) ||
+          (item.brand_text && item.brand_text.toLowerCase().includes(query)) ||
+          (item.barcode && item.barcode.includes(query))
+        )
+      : items
     const groupMap = new Map<string, AggregatedProduct>()
-    for (const item of items) {
+    for (const item of filtered) {
       const key = `${item.name.toLowerCase()}_${(item.unit || 'pz').toLowerCase()}`
       const existing = groupMap.get(key)
       if (existing) {
@@ -302,7 +325,7 @@ export function AreaDetail() {
       product.dateGroups = Array.from(dateMap.values())
     }
     return Array.from(groupMap.values())
-  }, [items])
+  }, [items, searchQuery])
 
   const groupedProducts = useMemo(() => {
     const groups: { key: string; label: string; icon?: string; color?: string; products: AggregatedProduct[] }[] = []
@@ -595,8 +618,10 @@ export function AreaDetail() {
           <button onClick={() => setShowAddModal(true)} className="btn btn-primary text-sm px-3 py-1.5">+ Aggiungi</button>
         </div>
         <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Cerca articoli..." className="input w-full" />
-        {items.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">Nessun articolo in questa area</p>
+        {aggregatedProducts.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">
+            {items.length === 0 ? 'Nessun articolo in questa area' : 'Nessun risultato per la ricerca'}
+          </p>
         ) : (
           <div className="space-y-3">
             {groupedProducts.map((group) => {
@@ -902,6 +927,7 @@ export function AreaDetail() {
           barcode={selectedProductForDetail.barcode}
           productName={selectedProductForDetail.name}
           onClose={() => setSelectedProductForDetail(null)}
+          onProductUpdated={() => loadData()}
         />
       )}
 
@@ -960,6 +986,18 @@ export function AreaDetail() {
           onBarcodeDetected={handleBarcodeDetected}
           onClose={handleScannerClose}
           scanLog={scanLog}
+        />
+      )}
+
+      {/* Batch Scan Review Modal */}
+      {showBatchReview && currentHouse && id && (
+        <BatchScanReviewModal
+          items={batchItems}
+          categories={categories}
+          areaId={id}
+          houseId={currentHouse.id}
+          onSave={handleBatchSave}
+          onClose={() => { setShowBatchReview(false); setBatchItems([]) }}
         />
       )}
 

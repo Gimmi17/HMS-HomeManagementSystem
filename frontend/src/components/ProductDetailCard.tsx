@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import anagraficheService, { ProductListItem } from '@/services/anagrafiche'
 import EanManagerPanel from '@/components/EanManagerPanel'
 
@@ -7,6 +6,7 @@ interface ProductDetailCardProps {
   barcode: string | null
   productName: string
   onClose: () => void
+  onProductUpdated?: () => void
 }
 
 const getNutriscoreColor = (score: string | null) => {
@@ -26,12 +26,16 @@ const formatValue = (value: number | null | undefined, unit: string = '') => {
   return `${value}${unit}`
 }
 
-export default function ProductDetailCard({ barcode, productName, onClose }: ProductDetailCardProps) {
-  const navigate = useNavigate()
+export default function ProductDetailCard({ barcode, productName, onClose, onProductUpdated }: ProductDetailCardProps) {
   const [product, setProduct] = useState<ProductListItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null)
+
+  // Edit mode state
+  const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editForm, setEditForm] = useState({ name: '', brand: '', quantity_text: '' })
 
   useEffect(() => {
     if (!barcode) {
@@ -44,7 +48,6 @@ export default function ProductDetailCard({ barcode, productName, onClose }: Pro
       try {
         const resp = await anagraficheService.getProducts({ search: barcode, limit: 5 })
         if (cancelled) return
-        // Find exact barcode match
         const match = resp.products.find(p => p.barcode === barcode)
         setProduct(match || null)
       } catch (err) {
@@ -56,6 +59,69 @@ export default function ProductDetailCard({ barcode, productName, onClose }: Pro
     lookup()
     return () => { cancelled = true }
   }, [barcode])
+
+  const enterEditMode = () => {
+    setEditForm({
+      name: product?.name || productName || '',
+      brand: product?.brand || '',
+      quantity_text: product?.quantity_text || '',
+    })
+    setIsEditing(true)
+  }
+
+  const handleSave = async () => {
+    if (!editForm.name.trim()) return
+    setIsSaving(true)
+    try {
+      let savedProduct: ProductListItem
+      if (product) {
+        // Update existing product
+        savedProduct = await anagraficheService.updateProduct(product.id, {
+          name: editForm.name.trim(),
+          brand: editForm.brand.trim() || undefined,
+          quantity_text: editForm.quantity_text.trim() || undefined,
+        })
+      } else {
+        // Create new product
+        savedProduct = await anagraficheService.createProduct({
+          barcode: barcode || undefined,
+          name: editForm.name.trim(),
+          brand: editForm.brand.trim() || undefined,
+          quantity_text: editForm.quantity_text.trim() || undefined,
+        })
+      }
+
+      // Brand linking (non-blocking)
+      const brandName = editForm.brand.trim()
+      if (brandName) {
+        try {
+          const brandResp = await anagraficheService.getBrands({ search: brandName })
+          let brandId: string | undefined
+          const exactMatch = brandResp.brands.find(b => b.name.toLowerCase() === brandName.toLowerCase())
+          if (exactMatch) {
+            brandId = exactMatch.id
+          } else {
+            const newBrand = await anagraficheService.createBrand({ name: brandName })
+            brandId = newBrand.id
+          }
+          if (brandId) {
+            await anagraficheService.setProductBrand(savedProduct.id, brandId)
+          }
+        } catch (err) {
+          console.error('Brand linking failed (non-blocking):', err)
+        }
+      }
+
+      setProduct(savedProduct)
+      setIsEditing(false)
+      onProductUpdated?.()
+    } catch (err) {
+      console.error('Save failed:', err)
+      alert('Errore durante il salvataggio')
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <>
@@ -74,11 +140,11 @@ export default function ProductDetailCard({ barcode, productName, onClose }: Pro
                 <p className="text-sm text-gray-500 font-mono">{barcode}</p>
               )}
             </div>
-            {product && (
+            {!isEditing && product && (
               <button
-                onClick={() => navigate(`/anagrafiche/products?search=${encodeURIComponent(barcode || '')}`)}
+                onClick={enterEditMode}
                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"
-                title="Modifica in Anagrafiche"
+                title="Modifica"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -104,10 +170,53 @@ export default function ProductDetailCard({ barcode, productName, onClose }: Pro
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               </div>
+            ) : isEditing ? (
+              /* Edit mode */
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Nome *</label>
+                  <input
+                    type="text"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    className="input w-full mt-1"
+                    placeholder="Nome prodotto"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Marca</label>
+                  <input
+                    type="text"
+                    value={editForm.brand}
+                    onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })}
+                    className="input w-full mt-1"
+                    placeholder="Marca"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Quantita'</label>
+                  <input
+                    type="text"
+                    value={editForm.quantity_text}
+                    onChange={(e) => setEditForm({ ...editForm, quantity_text: e.target.value })}
+                    className="input w-full mt-1"
+                    placeholder="es. 500g, 1L, 6 pezzi"
+                  />
+                </div>
+              </div>
             ) : !product ? (
               <div className="text-center py-8">
                 <p className="text-gray-400 text-sm">Nessun prodotto in catalogo</p>
                 <p className="font-medium text-gray-700 mt-2">{productName}</p>
+                {barcode && (
+                  <button
+                    onClick={enterEditMode}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                  >
+                    Crea scheda prodotto
+                  </button>
+                )}
               </div>
             ) : (
               <>
@@ -240,12 +349,31 @@ export default function ProductDetailCard({ barcode, productName, onClose }: Pro
 
           {/* Footer */}
           <div className="p-4 border-t flex-shrink-0">
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
-            >
-              Chiudi
-            </button>
+            {isEditing ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsEditing(false)}
+                  disabled={isSaving}
+                  className="flex-1 py-2.5 px-3 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving || !editForm.name.trim()}
+                  className="flex-1 py-2.5 px-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isSaving ? 'Salvataggio...' : 'Salva'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onClose}
+                className="w-full py-2.5 px-3 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
+              >
+                Chiudi
+              </button>
+            )}
           </div>
         </div>
       </div>
