@@ -3,9 +3,9 @@ services:
     image: postgres:14-alpine
     container_name: hms-db
     environment:
-      POSTGRES_USER: meal_planner
-      POSTGRES_PASSWORD: HmsSecurePass2024!
-      POSTGRES_DB: meal_planner_db
+      POSTGRES_USER: ${DB_USER:-meal_planner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:-meal_planner_db}
     volumes:
       - hms_postgres_data:/var/lib/postgresql/data
     networks:
@@ -21,10 +21,10 @@ services:
     image: gimmi17/hms-backend:latest
     container_name: hms-backend
     environment:
-      DATABASE_URL: postgresql://meal_planner:HmsSecurePass2024!@postgres:5432/meal_planner_db
-      SECRET_KEY: x7k9m2p4q8w1e5r3t6y0u8i2o5a3s7d1f4g6h9j2l5z8c1v4b7n0m3
-      JWT_EXPIRATION: "3600"
-      REFRESH_TOKEN_EXPIRATION: "604800"
+      DATABASE_URL: postgresql://${DB_USER:-meal_planner}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:-meal_planner_db}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
+      REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-604800}
       PYTHONUNBUFFERED: "1"
     ports:
       - "8847:8000"

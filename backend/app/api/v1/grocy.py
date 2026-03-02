@@ -79,7 +79,10 @@ router = APIRouter(prefix="/grocy", tags=["Grocy Integration"])
     - grocy_version: Grocy version if connection successful
     """
 )
-async def test_grocy_connection(request: GrocyTestConnectionRequest):
+async def test_grocy_connection(
+    request: GrocyTestConnectionRequest,
+    current_user: User = Depends(get_current_user)
+):
     """
     Test connection to Grocy server.
 
@@ -194,7 +197,7 @@ async def test_grocy_connection(request: GrocyTestConnectionRequest):
         }
     }
 )
-async def get_stock():
+async def get_stock(current_user: User = Depends(get_current_user)):
     """
     Retrieve current stock from Grocy.
 
@@ -286,7 +289,7 @@ async def get_stock():
         }
     }
 )
-async def get_products():
+async def get_products(current_user: User = Depends(get_current_user)):
     """
     Retrieve all products from Grocy.
 
@@ -338,7 +341,7 @@ async def get_products():
         }
     }
 )
-async def get_product(product_id: int):
+async def get_product(product_id: int, current_user: User = Depends(get_current_user)):
     """
     Retrieve detailed product information.
 
@@ -501,7 +504,7 @@ async def get_house_products(
     summary="Get Locations",
     description="Fetch all storage locations from Grocy."
 )
-async def get_locations():
+async def get_locations(current_user: User = Depends(get_current_user)):
     """Retrieve all locations from Grocy."""
     try:
         locations = await grocy_client.get_locations()
@@ -527,7 +530,7 @@ async def get_locations():
     summary="Add Stock",
     description="Add stock to a product in Grocy."
 )
-async def add_stock(product_id: int, request: GrocyAddStockRequest):
+async def add_stock(product_id: int, request: GrocyAddStockRequest, current_user: User = Depends(get_current_user)):
     """Add stock to a product."""
     try:
         await grocy_client.add_stock(
@@ -561,7 +564,7 @@ async def add_stock(product_id: int, request: GrocyAddStockRequest):
     summary="Consume Stock",
     description="Consume stock from a product in Grocy."
 )
-async def consume_stock(product_id: int, request: GrocyConsumeStockRequest):
+async def consume_stock(product_id: int, request: GrocyConsumeStockRequest, current_user: User = Depends(get_current_user)):
     """Consume stock from a product."""
     try:
         await grocy_client.consume_stock(
@@ -594,7 +597,7 @@ async def consume_stock(product_id: int, request: GrocyConsumeStockRequest):
     summary="Open Product",
     description="Mark a product as opened in Grocy."
 )
-async def open_product(product_id: int, request: GrocyOpenProductRequest):
+async def open_product(product_id: int, request: GrocyOpenProductRequest, current_user: User = Depends(get_current_user)):
     """Mark a product as opened."""
     try:
         await grocy_client.open_product(
@@ -624,7 +627,7 @@ async def open_product(product_id: int, request: GrocyOpenProductRequest):
     summary="Transfer Stock",
     description="Transfer stock between locations in Grocy."
 )
-async def transfer_stock(product_id: int, request: GrocyTransferStockRequest):
+async def transfer_stock(product_id: int, request: GrocyTransferStockRequest, current_user: User = Depends(get_current_user)):
     """Transfer stock between locations."""
     try:
         await grocy_client.transfer_stock(
@@ -656,7 +659,7 @@ async def transfer_stock(product_id: int, request: GrocyTransferStockRequest):
     summary="Inventory Correction",
     description="Perform inventory correction for a product in Grocy."
 )
-async def inventory_correction(product_id: int, request: GrocyInventoryCorrectionRequest):
+async def inventory_correction(product_id: int, request: GrocyInventoryCorrectionRequest, current_user: User = Depends(get_current_user)):
     """Perform inventory correction."""
     try:
         await grocy_client.inventory_correction(
@@ -688,7 +691,7 @@ async def inventory_correction(product_id: int, request: GrocyInventoryCorrectio
     summary="Bulk Add Stock",
     description="Add multiple products to stock at once."
 )
-async def bulk_add_stock(request: GrocyBulkAddStockRequest):
+async def bulk_add_stock(request: GrocyBulkAddStockRequest, current_user: User = Depends(get_current_user)):
     """Bulk add products to stock."""
     results = []
     successful = 0

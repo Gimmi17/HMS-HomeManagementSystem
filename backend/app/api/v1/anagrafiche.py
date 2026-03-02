@@ -281,7 +281,9 @@ def list_houses(
     result = []
     for h in houses:
         owner = db.query(User).filter(User.id == h.owner_id).first()
-        # Count members (simplified - would need user_house table query)
+        member_count = db.query(func.count(UserHouse.user_id)).filter(
+            UserHouse.house_id == h.id
+        ).scalar() or 0
         result.append(HouseListItem(
             id=h.id,
             name=h.name,
@@ -289,7 +291,7 @@ def list_houses(
             location=h.location,
             owner_id=h.owner_id,
             owner_name=owner.full_name if owner else None,
-            member_count=0,  # TODO: count from user_house
+            member_count=member_count,
             created_at=h.created_at
         ))
 

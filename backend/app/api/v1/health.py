@@ -27,6 +27,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.api.v1.deps import get_current_user
+from app.models.user import User
+from app.models.user_house import UserHouse
 from app.schemas.health import (
     WeightCreate,
     WeightUpdate,
@@ -40,9 +43,23 @@ from app.schemas.health import (
 )
 from app.services import health_service
 
-# Create routers
-# Note: In production, these would require authentication via Depends(get_current_user)
 router = APIRouter(tags=["health"])
+
+
+def verify_house_membership(db: Session, user_id: UUID, house_id: UUID) -> UserHouse:
+    """Verify that user belongs to the specified house."""
+    membership = db.query(UserHouse).filter(
+        UserHouse.user_id == user_id,
+        UserHouse.house_id == house_id
+    ).first()
+
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Non sei membro di questa casa"
+        )
+
+    return membership
 
 
 # ============================================================================
@@ -53,44 +70,15 @@ router = APIRouter(tags=["health"])
 def create_weight(
     weight_data: WeightCreate,
     house_id: UUID = Query(..., description="House ID for the weight record"),
-    user_id: UUID = Query(..., description="User ID for the weight record"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Create a new weight measurement.
-
-    Request Body:
-        - weight_kg: Weight in kilograms (required)
-        - measured_at: When weight was measured (required)
-        - notes: Optional context notes
-
-    Query Parameters:
-        - house_id: House ID (required for multi-tenant isolation)
-        - user_id: User ID (required, identifies who recorded weight)
-
-    Returns:
-        WeightResponse: Created weight record with ID and timestamps
-
-    Example Request:
-        POST /api/v1/weights?house_id=xxx&user_id=xxx
-        {
-            "weight_kg": 75.5,
-            "measured_at": "2024-01-13T08:00:00Z",
-            "notes": "Morning weight after workout"
-        }
-
-    Security:
-        - TODO: Verify user_id matches current_user or is member of house
-        - TODO: Verify house_id is accessible by current_user
-    """
-    # TODO: Verify permissions
-    # if user_id != current_user.id and not is_house_member(current_user, house_id):
-    #     raise HTTPException(status_code=403, detail="Not authorized")
+    """Create a new weight measurement."""
+    verify_house_membership(db, current_user.id, house_id)
 
     weight = health_service.create_weight(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         house_id=house_id,
         weight_data=weight_data
     )
@@ -106,39 +94,11 @@ def list_weights(
     to_date: Optional[datetime] = Query(None, description="End date for range filter"),
     limit: int = Query(100, ge=1, le=500, description="Maximum results (1-500)"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    List weight measurements with filters.
-
-    Query Parameters:
-        - house_id: Filter by house (required)
-        - user_id: Filter by specific user (optional, shows all house members if omitted)
-        - from_date: Filter weights after this date (optional)
-        - to_date: Filter weights before this date (optional)
-        - limit: Max results per page (default 100, max 500)
-        - offset: Skip N results (for pagination)
-
-    Returns:
-        WeightListResponse with list of weights and pagination metadata
-
-    Use Cases:
-        - Display user's weight history
-        - Show household weight trends
-        - Generate weight charts for date ranges
-
-    Example:
-        GET /api/v1/weights?house_id=xxx&user_id=xxx&from_date=2024-01-01&limit=50
-        → Returns last 50 weights for user after 2024-01-01
-
-    Security:
-        - TODO: Verify current_user has access to house_id
-        - TODO: If user_id specified, verify it's current_user or house member
-    """
-    # TODO: Verify permissions
-    # if not is_house_member(current_user, house_id):
-    #     raise HTTPException(status_code=403, detail="Not authorized")
+    """List weight measurements with filters."""
+    verify_house_membership(db, current_user.id, house_id)
 
     weights, total = health_service.get_weights(
         db=db,
@@ -162,28 +122,12 @@ def list_weights(
 def get_weight(
     weight_id: UUID,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Get a single weight measurement by ID.
+    """Get a single weight measurement by ID."""
+    verify_house_membership(db, current_user.id, house_id)
 
-    Path Parameters:
-        - weight_id: UUID of the weight record
-
-    Query Parameters:
-        - house_id: House ID for security verification
-
-    Returns:
-        WeightResponse: Weight record details
-
-    Raises:
-        404: Weight not found or doesn't belong to specified house
-
-    Security:
-        - Verifies weight belongs to specified house (prevents cross-house access)
-        - TODO: Verify current_user has access to house
-    """
     weight = health_service.get_weight_by_id(db=db, weight_id=weight_id, house_id=house_id)
 
     if not weight:
@@ -200,35 +144,12 @@ def update_weight(
     weight_id: UUID,
     weight_data: WeightUpdate,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Update an existing weight measurement.
+    """Update an existing weight measurement."""
+    verify_house_membership(db, current_user.id, house_id)
 
-    Path Parameters:
-        - weight_id: UUID of the weight record to update
-
-    Request Body:
-        - weight_kg: Updated weight (optional)
-        - measured_at: Updated timestamp (optional)
-        - notes: Updated notes (optional)
-
-    Query Parameters:
-        - house_id: House ID for security verification
-
-    Returns:
-        WeightResponse: Updated weight record
-
-    Raises:
-        404: Weight not found
-
-    Note:
-        Partial updates are allowed. Only provided fields are updated.
-
-    Security:
-        - TODO: Verify current_user is owner of weight or house admin
-    """
     weight = health_service.update_weight(
         db=db,
         weight_id=weight_id,
@@ -249,27 +170,12 @@ def update_weight(
 def delete_weight(
     weight_id: UUID,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Delete a weight measurement.
+    """Delete a weight measurement."""
+    verify_house_membership(db, current_user.id, house_id)
 
-    Path Parameters:
-        - weight_id: UUID of the weight record to delete
-
-    Query Parameters:
-        - house_id: House ID for security verification
-
-    Returns:
-        204 No Content on success
-
-    Raises:
-        404: Weight not found
-
-    Security:
-        - TODO: Verify current_user is owner of weight or house admin
-    """
     success = health_service.delete_weight(db=db, weight_id=weight_id, house_id=house_id)
 
     if not success:
@@ -290,38 +196,15 @@ def delete_weight(
 def create_health_record(
     record_data: HealthRecordCreate,
     house_id: UUID = Query(..., description="House ID for the health record"),
-    user_id: UUID = Query(..., description="User ID for the health record"),
-    db: Session = Depends(get_db)
-    # current_user: User = Depends(get_current_user)  # TODO: Add auth
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Create a new health record.
+    """Create a new health record."""
+    verify_house_membership(db, current_user.id, house_id)
 
-    Request Body:
-        - type: Health event type (optional, e.g., "headache", "cold")
-        - description: Event description (required)
-        - severity: "mild", "moderate", or "severe" (optional)
-        - recorded_at: When event occurred (required)
-
-    Query Parameters:
-        - house_id: House ID
-        - user_id: User ID
-
-    Returns:
-        HealthRecordResponse: Created health record
-
-    Example Request:
-        POST /api/v1/health?house_id=xxx&user_id=xxx
-        {
-            "type": "headache",
-            "description": "Severe headache after lunch",
-            "severity": "moderate",
-            "recorded_at": "2024-01-13T14:30:00Z"
-        }
-    """
     record = health_service.create_health_record(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         house_id=house_id,
         record_data=record_data
     )
@@ -339,28 +222,12 @@ def list_health_records(
     to_date: Optional[datetime] = Query(None, description="End date filter"),
     limit: int = Query(100, ge=1, le=500, description="Max results"),
     offset: int = Query(0, ge=0, description="Results to skip"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    List health records with filters.
+    """List health records with filters."""
+    verify_house_membership(db, current_user.id, house_id)
 
-    Query Parameters:
-        - house_id: Filter by house (required)
-        - user_id: Filter by user (optional)
-        - type: Filter by event type (optional)
-        - severity: Filter by severity (optional)
-        - from_date: Filter after this date (optional)
-        - to_date: Filter before this date (optional)
-        - limit: Max results (default 100)
-        - offset: Skip N results (default 0)
-
-    Returns:
-        HealthRecordListResponse with records and pagination metadata
-
-    Example:
-        GET /api/v1/health?house_id=xxx&user_id=xxx&type=headache&severity=moderate
-        → Returns moderate headaches for user
-    """
     records, total = health_service.get_health_records(
         db=db,
         house_id=house_id,
@@ -385,23 +252,11 @@ def list_health_records(
 def get_health_record(
     record_id: UUID,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Get a single health record by ID.
-
-    Path Parameters:
-        - record_id: UUID of the health record
-
-    Query Parameters:
-        - house_id: House ID for security verification
-
-    Returns:
-        HealthRecordResponse: Health record details
-
-    Raises:
-        404: Record not found
-    """
+    """Get a single health record by ID."""
+    verify_house_membership(db, current_user.id, house_id)
     record = health_service.get_health_record_by_id(db=db, record_id=record_id, house_id=house_id)
 
     if not record:
@@ -418,26 +273,11 @@ def update_health_record(
     record_id: UUID,
     record_data: HealthRecordUpdate,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Update an existing health record.
-
-    Path Parameters:
-        - record_id: UUID of the record to update
-
-    Request Body:
-        - type: Updated event type (optional)
-        - description: Updated description (optional)
-        - severity: Updated severity (optional)
-        - recorded_at: Updated timestamp (optional)
-
-    Returns:
-        HealthRecordResponse: Updated health record
-
-    Raises:
-        404: Record not found
-    """
+    """Update an existing health record."""
+    verify_house_membership(db, current_user.id, house_id)
     record = health_service.update_health_record(
         db=db,
         record_id=record_id,
@@ -458,23 +298,11 @@ def update_health_record(
 def delete_health_record(
     record_id: UUID,
     house_id: UUID = Query(..., description="House ID for security verification"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """
-    Delete a health record.
-
-    Path Parameters:
-        - record_id: UUID of the record to delete
-
-    Query Parameters:
-        - house_id: House ID for security verification
-
-    Returns:
-        204 No Content on success
-
-    Raises:
-        404: Record not found
-    """
+    """Delete a health record."""
+    verify_house_membership(db, current_user.id, house_id)
     success = health_service.delete_health_record(db=db, record_id=record_id, house_id=house_id)
 
     if not success:

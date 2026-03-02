@@ -11,12 +11,16 @@ export const healthService = {
   },
 
   async addWeight(houseId: string, data: { weight_kg: number; measured_at: string; notes?: string }): Promise<Weight> {
-    const response = await api.post('/weights', { ...data, house_id: houseId })
+    const response = await api.post('/weights', data, {
+      params: { house_id: houseId },
+    })
     return response.data
   },
 
-  async deleteWeight(id: string): Promise<void> {
-    await api.delete(`/weights/${id}`)
+  async deleteWeight(id: string, houseId: string): Promise<void> {
+    await api.delete(`/weights/${id}`, {
+      params: { house_id: houseId },
+    })
   },
 
   // Health records
@@ -29,12 +33,16 @@ export const healthService = {
     houseId: string,
     data: { type: string; description: string; severity?: string; recorded_at: string }
   ): Promise<HealthRecord> {
-    const response = await api.post('/health', { ...data, house_id: houseId })
+    const response = await api.post('/health', data, {
+      params: { house_id: houseId },
+    })
     return response.data
   },
 
-  async deleteHealthRecord(id: string): Promise<void> {
-    await api.delete(`/health/${id}`)
+  async deleteHealthRecord(id: string, houseId: string): Promise<void> {
+    await api.delete(`/health/${id}`, {
+      params: { house_id: houseId },
+    })
   },
 }
 

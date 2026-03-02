@@ -15,13 +15,15 @@ export const mealsService = {
     return response.data
   },
 
-  async create(houseId: string, data: MealCreate): Promise<Meal> {
-    const response = await api.post('/meals', { ...data, house_id: houseId })
+  async create(_houseId: string, data: MealCreate): Promise<Meal> {
+    const response = await api.post('/meals', data)
     return response.data
   },
 
-  async delete(id: string): Promise<void> {
-    await api.delete(`/meals/${id}`)
+  async delete(id: string, houseId: string): Promise<void> {
+    await api.delete(`/meals/${id}`, {
+      params: { house_id: houseId },
+    })
   },
 
   async getToday(houseId: string, userId?: string): Promise<Meal[]> {
