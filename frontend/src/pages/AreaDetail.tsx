@@ -923,12 +923,14 @@ export function AreaDetail() {
       )}
 
       {/* Product Detail Card */}
-      {selectedProductForDetail && (
+      {selectedProductForDetail && currentHouse && (
         <ProductDetailCard
           barcode={selectedProductForDetail.barcode}
           productName={selectedProductForDetail.name}
           onClose={() => setSelectedProductForDetail(null)}
           onProductUpdated={() => loadData()}
+          houseId={currentHouse.id}
+          dispensaItemIds={selectedProductForDetail.entries.map(e => e.id)}
         />
       )}
 

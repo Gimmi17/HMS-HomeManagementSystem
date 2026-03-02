@@ -464,7 +464,7 @@ export function LLMSettings() {
                     ? "URL del server DocExt (es: http://192.168.1.100:7860)"
                     : isAnthropic
                     ? "URL API Anthropic (es: https://api.anthropic.com)"
-                    : "URL del server LLM (es: http://192.168.1.100:8080)"}
+                    : "URL del server LLM (es: http://192.168.1.100:8080) - /v1 viene aggiunto automaticamente"}
                 </p>
               </div>
 

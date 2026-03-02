@@ -107,6 +107,14 @@ class LLMConnection:
         return cls(**filtered_data)
 
 
+def _strip_v1_suffix(url: str) -> str:
+    """Strip trailing /v1 from URL to avoid double /v1/v1 in requests."""
+    url = url.rstrip('/')
+    if url.endswith('/v1'):
+        url = url[:-3]
+    return url
+
+
 class LLMClient:
     """
     Client for OpenAI-compatible LLM APIs.
@@ -120,7 +128,7 @@ class LLMClient:
 
     @property
     def base_url(self) -> str:
-        return self.connection.url.rstrip('/')
+        return _strip_v1_suffix(self.connection.url)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:

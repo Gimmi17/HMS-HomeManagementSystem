@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import anagraficheService, { ProductListItem } from '@/services/anagrafiche'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import anagraficheService, { ProductListItem, BrandListItem } from '@/services/anagrafiche'
+import dispensaService from '@/services/dispensa'
 import EanManagerPanel from '@/components/EanManagerPanel'
 
 interface ProductDetailCardProps {
@@ -7,6 +8,9 @@ interface ProductDetailCardProps {
   productName: string
   onClose: () => void
   onProductUpdated?: () => void
+  /** House ID + dispensa item IDs to sync name/brand on save */
+  houseId?: string
+  dispensaItemIds?: string[]
 }
 
 const getNutriscoreColor = (score: string | null) => {
@@ -26,7 +30,127 @@ const formatValue = (value: number | null | undefined, unit: string = '') => {
   return `${value}${unit}`
 }
 
-export default function ProductDetailCard({ barcode, productName, onClose, onProductUpdated }: ProductDetailCardProps) {
+// ============================================================
+// Brand Autocomplete
+// ============================================================
+
+function BrandAutocomplete({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (name: string) => void
+}) {
+  const [query, setQuery] = useState(value)
+  const [results, setResults] = useState<BrandListItem[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Sync external value changes
+  useEffect(() => { setQuery(value) }, [value])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const search = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setResults([])
+      return
+    }
+    setIsSearching(true)
+    try {
+      const resp = await anagraficheService.getBrands({ search: q.trim() })
+      setResults(resp.brands)
+    } catch {
+      setResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [])
+
+  const handleInputChange = (text: string) => {
+    setQuery(text)
+    onChange(text)
+    setIsOpen(true)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => search(text), 300)
+  }
+
+  const selectBrand = (brand: BrandListItem) => {
+    setQuery(brand.name)
+    onChange(brand.name)
+    setIsOpen(false)
+  }
+
+  const exactMatch = results.some(b => b.name.toLowerCase() === query.trim().toLowerCase())
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => handleInputChange(e.target.value)}
+        onFocus={() => { if (query.trim()) { setIsOpen(true); search(query) } }}
+        className="input w-full mt-1"
+        placeholder="Cerca marca..."
+      />
+      {isOpen && query.trim() && (
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {isSearching && results.length === 0 && (
+            <div className="px-3 py-2 text-sm text-gray-400">Ricerca...</div>
+          )}
+          {results.map((brand) => (
+            <button
+              key={brand.id}
+              type="button"
+              onClick={() => selectBrand(brand)}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between"
+            >
+              <span className="font-medium">{brand.name}</span>
+              <span className="text-xs text-gray-400">{brand.product_count} prod.</span>
+            </button>
+          ))}
+          {!isSearching && !exactMatch && query.trim() && (
+            <button
+              type="button"
+              onClick={() => { onChange(query.trim()); setIsOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 text-green-700 border-t border-gray-100 flex items-center gap-1.5"
+            >
+              <span className="text-base">+</span>
+              <span>Crea "<strong>{query.trim()}</strong>"</span>
+            </button>
+          )}
+          {!isSearching && results.length === 0 && !query.trim() && (
+            <div className="px-3 py-2 text-sm text-gray-400">Nessun risultato</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================
+// ProductDetailCard
+// ============================================================
+
+export default function ProductDetailCard({
+  barcode,
+  productName,
+  onClose,
+  onProductUpdated,
+  houseId,
+  dispensaItemIds,
+}: ProductDetailCardProps) {
   const [product, setProduct] = useState<ProductListItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [imageLoaded, setImageLoaded] = useState(false)
@@ -91,7 +215,7 @@ export default function ProductDetailCard({ barcode, productName, onClose, onPro
         })
       }
 
-      // Brand linking (non-blocking)
+      // Brand linking
       const brandName = editForm.brand.trim()
       if (brandName) {
         try {
@@ -109,6 +233,25 @@ export default function ProductDetailCard({ barcode, productName, onClose, onPro
           }
         } catch (err) {
           console.error('Brand linking failed (non-blocking):', err)
+        }
+      }
+
+      // Sync dispensa items name + brand_text
+      if (houseId && dispensaItemIds && dispensaItemIds.length > 0) {
+        const updateData: { name?: string; brand_text?: string } = {}
+        const newName = editForm.name.trim()
+        if (newName !== productName) {
+          updateData.name = newName
+        }
+        updateData.brand_text = brandName || undefined
+        if (Object.keys(updateData).length > 0) {
+          await Promise.all(
+            dispensaItemIds.map(id =>
+              dispensaService.updateItem(houseId, id, updateData).catch(err =>
+                console.error(`Failed to sync dispensa item ${id}:`, err)
+              )
+            )
+          )
         }
       }
 
@@ -186,12 +329,9 @@ export default function ProductDetailCard({ barcode, productName, onClose, onPro
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Marca</label>
-                  <input
-                    type="text"
+                  <BrandAutocomplete
                     value={editForm.brand}
-                    onChange={(e) => setEditForm({ ...editForm, brand: e.target.value })}
-                    className="input w-full mt-1"
-                    placeholder="Marca"
+                    onChange={(name) => setEditForm({ ...editForm, brand: name })}
                   />
                 </div>
                 <div>
