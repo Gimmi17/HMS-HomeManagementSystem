@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useHouse } from '@/context/HouseContext'
+import { OnboardingWizard } from '@/components/OnboardingWizard'
 import mealsService from '@/services/meals'
 import shoppingListsService from '@/services/shoppingLists'
 import dispensaService from '@/services/dispensa'
@@ -9,7 +10,14 @@ import type { Meal, ShoppingListSummary, DispensaItem, DispensaStats } from '@/t
 
 export function Dashboard() {
   const { user } = useAuth()
-  const { currentHouse } = useHouse()
+  const { currentHouse, houses, isLoading: houseLoading, refreshHouses } = useHouse()
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  useEffect(() => {
+    if (!houseLoading && houses.length === 0 && !localStorage.getItem('onboarding_completed')) {
+      setShowOnboarding(true)
+    }
+  }, [houseLoading, houses.length])
 
   const [todayMeals, setTodayMeals] = useState<Meal[]>([])
   const [activeLists, setActiveLists] = useState<ShoppingListSummary[]>([])
@@ -46,6 +54,15 @@ export function Dashboard() {
 
     fetchAll()
   }, [currentHouse])
+
+  const handleOnboardingComplete = async () => {
+    setShowOnboarding(false)
+    await refreshHouses()
+  }
+
+  if (showOnboarding) {
+    return <OnboardingWizard hasHouse={false} onComplete={handleOnboardingComplete} />
+  }
 
   if (!currentHouse) {
     return (

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SecuritySetupForm } from '@/components/Auth'
+import { OnboardingWizard } from '@/components/OnboardingWizard'
 import { useAuth } from '@/context/AuthContext'
 
 interface SettingsLink {
@@ -27,6 +28,7 @@ const settingsLinks: SettingsLink[] = [
 
 export function Settings() {
   const [showSecuritySetup, setShowSecuritySetup] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
   const { hasRecoverySetup, refreshRecoveryStatus } = useAuth()
 
   return (
@@ -82,6 +84,33 @@ export function Settings() {
         )}
       </div>
 
+      {/* Tutorial */}
+      <div className="space-y-3">
+        <button
+          onClick={() => setShowTutorial(true)}
+          className="card p-4 flex items-center gap-3 hover:shadow-md transition-shadow w-full text-left"
+        >
+          <span className="text-2xl">📖</span>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-gray-900">Tutorial</h2>
+            <p className="text-gray-500 text-xs truncate">Rivedi la guida introduttiva</p>
+          </div>
+          <svg
+            className="w-5 h-5 text-gray-400 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      </div>
+
       <div className="space-y-3">
         {settingsLinks.map((link) => (
           <Link
@@ -110,6 +139,10 @@ export function Settings() {
           </Link>
         ))}
       </div>
+
+      {showTutorial && (
+        <OnboardingWizard hasHouse={true} onComplete={() => setShowTutorial(false)} />
+      )}
     </div>
   )
 }
