@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Category } from '@/types'
+import ExpiryDateInput from '@/components/ExpiryDateInput'
 
 export interface BatchItemData {
   barcode: string
@@ -171,15 +172,11 @@ export default function BatchScanReviewModal({
                         ))}
                       </select>
                     </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Scadenza</label>
-                      <input
-                        type="date"
-                        value={item.expiryDate}
-                        onChange={(e) => updateItem(idx, { expiryDate: e.target.value })}
-                        className="input w-full mt-0.5"
-                      />
-                    </div>
+                    <ExpiryDateInput
+                      label="Scadenza"
+                      value={item.expiryDate}
+                      onChange={(val) => updateItem(idx, { expiryDate: val })}
+                    />
                     <div>
                       <label className="text-xs font-medium text-gray-500">Note</label>
                       <input

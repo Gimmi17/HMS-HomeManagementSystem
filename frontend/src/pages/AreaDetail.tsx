@@ -9,6 +9,7 @@ import ProductDetailCard from '@/components/ProductDetailCard'
 import ExpiryGroupActionsModal, { type ExpiryDateGroup } from '@/components/ExpiryGroupActionsModal'
 import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 import BatchScanReviewModal, { type BatchItemData } from '@/components/BatchScanReviewModal'
+import { parseExpiryDate } from '@/components/ExpiryDateInput'
 import type { Area, AreaExpenseStats, DispensaItem, DispensaStats, Category, AreaType, AreaUpdate } from '@/types'
 
 const TYPE_COLORS: Record<AreaType, string> = {
@@ -166,7 +167,7 @@ export function AreaDetail() {
           area_id: id,
           brand_text: item.brandText || undefined,
           category_id: item.categoryId || undefined,
-          expiry_date: item.expiryDate || undefined,
+          expiry_date: (item.expiryDate ? parseExpiryDate(item.expiryDate) : null) || undefined,
           quantity: item.quantity,
           notes: item.notes || undefined,
         })

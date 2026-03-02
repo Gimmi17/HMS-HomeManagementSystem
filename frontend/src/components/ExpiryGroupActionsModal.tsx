@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import dispensaService from '@/services/dispensa'
 import type { DispensaItem, Area } from '@/types'
+import ExpiryDateInput, { parseExpiryDate, formatDateForDisplay } from '@/components/ExpiryDateInput'
 
 export interface ExpiryDateGroup {
   dateKey: string
@@ -41,8 +42,9 @@ export default function ExpiryGroupActionsModal({
   const [addQty, setAddQty] = useState(1)
   const [addUnit, setAddUnit] = useState(group.unit || '')
 
-  // Change date state
-  const [newDate, setNewDate] = useState(group.dateKey !== '__none__' ? group.dateKey : '')
+  // Change date state (display format DD/MM/YYYY)
+  const [newDate, setNewDate] = useState(group.dateKey !== '__none__' ? formatDateForDisplay(group.dateKey) : '')
+  const [dateError, setDateError] = useState('')
 
   const handleConsume = async () => {
     if (consumeQty <= 0) return
@@ -94,10 +96,16 @@ export default function ExpiryGroupActionsModal({
 
   const handleChangeDate = async () => {
     if (!newDate) return
+    const parsed = parseExpiryDate(newDate)
+    if (!parsed) {
+      setDateError('Formato data non valido. Usa DDMMYY o DD/MM/YYYY')
+      return
+    }
+    setDateError('')
     setIsProcessing(true)
     try {
       for (const entry of group.entries) {
-        await dispensaService.updateItem(houseId, entry.id, { expiry_date: newDate })
+        await dispensaService.updateItem(houseId, entry.id, { expiry_date: parsed })
       }
       onComplete()
     } catch (err) {
@@ -239,12 +247,12 @@ export default function ExpiryGroupActionsModal({
           {activeTab === 'change_date' && (
             <>
               <div>
-                <label className="label text-xs">Nuova data scadenza</label>
-                <input
-                  type="date"
+                <ExpiryDateInput
+                  label="Nuova data scadenza"
                   value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  className="input w-full"
+                  onChange={setNewDate}
+                  error={dateError}
+                  onErrorChange={setDateError}
                 />
                 <p className="text-xs text-gray-400 mt-1">
                   Aggiornera' {group.entries.length} {group.entries.length === 1 ? 'articolo' : 'articoli'}
