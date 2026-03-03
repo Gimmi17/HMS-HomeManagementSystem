@@ -422,6 +422,7 @@ def _get_type_label(conn_type: LLMType) -> str:
         LLMType.ANTHROPIC: "Anthropic Claude",
         LLMType.OSSGPT: "OSSgpt (Open Source)",
         LLMType.DOCEXT: "DocExt",
+        LLMType.COMFYUI: "ComfyUI",
     }
     return labels.get(conn_type, conn_type.value)
 
@@ -432,6 +433,7 @@ def _get_type_description(conn_type: LLMType) -> str:
         LLMType.ANTHROPIC: "Claude API (richiede API key)",
         LLMType.OSSGPT: "Modelli open-source (Llama, Mistral, Qwen via API compatibile OpenAI)",
         LLMType.DOCEXT: "DocExt Document Intelligence (richiede GPU NVIDIA)",
+        LLMType.COMFYUI: "ComfyUI per generazione immagini e workflow AI",
     }
     return descriptions.get(conn_type, "")
 
@@ -442,6 +444,7 @@ def _get_purpose_label(purpose: LLMPurpose) -> str:
         LLMPurpose.CHAT: "Chat",
         LLMPurpose.SUGGESTIONS: "Suggerimenti",
         LLMPurpose.GENERAL: "Generale",
+        LLMPurpose.IMAGE_GENERATION: "Generazione Immagini",
     }
     return labels.get(purpose, purpose.value)
 
@@ -452,5 +455,6 @@ def _get_purpose_description(purpose: LLMPurpose) -> str:
         LLMPurpose.CHAT: "Conversazione generale (futuro)",
         LLMPurpose.SUGGESTIONS: "Suggerimenti ricette e pasti (futuro)",
         LLMPurpose.GENERAL: "Uso generale / fallback",
+        LLMPurpose.IMAGE_GENERATION: "Genera immagini per ricette e piatti",
     }
     return descriptions.get(purpose, "")

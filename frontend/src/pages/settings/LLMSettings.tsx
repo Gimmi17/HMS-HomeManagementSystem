@@ -108,6 +108,9 @@ export function LLMSettings() {
         if (formData.connection_type === 'docext') {
           // DocExt doesn't have model selection, use default
           setFormData(prev => ({ ...prev, model: 'docext' }))
+        } else if (formData.connection_type === 'comfyui') {
+          // ComfyUI doesn't have model selection, use default
+          setFormData(prev => ({ ...prev, model: 'comfyui' }))
         } else if (formData.connection_type === 'anthropic') {
           // Anthropic doesn't have /v1/models, keep manual model input
           if (!formData.model || formData.model === 'default') {
@@ -242,6 +245,7 @@ export function LLMSettings() {
 
   const isDocExt = formData.connection_type === 'docext'
   const isAnthropic = formData.connection_type === 'anthropic'
+  const isComfyUI = formData.connection_type === 'comfyui'
 
   const getStatusIcon = (status: 'ok' | 'offline' | 'error' | 'checking') => {
     switch (status) {
@@ -349,6 +353,8 @@ export function LLMSettings() {
                                 ? 'bg-orange-100 text-orange-700'
                                 : conn.connection_type === 'ossgpt'
                                 ? 'bg-green-100 text-green-700'
+                                : conn.connection_type === 'comfyui'
+                                ? 'bg-pink-100 text-pink-700'
                                 : 'bg-blue-100 text-blue-700'
                             }`}>
                               {getTypeLabel(conn.connection_type || 'openai')}
@@ -455,13 +461,15 @@ export function LLMSettings() {
                   type="text"
                   value={formData.url}
                   onChange={e => handleUrlChange(e.target.value)}
-                  placeholder={isDocExt ? "http://192.168.1.100:7860" : isAnthropic ? "https://api.anthropic.com" : "http://192.168.1.100:8080"}
+                  placeholder={isDocExt ? "http://192.168.1.100:7860" : isComfyUI ? "http://192.168.1.100:8188" : isAnthropic ? "https://api.anthropic.com" : "http://192.168.1.100:8080"}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   {isDocExt
                     ? "URL del server DocExt (es: http://192.168.1.100:7860)"
+                    : isComfyUI
+                    ? "URL del server ComfyUI (es: http://192.168.1.100:8188)"
                     : isAnthropic
                     ? "URL API Anthropic (es: https://api.anthropic.com)"
                     : "URL del server LLM (es: http://192.168.1.100:8080) - /v1 viene aggiunto automaticamente"}
@@ -570,8 +578,8 @@ export function LLMSettings() {
               )}
             </div>
 
-            {/* Step 3: Select Model (only after successful test, not DocExt) */}
-            {connectionVerified && !isDocExt && (availableModels.length > 0 || isAnthropic) && (
+            {/* Step 3: Select Model (only after successful test, not DocExt/ComfyUI) */}
+            {connectionVerified && !isDocExt && !isComfyUI && (availableModels.length > 0 || isAnthropic) && (
               <div className="p-3 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                   <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">3</span>
@@ -653,7 +661,7 @@ export function LLMSettings() {
             {connectionVerified && (
               <div className="p-3 bg-gray-50 rounded-lg space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">{isDocExt ? '3' : '4'}</span>
+                  <span className="w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs">{isDocExt || isComfyUI ? '3' : '4'}</span>
                   Configura
                 </div>
 
@@ -690,8 +698,8 @@ export function LLMSettings() {
                   </select>
                 </div>
 
-                {/* API Key (optional, not shown for Anthropic since it's in step 2) */}
-                {!isAnthropic && (
+                {/* API Key (optional, not shown for Anthropic/ComfyUI) */}
+                {!isAnthropic && !isComfyUI && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       API Key (opzionale)
@@ -727,8 +735,8 @@ export function LLMSettings() {
                       />
                     </div>
 
-                    {/* Temperature (hidden for thinking models) */}
-                    {!formData.is_thinking_model && (
+                    {/* Temperature (hidden for thinking models and ComfyUI) */}
+                    {!formData.is_thinking_model && !isComfyUI && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Temperature: {formData.temperature}
@@ -746,7 +754,8 @@ export function LLMSettings() {
                       </div>
                     )}
 
-                    {/* Max Tokens */}
+                    {/* Max Tokens (hidden for ComfyUI) */}
+                    {!isComfyUI && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Max Tokens: {formData.max_tokens}
@@ -761,6 +770,7 @@ export function LLMSettings() {
                         className="w-full"
                       />
                     </div>
+                    )}
 
                     {/* Enabled */}
                     <label className="flex items-center gap-2">
@@ -789,7 +799,7 @@ export function LLMSettings() {
             </button>
             <button
               type="submit"
-              disabled={!connectionVerified || !formData.name || (!isDocExt && !formData.model) || (isAnthropic && mode === 'add' && !formData.api_key)}
+              disabled={!connectionVerified || !formData.name || (!isDocExt && !isComfyUI && !formData.model) || (isAnthropic && mode === 'add' && !formData.api_key)}
               className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               {mode === 'add' ? 'Salva Connessione' : 'Aggiorna'}
@@ -822,6 +832,11 @@ export function LLMSettings() {
               <strong>DocExt</strong>: Document Intelligence con Vision Models
               <br />
               <span className="text-blue-600 text-xs">Estrazione strutturata da documenti (richiede GPU NVIDIA)</span>
+            </li>
+            <li>
+              <strong>ComfyUI</strong>: Generazione immagini e workflow AI
+              <br />
+              <span className="text-blue-600 text-xs">Generazione immagini per ricette e piatti</span>
             </li>
           </ul>
           <div className="mt-3 pt-3 border-t border-blue-200">

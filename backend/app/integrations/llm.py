@@ -25,6 +25,7 @@ class LLMPurpose(str, Enum):
     CHAT = "chat"            # General chatting (future)
     SUGGESTIONS = "suggestions"  # Recipe/meal suggestions (future)
     GENERAL = "general"      # Default/fallback
+    IMAGE_GENERATION = "image_generation"  # Image generation for recipes
 
 
 class LLMType(str, Enum):
@@ -33,6 +34,7 @@ class LLMType(str, Enum):
     ANTHROPIC = "anthropic"  # Anthropic Claude API
     OSSGPT = "ossgpt"        # Open-source models (labeling per UI, usa protocollo OpenAI)
     DOCEXT = "docext"        # DocExt with Gradio API
+    COMFYUI = "comfyui"      # ComfyUI server for image generation
 
 
 @dataclass
@@ -543,6 +545,67 @@ class AnthropicClient:
             return None
 
 
+class ComfyUIClient:
+    """
+    Client for ComfyUI server.
+
+    ComfyUI provides image generation via workflow-based API.
+    Health check uses GET /system_stats.
+    """
+
+    def __init__(self, connection: LLMConnection):
+        self.connection = connection
+        self._client: Optional[httpx.AsyncClient] = None
+
+    @property
+    def base_url(self) -> str:
+        return self.connection.url.rstrip('/')
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=self.connection.timeout,
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    async def health_check(self) -> dict:
+        """Check if ComfyUI server is available via /system_stats"""
+        try:
+            client = await self._get_client()
+            response = await client.get(f"{self.base_url}/system_stats")
+
+            if response.status_code == 200:
+                data = response.json()
+                # Extract GPU info if available
+                gpu_info = {}
+                devices = data.get("devices", [])
+                if devices:
+                    dev = devices[0]
+                    gpu_info = {
+                        "gpu_name": dev.get("name", "unknown"),
+                        "vram_total_mb": round(dev.get("vram_total", 0) / (1024 * 1024)),
+                        "vram_free_mb": round(dev.get("vram_free", 0) / (1024 * 1024)),
+                    }
+                return {
+                    "status": "ok",
+                    "url": self.base_url,
+                    "models": ["comfyui"],
+                    "connection_name": self.connection.name,
+                    **gpu_info,
+                }
+            return {"status": "error", "message": f"HTTP {response.status_code}"}
+
+        except httpx.ConnectError:
+            return {"status": "offline", "message": "Impossibile connettersi al server ComfyUI"}
+        except Exception as e:
+            logger.error(f"ComfyUI health check failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+
 # =============================================================================
 # LLM Manager - Handles multiple connections
 # =============================================================================
@@ -583,7 +646,7 @@ class LLMManager:
         """Get all configured connections"""
         return list(self._connections.values())
 
-    def get_client(self, connection_id: str) -> Optional[LLMClient | DocExtClient | AnthropicClient]:
+    def get_client(self, connection_id: str) -> Optional[LLMClient | DocExtClient | AnthropicClient | ComfyUIClient]:
         """Get or create a client for a specific connection"""
         conn = self._connections.get(connection_id)
         if not conn:
@@ -595,6 +658,8 @@ class LLMManager:
                 self._clients[connection_id] = DocExtClient(conn)
             elif conn.connection_type == LLMType.ANTHROPIC:
                 self._clients[connection_id] = AnthropicClient(conn)
+            elif conn.connection_type == LLMType.COMFYUI:
+                self._clients[connection_id] = ComfyUIClient(conn)
             else:  # OPENAI and OSSGPT use OpenAI-compatible protocol
                 self._clients[connection_id] = LLMClient(conn)
 
@@ -715,6 +780,15 @@ async def test_connection(
             if health.get("status") == "ok":
                 # health_check already sends a test message for Anthropic
                 health["test_response"] = "Anthropic connesso"
+            return health
+        finally:
+            await client.close()
+    elif conn.connection_type == LLMType.COMFYUI:
+        client = ComfyUIClient(conn)
+        try:
+            health = await client.health_check()
+            if health.get("status") == "ok":
+                health["test_response"] = "ComfyUI connesso"
             return health
         finally:
             await client.close()
