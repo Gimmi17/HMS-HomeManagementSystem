@@ -338,6 +338,39 @@ def apply_missing_catalogs(
     )
 
 
+# --- Suggestions schemas ---
+
+class DispensaSuggestionItem(BaseModel):
+    name: str
+    quantity: float
+    unit: Optional[str] = None
+    category_id: Optional[str] = None
+    grocy_product_id: Optional[int] = None
+    grocy_product_name: Optional[str] = None
+    reason: str  # 'out_of_stock' | 'low_stock'
+    area_id: Optional[str] = None
+    area_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DispensaSuggestionsResponse(BaseModel):
+    suggestions: List[DispensaSuggestionItem]
+    total: int
+
+
+@router.get("/suggestions", response_model=DispensaSuggestionsResponse)
+def get_dispensa_suggestions(
+    house_id: UUID = Query(..., description="House ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return dispensa items that need restocking (quantity == 0)."""
+    result = DispensaService.get_suggestions(db, house_id)
+    return DispensaSuggestionsResponse(**result)
+
+
 @router.get("/{item_id}", response_model=DispensaItemResponse)
 def get_dispensa_item(
     item_id: UUID,
