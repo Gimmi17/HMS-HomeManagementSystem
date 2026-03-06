@@ -27,6 +27,8 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const [grocySyncResult, setGrocySyncResult] = useState<GrocyBulkAddStockResponse | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [collapsedVerified, setCollapsedVerified] = useState(false)
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [completeMessage, setCompleteMessage] = useState('')
 
   // Area assignment flow state
   const [envFlowStep, setEnvFlowStep] = useState<AreaFlowStep>('idle')
@@ -102,8 +104,13 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     const message = pendingCount > 0
       ? `Ci sono ancora ${pendingCount} articoli non verificati. Completare comunque?`
       : 'Confermi di voler completare il controllo carico?'
-    if (!confirm(message)) return
+    setCompleteMessage(message)
+    setShowCompleteModal(true)
+  }
 
+  const handleConfirmComplete = async () => {
+    if (!list) return
+    setShowCompleteModal(false)
     try {
       await shoppingListsService.update(list.id, { verification_status: 'completed', status: 'completed' })
       proceedAfterCompletion()
@@ -182,6 +189,14 @@ export default function VerifyMode({ state }: VerifyModeProps) {
         }
       }
       setItemAreas(areaMap)
+
+      // Auto-proceed if single area and all items already have area_id
+      if (preview.areas.length === 1 && preview.items.every(i => i.area_id)) {
+        setEnvFlowStep('assign')
+        setTimeout(() => handleConfirmDispensa(areaMap), 300)
+        return
+      }
+
       setEnvFlowStep('assign')
     } catch (error) {
       console.error('Failed to preview:', error)
@@ -194,7 +209,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     setItemAreas(prev => ({ ...prev, [itemId]: areaId }))
   }
 
-  const handleConfirmDispensa = async () => {
+  const handleConfirmDispensa = async (overrideAreas?: Record<string, string>) => {
     if (!list) return
     const houseId = currentHouse?.id || localStorage.getItem('current_house_id') || ''
     if (!houseId) { navigate('/shopping-lists'); return }
@@ -202,8 +217,9 @@ export default function VerifyMode({ state }: VerifyModeProps) {
     setIsSendingToDispensa(true)
     setEnvFlowStep('sending')
     try {
+      const areasToUse = overrideAreas ?? itemAreas
       const extensions = Object.keys(itemExpiryExtensions).length > 0 ? itemExpiryExtensions : undefined
-      const result = await dispensaService.sendFromShoppingList(houseId, list.id, itemAreas, extensions)
+      const result = await dispensaService.sendFromShoppingList(houseId, list.id, areasToUse, extensions)
       showToast(true, `${result.count} articoli inviati alla Dispensa!`)
       setTimeout(() => navigate('/shopping-lists'), 1500)
     } catch (error) {
@@ -431,6 +447,29 @@ export default function VerifyMode({ state }: VerifyModeProps) {
         />
       )}
 
+      {/* Complete Verification Modal */}
+      {showCompleteModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-5 shadow-xl w-full max-w-sm">
+            <p className="text-gray-800 font-medium mb-4">{completeMessage}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCompleteModal(false)}
+                className="flex-1 py-2.5 rounded-lg text-gray-600 font-medium bg-gray-100 hover:bg-gray-200"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmComplete}
+                className="flex-1 py-2.5 rounded-lg bg-green-500 text-white font-medium hover:bg-green-600"
+              >
+                Completa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Grocy Sync Modal */}
       {showGrocySyncModal && list && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -646,6 +685,27 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                   <p className="text-sm text-gray-500 mt-1">Scegli dove riporre ogni articolo</p>
                 </div>
                 <div className="p-4 overflow-y-auto flex-1 space-y-4">
+                  {/* Bulk-assign shortcut */}
+                  {previewAreas.length > 1 && unassignedItems.length > 1 && (
+                    <div className="mb-3">
+                      <p className="text-xs text-gray-500 mb-1">Assegna tutto a:</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {previewAreas.map(area => (
+                          <button key={area.id}
+                            onClick={() => {
+                              const newMap = { ...itemAreas }
+                              unassignedItems.forEach(i => { newMap[i.item_id] = area.id })
+                              setItemAreas(newMap)
+                            }}
+                            className="px-3 py-1.5 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-primary-50 hover:text-primary-700 border border-gray-200 font-medium"
+                          >
+                            {area.icon && <span className="mr-1">{area.icon}</span>}{area.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Unassigned items - need user choice */}
                   <div>
                     <p className="text-sm font-medium text-orange-700 mb-2">
