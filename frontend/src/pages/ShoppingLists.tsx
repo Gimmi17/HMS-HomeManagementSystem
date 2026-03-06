@@ -4,6 +4,7 @@ import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
 import dispensaService from '@/services/dispensa'
 import type { ShoppingListSummary, ShoppingListStatus } from '@/types'
+import GeneraListaModal from '@/components/GeneraListaModal'
 
 type ListAction = 'view' | 'edit' | 'receipt' | 'verify' | 'delete' | 'cancel' | 'reactivate'
 
@@ -33,6 +34,7 @@ export function ShoppingLists() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
   const [dispensaToast, setDispensaToast] = useState<string | null>(null)
+  const [showGeneraModal, setShowGeneraModal] = useState(false)
 
   const handleListClick = (list: ShoppingListSummary) => {
     navigate(`/shopping-lists/${list.id}`)
@@ -191,9 +193,17 @@ export function ShoppingLists() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Lista della Spesa</h1>
-        <Link to="/shopping-lists/new" className="btn btn-primary text-sm px-3 py-2">
-          + Nuova
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGeneraModal(true)}
+            className="btn btn-secondary text-sm px-3 py-2"
+          >
+            Genera
+          </button>
+          <Link to="/shopping-lists/new" className="btn btn-primary text-sm px-3 py-2">
+            + Nuova
+          </Link>
+        </div>
       </div>
 
       {/* Status Filter */}
@@ -521,6 +531,9 @@ export function ShoppingLists() {
           </div>
         </div>
       )}
+
+      {/* Genera Lista Modal */}
+      {showGeneraModal && <GeneraListaModal onClose={() => setShowGeneraModal(false)} />}
 
       {/* Cancel Confirmation Modal */}
       {showCancelConfirm && selectedList && (

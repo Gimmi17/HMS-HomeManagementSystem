@@ -6,9 +6,10 @@ CRUD operations for dispensa (pantry) items.
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from collections import defaultdict
+from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user

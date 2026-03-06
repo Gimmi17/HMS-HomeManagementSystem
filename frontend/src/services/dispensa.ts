@@ -232,6 +232,27 @@ export const dispensaService = {
     })
     return response.data
   },
+
+  /**
+   * Get suggestions for items to add to a shopping list (low stock / out of stock)
+   */
+  async getSuggestions(houseId: string): Promise<{
+    suggestions: Array<{
+      name: string
+      quantity: number
+      unit: string | null
+      category_id: string | null
+      grocy_product_id: number | null
+      grocy_product_name: string | null
+      reason: 'low_stock' | 'out_of_stock'
+      area_id: string | null
+      area_name: string | null
+    }>
+    total: number
+  }> {
+    const response = await api.get('/dispensa/suggestions', { params: { house_id: houseId } })
+    return response.data
+  },
 }
 
 export default dispensaService
