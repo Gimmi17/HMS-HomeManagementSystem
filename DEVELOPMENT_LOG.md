@@ -173,14 +173,14 @@ docker compose down
 docker compose -f docker-compose.yml -f docker-compose.dev.yml build backend --no-cache
 
 # Logs
-docker logs meal-planner-backend --tail=50
-docker logs meal-planner-frontend --tail=50
+docker logs hms-backend --tail=50
+docker logs hms-frontend --tail=50
 
 # Seed database
-docker exec meal-planner-backend python -m app.db.seed
+docker exec hms-backend python -m app.db.seed
 
 # Accesso database
-docker exec meal-planner-db psql -U meal_planner -d meal_planner_db
+docker exec hms-db psql -U meal_planner -d meal_planner_db
 ```
 
 ### URL Servizi

@@ -189,7 +189,7 @@ Custom Integration HA: (Phase 2, opzionale)
 ## **5. Struttura Progetto Git**
 
 ```
-meal-planner/
+hms/
 │
 ├── README.md                          # Intro + setup veloce
 ├── ARCHITECTURE.md                    # Questo documento
@@ -1033,7 +1033,7 @@ Una volta il programmatore ha questo documento:
 1. **Setup locale**:
    ```bash
    git clone <repo>
-   cd meal-planner
+   cd hms
    docker-compose up -d
    ```
 

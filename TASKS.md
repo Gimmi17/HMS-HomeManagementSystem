@@ -696,7 +696,7 @@ GET /grocy/products/{id}
 
 ### Files da creare
 ```
-meal-planner/
+hms/
 ├── docker-compose.yml
 ├── docker-compose.dev.yml        # Override per dev
 ├── .env.example

@@ -1,4 +1,4 @@
-# Meal Planner
+# HMS (Home Management System)
 
 Sistema di meal planning intelligente e multi-utente per gestire ricette, pasti, tracking nutrizionale e integrazione con Grocy/Home Assistant.
 
@@ -17,7 +17,7 @@ Il progetto include un'interfaccia di controllo cross-platform che gestisce auto
 
 ```bash
 # Apri il terminale nella cartella del progetto
-cd meal-planner
+cd HMS
 
 # Rendi eseguibile lo script (solo la prima volta)
 chmod +x start.sh start.py
@@ -35,7 +35,7 @@ python3 start.py
 
 ```batch
 :: Apri il Prompt dei comandi o PowerShell nella cartella del progetto
-cd meal-planner
+cd HMS
 
 :: Avvia l'interfaccia di controllo
 start.bat
@@ -122,7 +122,7 @@ Dopo l'avvio, i servizi sono disponibili a:
 
 ### Panoramica
 
-Meal Planner e' un sistema completo per la gestione alimentare familiare:
+HMS (Home Management System) e' un sistema completo per la gestione alimentare familiare:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -386,7 +386,7 @@ Il sistema include un database di 192 alimenti con valori nutrizionali completi:
 ### Architettura
 
 ```
-meal-planner/
+HMS/
 ├── frontend/               # React + TypeScript + Vite
 │   ├── src/
 │   │   ├── components/     # Componenti UI riutilizzabili

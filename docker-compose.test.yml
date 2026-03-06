@@ -1,35 +1,35 @@
 version: '3.8'
 
-# meal-planner2 test environment
+# hms test environment
 # Usage: docker-compose -f docker-compose.test.yml up --build
 
 services:
-  # PostgreSQL Database - meal-planner2
+  # PostgreSQL Database - hms
   postgres-test:
     image: postgres:14-alpine
-    container_name: meal-planner2-db
+    container_name: hms-db
     environment:
-      POSTGRES_USER: meal_planner
+      POSTGRES_USER: hms
       POSTGRES_PASSWORD: testpassword123
-      POSTGRES_DB: meal_planner_test_db
+      POSTGRES_DB: hms_test_db
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
     networks:
-      - meal-planner2-network
+      - hms-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      test: ["CMD-SHELL", "pg_isready -U hms"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # FastAPI Backend - meal-planner2
+  # FastAPI Backend - hms
   backend-test:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: meal-planner2-backend
+    container_name: hms-backend
     environment:
-      DATABASE_URL: postgresql://meal_planner:testpassword123@postgres-test:5432/meal_planner_test_db
+      DATABASE_URL: postgresql://hms:testpassword123@postgres-test:5432/hms_test_db
       SECRET_KEY: test-secret-key-for-development-only
       JWT_EXPIRATION: 3600
       REFRESH_TOKEN_EXPIRATION: 604800
@@ -46,18 +46,18 @@ services:
       postgres-test:
         condition: service_healthy
     networks:
-      meal-planner2-network:
+      hms-network:
         aliases:
           - backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
 
-  # React Frontend - meal-planner2
+  # React Frontend - hms
   frontend-test:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: meal-planner2-frontend
+    container_name: hms-frontend
     environment:
       NODE_ENV: development
       VITE_API_URL: http://192.168.1.52:8848/api/v1
@@ -76,7 +76,7 @@ services:
     depends_on:
       - backend-test
     networks:
-      - meal-planner2-network
+      - hms-network
     command: npm run dev -- --host 0.0.0.0 --port 3000
 
 volumes:
@@ -84,5 +84,5 @@ volumes:
     driver: local
 
 networks:
-  meal-planner2-network:
+  hms-network:
     driver: bridge

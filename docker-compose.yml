@@ -4,17 +4,17 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:14-alpine
-    container_name: meal-planner-db-scontrini
+    container_name: hms-db-scontrini
     environment:
-      POSTGRES_USER: meal_planner
+      POSTGRES_USER: hms
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: meal_planner_db
+      POSTGRES_DB: hms_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - meal-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      test: ["CMD-SHELL", "pg_isready -U hms"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,10 +25,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: meal-planner-backend-scontrini
+    container_name: hms-backend-scontrini
     environment:
       # Database
-      DATABASE_URL: postgresql://meal_planner:${DB_PASSWORD}@postgres:5432/meal_planner_db
+      DATABASE_URL: postgresql://hms:${DB_PASSWORD}@postgres:5432/hms_db
 
       # Security
       SECRET_KEY: ${SECRET_KEY}
@@ -68,7 +68,7 @@ services:
     build:
       context: ./ocr-service
       dockerfile: Dockerfile
-    container_name: meal-planner-ocr-scontrini
+    container_name: hms-ocr-scontrini
     volumes:
       - ocr_logs:/app/logs
     networks:
@@ -93,7 +93,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: meal-planner-frontend-scontrini
+    container_name: hms-frontend-scontrini
     environment:
       VITE_API_URL: ${VITE_API_URL:-/api/v1}
       VITE_APP_NAME: ${VITE_APP_NAME:-Meal Planner}
@@ -111,7 +111,7 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: meal-planner_postgres_test_rebuild
+    name: hms_postgres_test_rebuild
   backend_logs:
     driver: local
   ocr_logs:

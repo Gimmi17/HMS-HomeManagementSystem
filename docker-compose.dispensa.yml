@@ -7,17 +7,17 @@ services:
   # PostgreSQL Database - Dispensa test instance
   postgres-dispensa:
     image: postgres:14-alpine
-    container_name: meal-planner-db-dispensa
+    container_name: hms-db-dispensa
     environment:
-      POSTGRES_USER: meal_planner
+      POSTGRES_USER: hms
       POSTGRES_PASSWORD: dispensatest123
-      POSTGRES_DB: meal_planner_dispensa_db
+      POSTGRES_DB: hms_dispensa_db
     volumes:
       - postgres_dispensa_data:/var/lib/postgresql/data
     networks:
       - meal-network-dispensa
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      test: ["CMD-SHELL", "pg_isready -U hms"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -27,9 +27,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: meal-planner-backend-dispensa
+    container_name: hms-backend-dispensa
     environment:
-      DATABASE_URL: postgresql://meal_planner:dispensatest123@postgres-dispensa:5432/meal_planner_dispensa_db
+      DATABASE_URL: postgresql://hms:dispensatest123@postgres-dispensa:5432/hms_dispensa_db
       SECRET_KEY: dispensa-test-secret-key-only
       JWT_EXPIRATION: 3600
       REFRESH_TOKEN_EXPIRATION: 604800
@@ -57,7 +57,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: meal-planner-frontend-dispensa
+    container_name: hms-frontend-dispensa
     environment:
       NODE_ENV: development
     ports:

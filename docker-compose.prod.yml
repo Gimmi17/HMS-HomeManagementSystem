@@ -3,15 +3,15 @@ services:
     image: postgres:14-alpine
     container_name: hms-db
     environment:
-      POSTGRES_USER: ${DB_USER:-meal_planner}
+      POSTGRES_USER: ${DB_USER:-hms}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-      POSTGRES_DB: ${DB_NAME:-meal_planner_db}
+      POSTGRES_DB: ${DB_NAME:-hms_db}
     volumes:
       - hms_postgres_data:/var/lib/postgresql/data
     networks:
       - hms-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U meal_planner"]
+      test: ["CMD-SHELL", "pg_isready -U hms"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -21,7 +21,7 @@ services:
     image: gimmi17/hms-backend:latest
     container_name: hms-backend
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-meal_planner}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:-meal_planner_db}
+      DATABASE_URL: postgresql://${DB_USER:-hms}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:-hms_db}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-3600}
       REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-604800}

@@ -55,7 +55,7 @@ frontend:
 ## Struttura dei File
 
 ```
-meal-planner2/
+hms2/
 ├── .github/
 │   └── workflows/
 │       └── build-and-push.yml    # GitHub Action per build automatico

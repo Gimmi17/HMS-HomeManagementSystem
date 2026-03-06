@@ -11,7 +11,7 @@ The `seed.py` script imports nutritional data from CSV into the foods table.
 #### Local Development
 ```bash
 # From backend directory
-cd /Users/gimmidefranceschi/HomeLab/food/meal-planner/backend
+cd /Users/gimmidefranceschi/HomeLab/HMS/backend
 python -m app.db.seed
 ```
 

@@ -4,7 +4,7 @@
 Implementazione completa del form di registrazione pasti nel frontend React, come specificato in TASKS.md sezione F2.
 
 **Data**: 2026-01-13
-**Directory**: `/Users/gimmidefranceschi/HomeLab/food/meal-planner/frontend/`
+**Directory**: `/Users/gimmidefranceschi/HomeLab/food/hms/frontend/`
 
 ---
 

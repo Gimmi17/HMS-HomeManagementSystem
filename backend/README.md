@@ -94,17 +94,17 @@ backend/
 ### Build the image
 
 ```bash
-docker build -t meal-planner-backend:latest .
+docker build -t hms-backend:latest .
 ```
 
 ### Run the container
 
 ```bash
 docker run -d \
-  --name meal-planner-backend \
+  --name hms-backend \
   -p 8000:8000 \
   --env-file .env \
-  meal-planner-backend:latest
+  hms-backend:latest
 ```
 
 ### Docker Compose
