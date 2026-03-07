@@ -583,7 +583,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                 )}
                 <div className="p-4 border-t space-y-2">
                   <button
-                    onClick={handleConfirmDispensa}
+                    onClick={() => handleConfirmDispensa()}
                     disabled={isSendingToDispensa}
                     className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
                   >
@@ -612,7 +612,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                 </div>
                 <div className="p-4 border-t space-y-2">
                   <button
-                    onClick={handleConfirmDispensa}
+                    onClick={() => handleConfirmDispensa()}
                     disabled={isSendingToDispensa}
                     className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
                   >
@@ -664,7 +664,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                 </div>
                 <div className="p-4 border-t space-y-2">
                   <button
-                    onClick={handleConfirmDispensa}
+                    onClick={() => handleConfirmDispensa()}
                     disabled={isSendingToDispensa}
                     className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
                   >
@@ -762,7 +762,7 @@ export default function VerifyMode({ state }: VerifyModeProps) {
                 </div>
                 <div className="p-4 border-t space-y-2">
                   <button
-                    onClick={handleConfirmDispensa}
+                    onClick={() => handleConfirmDispensa()}
                     disabled={!allAssigned || isSendingToDispensa}
                     className="w-full py-3 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
                   >

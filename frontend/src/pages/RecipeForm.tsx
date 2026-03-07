@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { recipesService } from '@/services/recipes'
+import { foodsService } from '@/services/foods'
 import { useHouse } from '@/context/HouseContext'
 import { DynamicIngredientInput } from '@/components/Recipes/DynamicIngredientInput'
 import { NutritionSummary } from '@/components/Recipes/NutritionSummary'
+import { NutritionCard } from '@/components/Recipes/NutritionCard'
 import { TagInput } from '@/components/Recipes/TagInput'
 import type { RecipeIngredient } from '@/types'
 
@@ -27,6 +29,7 @@ import type { RecipeIngredient } from '@/types'
 
 export default function RecipeForm() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const { currentHouse } = useHouse()
   const isEditMode = !!id
@@ -41,10 +44,29 @@ export default function RecipeForm() {
   const [tags, setTags] = useState<string[]>([])
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([])
 
+  // Live nutrition state
+  const [foodsMap, setFoodsMap] = useState<Map<string, any>>(new Map())
+
   // UI state
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /**
+   * Prefill form from navigation state (e.g. generated recipe)
+   */
+  useEffect(() => {
+    if (!isEditMode && location.state?.prefill) {
+      const prefill = location.state.prefill
+      if (prefill.name) setName(prefill.name)
+      if (prefill.description) setDescription(prefill.description)
+      if (prefill.procedure) setProcedure(prefill.procedure)
+      if (prefill.preparation_time_min) setPreparationTime(prefill.preparation_time_min)
+      if (prefill.difficulty) setDifficulty(prefill.difficulty)
+      if (prefill.tags) setTags(prefill.tags)
+      if (prefill.ingredients) setIngredients(prefill.ingredients)
+    }
+  }, []) // only on mount
 
   /**
    * Load recipe data in edit mode
@@ -54,6 +76,34 @@ export default function RecipeForm() {
       loadRecipe(id)
     }
   }, [isEditMode, id, currentHouse])
+
+  /**
+   * Load missing foods from API when ingredients change
+   */
+  useEffect(() => {
+    const missingIds = ingredients
+      .map((ing) => ing.food_id)
+      .filter((fid): fid is string => !!fid && !foodsMap.has(fid))
+
+    if (missingIds.length === 0) return
+
+    const fetchMissing = async () => {
+      const results = await Promise.allSettled(
+        missingIds.map((fid) => foodsService.getById(fid))
+      )
+      setFoodsMap((prev) => {
+        const next = new Map(prev)
+        results.forEach((res, idx) => {
+          if (res.status === 'fulfilled') {
+            next.set(missingIds[idx], res.value)
+          }
+        })
+        return next
+      })
+    }
+
+    fetchMissing()
+  }, [ingredients])
 
   /**
    * Fetch recipe data from API and populate form
@@ -90,6 +140,24 @@ export default function RecipeForm() {
       setIsLoading(false)
     }
   }
+
+  /**
+   * Live nutrition calculation from ingredients + foods in cache
+   */
+  const liveNutrition = useMemo(() => {
+    let calories = 0, proteins_g = 0, carbs_g = 0, fats_g = 0
+    for (const ing of ingredients) {
+      if (!ing.food_id) continue
+      const food = foodsMap.get(ing.food_id)
+      if (!food) continue
+      const ratio = (ing.quantity_g ?? ing.quantity ?? 0) / 100
+      calories += (food.calories ?? 0) * ratio
+      proteins_g += (food.proteins_g ?? 0) * ratio
+      carbs_g += (food.carbs_g ?? 0) * ratio
+      fats_g += (food.fats_g ?? 0) * ratio
+    }
+    return { calories, proteins_g, carbs_g, fats_g }
+  }, [ingredients, foodsMap])
 
   /**
    * Calculate total nutrition from all ingredients
@@ -378,6 +446,19 @@ export default function RecipeForm() {
                   <span className="font-medium text-gray-900">{ingredients.length}</span>
                 </div>
               </div>
+
+              {/* Live Nutrition Preview */}
+              {ingredients.length > 0 && liveNutrition.calories > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Valori stimati</p>
+                  <NutritionCard
+                    calories={liveNutrition.calories}
+                    proteins_g={liveNutrition.proteins_g}
+                    carbs_g={liveNutrition.carbs_g}
+                    fats_g={liveNutrition.fats_g}
+                  />
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="bg-white rounded-lg shadow p-4 space-y-3">
