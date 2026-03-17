@@ -119,27 +119,21 @@ export function IngredientTable({
     <div className="card">
       <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Ingredienti</h2>
 
-      {/* Mobile: Card layout */}
-      <div className="sm:hidden space-y-3">
-        {enrichedIngredients.map((ingredient, index) => (
-          <div key={index} className="p-3 bg-gray-50 rounded-lg">
-            <div className="flex justify-between items-start">
-              <div className="font-medium text-gray-900">{ingredient.food_name}</div>
-              <div className="text-sm font-medium text-gray-900">
-                {ingredient.quantity_g.toFixed(0)}g
-              </div>
-            </div>
-            <div className="mt-2 flex justify-between text-xs text-gray-600">
-              <span>{ingredient.calories.toFixed(0)} kcal</span>
-              <span>P: {ingredient.proteins_g.toFixed(1)}g</span>
-              <span>C: {ingredient.carbs_g.toFixed(1)}g</span>
-              <span>G: {ingredient.fats_g.toFixed(1)}g</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Mobile: lista compatta */}
+      <ul className='sm:hidden divide-y divide-gray-100'>
+        {enrichedIngredients.map((ing, i) => {
+          const kcal = Math.round(ing.calories)
+          return (
+            <li key={i} className='py-2.5 flex items-center justify-between gap-2'>
+              <span className='text-sm font-medium text-gray-900 truncate flex-1'>{ing.food_name}</span>
+              <span className='text-sm text-gray-500 flex-shrink-0'>{ing.quantity_g.toFixed(0)}g</span>
+              <span className='text-xs text-gray-400 flex-shrink-0'>{kcal} kcal</span>
+            </li>
+          )
+        })}
+      </ul>
 
-      {/* Desktop: Table layout */}
+      {/* Desktop: tabella esistente */}
       <div className="hidden sm:block overflow-x-auto">
         <table className="w-full">
           <thead>

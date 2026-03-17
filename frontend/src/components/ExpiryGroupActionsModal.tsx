@@ -3,6 +3,13 @@ import dispensaService from '@/services/dispensa'
 import type { DispensaItem, Area } from '@/types'
 import ExpiryDateInput, { parseExpiryDate, formatDateForDisplay } from '@/components/ExpiryDateInput'
 
+export interface PendingConsumeGroup {
+  qty: number
+  entries: DispensaItem[]
+  productName: string
+  unit: string | null
+}
+
 export interface ExpiryDateGroup {
   dateKey: string
   label: string
@@ -21,6 +28,7 @@ interface ExpiryGroupActionsModalProps {
   allAreas?: Area[]
   onComplete: () => void
   onClose: () => void
+  onConsumeRequested?: (pending: PendingConsumeGroup) => void
 }
 
 export default function ExpiryGroupActionsModal({
@@ -31,6 +39,7 @@ export default function ExpiryGroupActionsModal({
   allAreas,
   onComplete,
   onClose,
+  onConsumeRequested,
 }: ExpiryGroupActionsModalProps) {
   const [activeTab, setActiveTab] = useState<'consume' | 'add' | 'change_date' | 'move'>('consume')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -191,7 +200,14 @@ export default function ExpiryGroupActionsModal({
                 </p>
               </div>
               <button
-                onClick={handleConsume}
+                onClick={() => {
+                  if (onConsumeRequested) {
+                    onConsumeRequested({ qty: consumeQty, entries: group.entries, productName, unit: group.unit })
+                    onClose()
+                  } else {
+                    handleConsume()
+                  }
+                }}
                 disabled={isProcessing || consumeQty <= 0}
                 className="w-full py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >

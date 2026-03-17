@@ -55,42 +55,43 @@ export default function ViewMode({ state, onEdit, onMoveItem }: ViewModeProps) {
   const checkedCount = list.items.filter((i) => i.checked).length
   const totalCount = list.items.length
 
-  // Toggle check (swipe right handler)
-  const toggleItemCheck = async (item: ShoppingListItem) => {
+  // Tap = check/uncheck immediato (no modal)
+  const handleDirectToggle = async (item: ShoppingListItem) => {
     if (!list) return
 
-    // Prevent unchecking verified items (but allow re-picking not_purchased)
+    // Articoli verificati non si possono de-spuntare
     if (item.checked && item.verified_at && !item.not_purchased) {
       showToast(false, 'Non puoi togliere la spunta a un articolo già verificato')
       return
     }
 
-    // Not purchased → re-pick: open check modal (backend clears not_purchased on check)
+    // Non acquistato → undo e poi check
     if (item.not_purchased) {
-      state.setEditingItem(item)
-      return
-    }
-
-    // If unchecking, just toggle
-    if (item.checked) {
       try {
+        await shoppingListsService.undoNotPurchased(list.id, item.id)
         const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
         setList((prev) =>
           prev ? { ...prev, items: prev.items.map((i) => (i.id === item.id ? updatedItem : i)) } : null
         )
       } catch (error) {
-        console.error('Failed to toggle item:', error)
+        console.error('Failed to toggle not_purchased item:', error)
       }
       return
     }
 
-    // If checking, open modal to enter details
-    state.setEditingItem(item)
+    try {
+      const updatedItem = await shoppingListsService.toggleItemCheck(list.id, item.id)
+      setList((prev) =>
+        prev ? { ...prev, items: prev.items.map((i) => (i.id === item.id ? updatedItem : i)) } : null
+      )
+    } catch (error) {
+      console.error('Failed to toggle item:', error)
+    }
   }
 
-  // Handle swipe right based on item state
+  // Swipe right = stesso comportamento del tap
   const handleSwipeRight = (item: ShoppingListItem) => {
-    toggleItemCheck(item)
+    handleDirectToggle(item)
   }
 
   // Mark not purchased (swipe left option)
@@ -340,6 +341,16 @@ export default function ViewMode({ state, onEdit, onMoveItem }: ViewModeProps) {
         </div>
       </div>
 
+      {/* Edit lock banner */}
+      {list.editing_by && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          Lista in modifica da un altro utente
+        </div>
+      )}
+
       {/* Items */}
       <div className="space-y-2">
         {list.items.map((item) => (
@@ -355,7 +366,7 @@ export default function ViewMode({ state, onEdit, onMoveItem }: ViewModeProps) {
             >
               <div
                 className="flex items-center gap-3 cursor-pointer"
-                onClick={() => item.checked ? state.setEditingItem(item) : state.setActionMenuItem(item)}
+                onClick={() => handleDirectToggle(item)}
               >
                 {/* Picking sequence number */}
                 {item.store_picking_position && (

@@ -81,10 +81,10 @@ export function GeneraListaModal({ onClose }: Props) {
           shoppingListsService.addItem(listId, {
             name: item.name,
             quantity: 1,
-            unit: item.unit ?? undefined,
-            category_id: item.category_id ?? undefined,
-            grocy_product_id: item.grocy_product_id ?? undefined,
-            grocy_product_name: item.grocy_product_name ?? undefined,
+            unit: item.unit !== null ? item.unit : undefined,
+            category_id: item.category_id !== null ? item.category_id : undefined,
+            grocy_product_id: item.grocy_product_id !== null ? item.grocy_product_id : undefined,
+            grocy_product_name: item.grocy_product_name !== null ? item.grocy_product_name : undefined,
           })
         )
       )

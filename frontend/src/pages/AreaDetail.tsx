@@ -6,7 +6,10 @@ import dispensaService from '@/services/dispensa'
 import categoriesService from '@/services/categories'
 import productsService from '@/services/products'
 import ProductDetailCard from '@/components/ProductDetailCard'
-import ExpiryGroupActionsModal, { type ExpiryDateGroup } from '@/components/ExpiryGroupActionsModal'
+import ExpiryGroupActionsModal, { type ExpiryDateGroup, type PendingConsumeGroup } from '@/components/ExpiryGroupActionsModal'
+import { PantryConsumeHowModal } from '@/components/Pantry/PantryConsumeHowModal'
+import type { ConsumeHowResult } from '@/components/Pantry/PantryConsumeHowModal'
+import mealsService from '@/services/meals'
 import ContinuousBarcodeScanner, { type ScanLogEntry } from '@/components/ContinuousBarcodeScanner'
 import BatchScanReviewModal, { type BatchItemData } from '@/components/BatchScanReviewModal'
 import { parseExpiryDate } from '@/components/ExpiryDateInput'
@@ -83,6 +86,7 @@ export function AreaDetail() {
 
   // Expiry group actions modal
   const [selectedExpiryGroup, setSelectedExpiryGroup] = useState<{ product: AggregatedProduct; group: ExpiryDateGroup } | null>(null)
+  const [pendingConsumeGroup, setPendingConsumeGroup] = useState<PendingConsumeGroup | null>(null)
 
   // Continuous scanner
   const [showScanner, setShowScanner] = useState(false)
@@ -947,6 +951,61 @@ export function AreaDetail() {
             loadData()
           }}
           onClose={() => setSelectedExpiryGroup(null)}
+          onConsumeRequested={(pending) => {
+            setSelectedExpiryGroup(null)
+            setPendingConsumeGroup(pending)
+          }}
+        />
+      )}
+
+      {/* Consume How Modal — aperto dopo aver selezionato quantità */}
+      {pendingConsumeGroup && currentHouse && (
+        <PantryConsumeHowModal
+          item={{
+            id: '',
+            name: pendingConsumeGroup.productName,
+            quantity: pendingConsumeGroup.qty,
+            unit: pendingConsumeGroup.unit,
+          } as any}
+          onConfirm={async (result: ConsumeHowResult) => {
+            const { qty, entries } = pendingConsumeGroup
+            setPendingConsumeGroup(null)
+            // FIFO consume
+            try {
+              let remaining = qty
+              for (const entry of entries) {
+                if (remaining <= 0) break
+                if (remaining >= entry.quantity) {
+                  await dispensaService.consumeItem(currentHouse.id, entry.id)
+                  remaining -= entry.quantity
+                } else {
+                  await dispensaService.consumeItem(currentHouse.id, entry.id, remaining)
+                  remaining = 0
+                }
+              }
+              // Crea pasto se richiesto
+              if (result.method !== 'skip' && result.mealType) {
+                const newMeal = await mealsService.create(currentHouse.id, {
+                  recipe_id: result.recipeId || undefined,
+                  meal_type: result.mealType,
+                  consumed_at: new Date().toISOString(),
+                  notes: result.recipeId ? undefined : pendingConsumeGroup.productName,
+                })
+                // Decrementa stock ricetta se collegata a prodotti dispensa
+                if (result.recipeId && result.recipe?.ingredients?.some((ing: any) => ing.product_id)) {
+                  try {
+                    await mealsService.consumeRecipeStock(newMeal.id, currentHouse.id, 1.0)
+                  } catch (e) {
+                    console.error('Stock decrement non critico:', e)
+                  }
+                }
+              }
+              loadData()
+            } catch (err) {
+              console.error('Consume failed:', err)
+            }
+          }}
+          onClose={() => setPendingConsumeGroup(null)}
         />
       )}
 

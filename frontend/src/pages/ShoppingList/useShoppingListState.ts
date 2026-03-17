@@ -127,7 +127,7 @@ export function useShoppingListState(id: string, mode: UnifiedMode): ShoppingLis
       } catch {
         // Silently ignore polling errors
       }
-    }, 3000)
+    }, 10000)
 
     return () => clearInterval(pollInterval)
   }, [id, isLoading, showScanner, mode, editingItem, actionMenuItem, noteEditItem])

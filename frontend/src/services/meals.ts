@@ -1,6 +1,16 @@
 import api from './api'
 import type { Meal, MealCreate } from '@/types'
 
+export interface StockConsumeItem {
+  product_id: string
+  product_name: string
+  quantity: number
+  unit: string
+  available_in_pantry: number
+  will_be_available: number
+  warning?: string
+}
+
 export const mealsService = {
   async getAll(houseId: string, params?: { from?: string; to?: string }): Promise<Meal[]> {
     const response = await api.get('/meals', {
@@ -18,6 +28,29 @@ export const mealsService = {
   async create(_houseId: string, data: MealCreate): Promise<Meal> {
     const response = await api.post('/meals', data)
     return response.data
+  },
+
+  async consumeRecipeStock(
+    mealId: string,
+    houseId: string,
+    portionMultiplier: number = 1.0
+  ): Promise<{ consumed: StockConsumeItem[]; warnings: string[] }> {
+    const res = await api.post(`/meals/${mealId}/consume-recipe-stock`, {
+      house_id: houseId,
+      portion_multiplier: portionMultiplier,
+    })
+    return res.data
+  },
+
+  async previewRecipeStock(
+    mealId: string,
+    houseId: string,
+    portionMultiplier: number = 1.0
+  ): Promise<{ consumed: StockConsumeItem[]; warnings: string[] }> {
+    const res = await api.get(
+      `/meals/${mealId}/recipe-stock-preview?house_id=${houseId}&portion_multiplier=${portionMultiplier}`
+    )
+    return res.data
   },
 
   async delete(id: string, houseId: string): Promise<void> {

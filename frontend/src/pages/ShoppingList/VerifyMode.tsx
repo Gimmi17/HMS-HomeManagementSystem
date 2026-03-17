@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import shoppingListsService from '@/services/shoppingLists'
@@ -38,12 +38,19 @@ export default function VerifyMode({ state }: VerifyModeProps) {
   const [isSendingToDispensa, setIsSendingToDispensa] = useState(false)
   const [itemExpiryExtensions, setItemExpiryExtensions] = useState<Record<string, number>>({})
 
-  if (!list) return null
+  // Fix: auto-start verification in useEffect, not in render body
+  const autoStartedRef = useRef(false)
+  useEffect(() => {
+    if (!list || autoStartedRef.current) return
+    if (list.verification_status === 'not_started' || list.verification_status === 'paused') {
+      autoStartedRef.current = true
+      shoppingListsService.update(list.id, { verification_status: 'in_progress' })
+        .then(updated => setList(updated))
+        .catch(console.error)
+    }
+  }, [list?.id, list?.verification_status])
 
-  // Auto-start verification if not started
-  if (list.verification_status === 'not_started' || list.verification_status === 'paused') {
-    shoppingListsService.update(list.id, { verification_status: 'in_progress' }).then(updated => setList(updated)).catch(console.error)
-  }
+  if (!list) return null
 
   const pendingItems = list.items.filter((i) => !i.verified_at && !i.not_purchased)
   const verifiedItems = list.items.filter((i) => i.verified_at || i.not_purchased)

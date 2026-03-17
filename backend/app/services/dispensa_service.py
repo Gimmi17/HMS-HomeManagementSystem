@@ -113,6 +113,13 @@ class DispensaService:
         Create a dispensa item.
         Always creates a new row (no merge). Each entry is an individual stock entry.
         """
+        # Resolve product_catalog_id from barcode (if provided)
+        product_catalog_id = None
+        if data.barcode:
+            pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == data.barcode).first()
+            if pb:
+                product_catalog_id = pb.product_id
+
         item = DispensaItem(
             house_id=house_id,
             name=data.name,
@@ -122,6 +129,7 @@ class DispensaService:
             expiry_date=data.expiry_date,
             original_expiry_date=data.original_expiry_date,
             barcode=data.barcode,
+            product_catalog_id=product_catalog_id,
             grocy_product_id=data.grocy_product_id,
             grocy_product_name=data.grocy_product_name,
             source_item_id=data.source_item_id,

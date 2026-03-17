@@ -7,6 +7,10 @@ import { IngredientTable } from '@/components/Recipes/IngredientTable'
 import { NutritionCard } from '@/components/Recipes/NutritionCard'
 import { ProcedureSection } from '@/components/Recipes/ProcedureSection'
 import { PortionCalculator } from '@/components/Recipes/PortionCalculator'
+import DeleteConfirmModal from '@/components/DeleteConfirmModal'
+import { MealTypeSelector } from '@/components/Meals/MealTypeSelector'
+import { PortionInput } from '@/components/Meals/PortionInput'
+import mealsService from '@/services/meals'
 import type { Recipe } from '@/types'
 
 /**
@@ -53,6 +57,14 @@ export default function RecipeDetail() {
   const [portionMultiplier, setPortionMultiplier] = useState(1.0)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Prepare Meal drawer state
+  const [showPrepareDrawer, setShowPrepareDrawer] = useState(false)
+  const [drawerMealType, setDrawerMealType] = useState<'colazione' | 'spuntino' | 'pranzo' | 'cena'>('pranzo')
+  const [drawerPortion, setDrawerPortion] = useState(1.0)
+  const [drawerSubmitting, setDrawerSubmitting] = useState(false)
+  const [drawerError, setDrawerError] = useState<string | null>(null)
+  const [showSuccessToast, setShowSuccessToast] = useState(false)
 
   /**
    * Load recipe data on mount
@@ -126,6 +138,38 @@ export default function RecipeDetail() {
    */
   const handleDeleteCancel = () => {
     setShowDeleteConfirm(false)
+  }
+
+  /**
+   * Submit meal via quick drawer
+   */
+  const handlePrepareMeal = async () => {
+    if (!currentHouse || !recipe) return
+    setDrawerSubmitting(true)
+    setDrawerError(null)
+    try {
+      const newMeal = await mealsService.create(currentHouse.id, {
+        recipe_id: recipe.id,
+        meal_type: drawerMealType,
+        consumed_at: new Date().toISOString(),
+      })
+      // Decrementa stock se la ricetta ha ingredienti collegati a prodotti dispensa
+      if (recipe.ingredients?.some((ing: any) => ing.product_id)) {
+        try {
+          await mealsService.consumeRecipeStock(newMeal.id, currentHouse.id, drawerPortion)
+        } catch (e) {
+          // Non critico — logga ma non blocca il flusso
+          console.error('Stock decrement non critico:', e)
+        }
+      }
+      setShowPrepareDrawer(false)
+      setShowSuccessToast(true)
+      setTimeout(() => setShowSuccessToast(false), 3000)
+    } catch {
+      setDrawerError('Errore nel salvataggio. Riprova.')
+    } finally {
+      setDrawerSubmitting(false)
+    }
   }
 
   /**
@@ -291,7 +335,7 @@ export default function RecipeDetail() {
                 <>
                   {/* Prepare button (primary action) */}
                   <button
-                    onClick={handleSelectOrPrepare}
+                    onClick={() => setShowPrepareDrawer(true)}
                     className="btn btn-primary w-full flex items-center justify-center gap-2"
                   >
                     <svg
@@ -360,34 +404,44 @@ export default function RecipeDetail() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">
-              Conferma Eliminazione
-            </h3>
-            <p className="text-gray-700 mb-6">
-              Sei sicuro di voler eliminare la ricetta "{recipe.name}"? Questa
-              azione non può essere annullata.
-            </p>
+        <DeleteConfirmModal
+          title='Elimina ricetta'
+          message={`Sei sicuro di voler eliminare "${recipe.name}"? Questa azione non può essere annullata.`}
+          onConfirm={handleDeleteConfirm}
+          onClose={handleDeleteCancel}
+          isDeleting={isDeleting}
+        />
+      )}
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleDeleteConfirm}
-                disabled={isDeleting}
-                className="btn btn-danger flex-1"
-              >
-                {isDeleting ? 'Eliminazione...' : 'Elimina'}
-              </button>
-              <button
-                onClick={handleDeleteCancel}
-                disabled={isDeleting}
-                className="btn btn-secondary flex-1"
-              >
-                Annulla
-              </button>
-            </div>
-          </div>
+      {/* Success toast */}
+      {showSuccessToast && (
+        <div className='fixed bottom-20 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg z-50 animate-fade-in'>
+          Pasto registrato!
         </div>
+      )}
+
+      {/* Prepare Meal drawer */}
+      {showPrepareDrawer && (
+        <>
+          <div className='fixed inset-0 bg-black/40 z-40' onClick={() => setShowPrepareDrawer(false)} />
+          <div className='fixed bottom-0 left-0 right-0 lg:bottom-auto lg:top-20 lg:right-6 lg:left-auto lg:w-80 bg-white rounded-t-2xl lg:rounded-2xl shadow-xl p-4 space-y-4 z-50 animate-slide-up'>
+            <div className='flex items-center justify-between'>
+              <h3 className='font-semibold text-gray-900'>Prepara Pasto</h3>
+              <button onClick={() => setShowPrepareDrawer(false)} className='text-gray-400 hover:text-gray-600'>✕</button>
+            </div>
+            <MealTypeSelector value={drawerMealType} onChange={setDrawerMealType} />
+            <PortionInput value={drawerPortion} onChange={setDrawerPortion} recipe={recipe} />
+            {drawerError && <p className='text-sm text-red-600'>{drawerError}</p>}
+            <button
+              onClick={handlePrepareMeal}
+              disabled={drawerSubmitting}
+              className='btn btn-primary w-full'
+            >
+              {drawerSubmitting ? 'Salvo...' : 'Registra Pasto'}
+            </button>
+            <a href={`/meals/new?recipe_id=${recipe.id}`} className='block text-center text-xs text-gray-400 hover:text-gray-600'>Form completo →</a>
+          </div>
+        </>
       )}
     </div>
   )
