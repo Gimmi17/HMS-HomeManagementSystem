@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, FormEvent } from 'react'
+import { useEffect, useState, FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useHouse } from '@/context/HouseContext'
 import biometricService from '@/services/biometric'
@@ -26,7 +26,7 @@ const fmtNum = (n: number | null | undefined, d = 1) =>
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function Health() {
-  const { user } = useAuth()
+  useAuth()
   const { currentHouse } = useHouse()
   const houseId = currentHouse?.id
 
