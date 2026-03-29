@@ -34,6 +34,9 @@ from app.models.barcode_source import BarcodeLookupSource
 from app.models.product_report import ProductReport, ReportStatus
 from app.models.product_barcode import ProductBarcode
 from app.models.brand import Brand
+from app.models.biometric_profile import BiometricProfile
+from app.models.biometric_log import BiometricLog
+from app.models.health_goal import HealthGoal
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -74,4 +77,7 @@ __all__ = [
     "ReportStatus",
     "ProductBarcode",
     "Brand",
+    "BiometricProfile",
+    "BiometricLog",
+    "HealthGoal",
 ]
