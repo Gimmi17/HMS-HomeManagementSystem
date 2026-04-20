@@ -37,6 +37,7 @@ from app.models.brand import Brand
 from app.models.biometric_profile import BiometricProfile
 from app.models.biometric_log import BiometricLog
 from app.models.health_goal import HealthGoal
+from app.models.finance import FinanceEntry, FinanceSavings, RevolutMovement
 
 # Export all models so they can be imported from app.models
 # This also ensures they are registered with SQLAlchemy Base
@@ -80,4 +81,7 @@ __all__ = [
     "BiometricProfile",
     "BiometricLog",
     "HealthGoal",
+    "FinanceEntry",
+    "FinanceSavings",
+    "RevolutMovement",
 ]

@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance
 
 
 # Create main v1 router
@@ -278,3 +278,13 @@ api_router.include_router(
 # Requires authentication
 from .meal_stock import router as meal_stock_router
 api_router.include_router(meal_stock_router, tags=["Meal Stock"])
+
+
+# Include finance endpoints
+# Endpoints: CRUD on entries/savings/revolut, OCR import, house summary
+# Requires authentication
+api_router.include_router(
+    finance.router,
+    prefix="/finance",
+    tags=["finance"],
+)

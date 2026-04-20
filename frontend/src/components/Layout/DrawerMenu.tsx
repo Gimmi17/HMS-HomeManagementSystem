@@ -11,6 +11,7 @@ const baseNavItems = [
   { to: '/giacenze', label: 'Giacenze', icon: '🏠' },
   { to: '/areas', label: 'Aree', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
+  { to: '/finance', label: 'Finanza', icon: '💶' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
 ]
