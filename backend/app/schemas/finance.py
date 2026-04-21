@@ -4,6 +4,45 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
+# ─── FinanceLabel ─────────────────────────────────────────────────────────────
+
+class FinanceLabelResponse(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ─── FinanceSource ────────────────────────────────────────────────────────────
+
+class FinanceSourceCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    description: Optional[str] = Field(None, max_length=255)
+
+
+class FinanceSourceResponse(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ─── FinanceEntity ────────────────────────────────────────────────────────────
+
+class FinanceEntityCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    category: Optional[str] = Field(None, max_length=80)
+
+
+class FinanceEntityResponse(BaseModel):
+    id: UUID
+    name: str
+    category: Optional[str] = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 ENTRY_TYPES = {"income", "expense"}
 ENTRY_SUBTYPES = {"recurring", "done"}
 FREQUENCIES = {"monthly", "weekly", "every_n_months"}
@@ -19,6 +58,11 @@ class FinanceEntryCreate(BaseModel):
     date: Optional[date] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    label_id: Optional[UUID] = None
+    entity_id: Optional[UUID] = None
+    entity_name: Optional[str] = Field(None, max_length=255)
+    source_id: Optional[UUID] = None
+    source_name: Optional[str] = Field(None, max_length=255)
 
     @field_validator("type")
     @classmethod
@@ -62,6 +106,10 @@ class FinanceEntryResponse(BaseModel):
     date: Optional[date] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    label_id: Optional[UUID] = None
+    entity_id: Optional[UUID] = None
+    source_id: Optional[UUID] = None
+    investment_id: Optional[UUID] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,6 +131,11 @@ class RevolutMovementCreate(BaseModel):
     category: str = Field("Altro", max_length=80)
     date: date
     notes: Optional[str] = None
+    label_id: Optional[UUID] = None
+    entity_id: Optional[UUID] = None
+    entity_name: Optional[str] = Field(None, max_length=255)
+    source_id: Optional[UUID] = None
+    source_name: Optional[str] = Field(None, max_length=255)
 
 
 class RevolutMovementResponse(BaseModel):
@@ -94,6 +147,9 @@ class RevolutMovementResponse(BaseModel):
     category: str
     date: date
     notes: Optional[str] = None
+    label_id: Optional[UUID] = None
+    entity_id: Optional[UUID] = None
+    source_id: Optional[UUID] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,8 +158,10 @@ class OCREntryParsed(BaseModel):
     label: str
     amount: float
     type: str
-    date: Optional[date] = None
+    tx_date: Optional[date] = None
     subtype: str = "done"
+    entity: Optional[str] = None
+    source: Optional[str] = None
 
 
 class HouseMemberSummary(BaseModel):

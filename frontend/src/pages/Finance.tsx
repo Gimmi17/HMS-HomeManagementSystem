@@ -6,6 +6,8 @@ import financeService, {
   type FinanceSavings,
   type RevolutMovement,
   type OCRParsed,
+  type FinanceEntity,
+  type FinanceSource,
 } from '@/services/finance'
 
 type Tab = 'dashboard' | 'storico' | 'ricorrenti' | 'revolut' | 'importa'
@@ -146,12 +148,18 @@ export function Finance() {
             <ImportaTab
               onImport={async (rows) => {
                 for (const r of rows) {
+                  let entity_id: string | null = null
+                  if (r.entity && r.entity.trim()) {
+                    const ent = await financeService.createEntity({ name: r.entity.trim() })
+                    entity_id = ent.id
+                  }
                   await financeService.createEntry({
                     label: r.label,
                     amount: r.amount,
                     type: r.type,
                     subtype: 'done',
-                    date: r.date || undefined,
+                    date: r.tx_date || undefined,
+                    entity_id: entity_id || undefined,
                   })
                 }
                 await reloadAll()
@@ -177,6 +185,8 @@ type EntryInput = {
   date?: string
   start_date?: string
   end_date?: string
+  entity_name?: string
+  source_name?: string
 }
 
 function DashboardTab({
@@ -549,7 +559,7 @@ function RevolutTab({
   onDelete,
 }: {
   movements: RevolutMovement[]
-  onAdd: (m: { label: string; amount: number; category: string; date: string; notes?: string }) => Promise<void>
+  onAdd: (m: { label: string; amount: number; category: string; date: string; notes?: string; entity_name?: string; source_name?: string }) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
   const [showAdd, setShowAdd] = useState(false)
@@ -558,6 +568,17 @@ function RevolutTab({
   const [category, setCategory] = useState('Altro')
   const [date, setDate] = useState(todayIso())
   const [notes, setNotes] = useState('')
+  const [entityInput, setEntityInput] = useState('')
+  const [sourceName, setSourceName] = useState('Revolut')
+  const [entities, setEntities] = useState<FinanceEntity[]>([])
+  const [sources, setSources] = useState<FinanceSource[]>([])
+
+  useEffect(() => {
+    financeService.listEntities().then(setEntities).catch(() => {})
+    financeService.listSources().then(setSources).catch(() => {})
+  }, [])
+
+  const entityNames = useMemo(() => entities.map((e) => e.name), [entities])
   const [catFilter, setCatFilter] = useState('')
 
   const filtered = catFilter
@@ -636,13 +657,17 @@ function RevolutTab({
                 category,
                 date,
                 notes: notes || undefined,
+                entity_name: entityInput.trim() || undefined,
+                source_name: sourceName.trim() || undefined,
               })
               setLabel('')
               setAmount('')
               setNotes('')
+              setEntityInput('')
+              setSourceName('Revolut')
               setShowAdd(false)
             }}
-            className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 p-3 bg-gray-50 rounded"
+            className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4 p-3 bg-gray-50 rounded"
           >
             <div>
               <label className="label">Etichetta</label>
@@ -667,12 +692,20 @@ function RevolutTab({
               <label className="label">Data</label>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
             </div>
+            <div>
+              <label className="label">Ente</label>
+              <EntityInput value={entityInput} suggestions={entityNames} onChange={setEntityInput} />
+            </div>
+            <div>
+              <label className="label">Sorgente</label>
+              <SourceSelector value={sourceName} onChange={setSourceName} />
+            </div>
             <div className="flex items-end">
               <button type="submit" className="btn btn-primary w-full">
                 Salva
               </button>
             </div>
-            <div className="md:col-span-5">
+            <div className="md:col-span-6">
               <label className="label">Note</label>
               <input value={notes} onChange={(e) => setNotes(e.target.value)} className="input" />
             </div>
@@ -688,18 +721,25 @@ function RevolutTab({
                 <th className="text-left py-2">Data</th>
                 <th className="text-left py-2">Etichetta</th>
                 <th className="text-left py-2">Categoria</th>
+                <th className="text-left py-2">Ente</th>
+                <th className="text-left py-2">Sorgente</th>
                 <th className="text-right py-2">Importo</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m) => (
+              {filtered.map((m) => {
+                const enteName = m.entity_id ? entities.find((e) => e.id === m.entity_id)?.name : null
+                const srcName = m.source_id ? sources.find((s) => s.id === m.source_id)?.name : null
+                return (
                 <tr key={m.id} className="border-b last:border-0">
                   <td className="py-2">{fmtDate(m.date)}</td>
                   <td className="py-2">{m.label}</td>
                   <td className="py-2">
                     <span className="text-xs bg-gray-100 rounded px-2 py-0.5">{m.category}</span>
                   </td>
+                  <td className="py-2 text-xs text-gray-500">{enteName || '—'}</td>
+                  <td className="py-2 text-xs text-gray-500">{srcName || '—'}</td>
                   <td className="py-2 text-right font-medium text-red-600">{fmtEur(Number(m.amount))}</td>
                   <td className="py-2 text-right">
                     <button onClick={() => onDelete(m.id)} className="text-red-400 hover:text-red-600 text-xs">
@@ -707,7 +747,7 @@ function RevolutTab({
                     </button>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}
@@ -724,6 +764,13 @@ function ImportaTab({ onImport }: { onImport: (rows: OCRParsed[]) => Promise<voi
   const [dragOver, setDragOver] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const [entities, setEntities] = useState<FinanceEntity[]>([])
+
+  useEffect(() => {
+    financeService.listEntities().then(setEntities).catch(() => {})
+  }, [])
+
+  const entityNames = useMemo(() => entities.map((e) => e.name), [entities])
 
   const handleFile = async (file: File) => {
     setError('')
@@ -776,11 +823,12 @@ function ImportaTab({ onImport }: { onImport: (rows: OCRParsed[]) => Promise<voi
           }}
         />
         {loading ? (
-          <p className="text-gray-600">Elaborazione OCR...</p>
+          <p className="text-gray-600">Elaborazione Screenshot Mediolanum...</p>
         ) : (
           <>
-            <p className="text-lg font-medium text-gray-700">📎 Trascina un'immagine qui</p>
-            <p className="text-sm text-gray-500 mt-1">oppure clicca per selezionarla</p>
+            <p className="text-lg font-medium text-gray-700">📸 Import Screenshot Mediolanum</p>
+            <p className="text-sm text-gray-500 mt-1">Trascina uno screenshot dell'app Mediolanum, oppure clicca per selezionarlo</p>
+            <p className="text-xs text-gray-400 mt-1">Formato supportato: lista transazioni (data sotto l'importo)</p>
           </>
         )}
       </div>
@@ -800,80 +848,134 @@ function ImportaTab({ onImport }: { onImport: (rows: OCRParsed[]) => Promise<voi
               </button>
             </div>
           </div>
-          <table className="w-full text-sm">
-            <thead className="text-gray-500 text-xs">
-              <tr className="border-b">
-                <th className="text-left py-2">Data</th>
-                <th className="text-left py-2">Etichetta</th>
-                <th className="text-left py-2">Tipo</th>
-                <th className="text-right py-2">Importo</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="py-1">
-                    <input
-                      type="date"
-                      value={r.date || ''}
-                      onChange={(e) => {
-                        const v = e.target.value || null
-                        setRows((prev) => prev.map((p, j) => (j === i ? { ...p, date: v } : p)))
-                      }}
-                      className="input text-xs"
-                    />
-                  </td>
-                  <td className="py-1">
-                    <input
-                      value={r.label}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setRows((prev) => prev.map((p, j) => (j === i ? { ...p, label: v } : p)))
-                      }}
-                      className="input text-xs"
-                    />
-                  </td>
-                  <td className="py-1">
-                    <select
-                      value={r.type}
-                      onChange={(e) => {
-                        const v = e.target.value as 'income' | 'expense'
-                        setRows((prev) => prev.map((p, j) => (j === i ? { ...p, type: v } : p)))
-                      }}
-                      className="input text-xs"
-                    >
-                      <option value="income">Entrata</option>
-                      <option value="expense">Uscita</option>
-                    </select>
-                  </td>
-                  <td className="py-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={r.amount}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value) || 0
-                        setRows((prev) => prev.map((p, j) => (j === i ? { ...p, amount: v } : p)))
-                      }}
-                      className="input text-xs text-right"
-                    />
-                  </td>
-                  <td className="py-1 text-right">
-                    <button
-                      onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
-                      className="text-red-400 hover:text-red-600 text-xs"
-                    >
-                      ✕
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-gray-500 text-xs">
+                <tr className="border-b">
+                  <th className="text-left py-2">Data</th>
+                  <th className="text-left py-2">Etichetta</th>
+                  <th className="text-left py-2">Tipo</th>
+                  <th className="text-right py-2">Importo</th>
+                  <th className="text-left py-2">Ente</th>
+                  <th className="text-left py-2">Sorgente</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="py-1">
+                      <input
+                        type="date"
+                        value={r.tx_date || ''}
+                        onChange={(e) => {
+                          const v = e.target.value || null
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, tx_date: v } : p)))
+                        }}
+                        className="input text-xs"
+                      />
+                    </td>
+                    <td className="py-1">
+                      <input
+                        value={r.label}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, label: v } : p)))
+                        }}
+                        className="input text-xs"
+                      />
+                    </td>
+                    <td className="py-1">
+                      <select
+                        value={r.type}
+                        onChange={(e) => {
+                          const v = e.target.value as 'income' | 'expense'
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, type: v } : p)))
+                        }}
+                        className="input text-xs"
+                      >
+                        <option value="income">Entrata</option>
+                        <option value="expense">Uscita</option>
+                      </select>
+                    </td>
+                    <td className="py-1">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={r.amount}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value) || 0
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, amount: v } : p)))
+                        }}
+                        className="input text-xs text-right"
+                      />
+                    </td>
+                    <td className="py-1">
+                      <EntityInput
+                        value={r.entity || ''}
+                        suggestions={entityNames}
+                        onChange={(v) =>
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, entity: v || null } : p)))
+                        }
+                      />
+                    </td>
+                    <td className="py-1">
+                      <input
+                        value={r.source || ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setRows((prev) => prev.map((p, j) => (j === i ? { ...p, source: v || null } : p)))
+                        }}
+                        className="input text-xs"
+                        placeholder="es. Mediolanum"
+                      />
+                    </td>
+                    <td className="py-1 text-right">
+                      <button
+                        onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
+                        className="text-red-400 hover:text-red-600 text-xs"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+// ─── EntityInput — text input with datalist autocomplete ────────────────────
+
+function EntityInput({
+  value,
+  suggestions,
+  onChange,
+}: {
+  value: string
+  suggestions: string[]
+  onChange: (v: string) => void
+}) {
+  const listId = 'entity-suggestions'
+  return (
+    <>
+      <datalist id={listId}>
+        {suggestions.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      <input
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="es. Amazon"
+        className="input text-xs w-28"
+      />
+    </>
   )
 }
 
@@ -889,6 +991,81 @@ function KpiCard({ label, value, tone }: { label: string; value: string; tone: '
     </div>
   )
 }
+
+// ── SourceSelector ──────────────────────────────────────────────────────────
+
+function SourceSelector({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (name: string) => void
+}) {
+  const [sources, setSources] = useState<FinanceSource[]>([])
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  useEffect(() => {
+    financeService.listSources().then(setSources).catch(() => {})
+  }, [])
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return
+    try {
+      const created = await financeService.createSource({ name: newName.trim() })
+      setSources((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+      onChange(created.name)
+      setNewName('')
+      setAdding(false)
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div>
+      <label className="label">Sorgente</label>
+      <div className="flex gap-1">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="input flex-1"
+        >
+          <option value="">— nessuna —</option>
+          {sources.map((s) => (
+            <option key={s.id} value={s.name}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setAdding((v) => !v)}
+          className="btn btn-secondary px-2 text-sm"
+          title="Aggiungi sorgente"
+        >
+          +
+        </button>
+      </div>
+      {adding && (
+        <div className="flex gap-1 mt-1">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Nuova sorgente…"
+            className="input flex-1 text-sm"
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAdd())}
+          />
+          <button type="button" onClick={handleAdd} className="btn btn-primary px-2 text-sm">
+            Ok
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── EntryForm ────────────────────────────────────────────────────────────────
 
 function EntryForm({
   onSubmit,
@@ -906,6 +1083,13 @@ function EntryForm({
   const [date, setDate] = useState(todayIso())
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [sourceName, setSourceName] = useState('')
+  const [entityName, setEntityName] = useState('')
+  const [entities, setEntities] = useState<FinanceEntity[]>([])
+  useEffect(() => {
+    financeService.listEntities().then(setEntities).catch(() => {})
+  }, [])
+  const entityNames = useMemo(() => entities.map((e) => e.name), [entities])
 
   const handle = async (e: FormEvent) => {
     e.preventDefault()
@@ -916,6 +1100,8 @@ function EntryForm({
       type,
       subtype,
     }
+    if (entityName) payload.entity_name = entityName
+    if (sourceName) payload.source_name = sourceName
     if (subtype === 'recurring') {
       payload.frequency = frequency
       if (frequency === 'every_n_months' && freqN) payload.frequency_n = parseInt(freqN)
@@ -927,6 +1113,8 @@ function EntryForm({
     await onSubmit(payload)
     setLabel('')
     setAmount('')
+    setEntityName('')
+    setSourceName('')
     onDone()
   }
 
@@ -961,6 +1149,11 @@ function EntryForm({
           <option value="recurring">Ricorrente</option>
         </select>
       </div>
+      <div>
+        <label className="label">Ente</label>
+        <EntityInput value={entityName} suggestions={entityNames} onChange={setEntityName} />
+      </div>
+      <SourceSelector value={sourceName} onChange={setSourceName} />
 
       {subtype === 'recurring' ? (
         <>

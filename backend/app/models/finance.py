@@ -9,6 +9,26 @@ from sqlalchemy.dialects.postgresql import UUID
 from app.models.base import BaseModel
 
 
+class FinanceLabel(BaseModel):
+    __tablename__ = "finance_labels"
+
+    name = Column(String(255), nullable=False, unique=True)
+
+
+class FinanceEntity(BaseModel):
+    __tablename__ = "finance_entities"
+
+    name = Column(String(255), nullable=False, unique=True)
+    category = Column(String(80), nullable=True)
+
+
+class FinanceSource(BaseModel):
+    __tablename__ = "finance_sources"
+
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(String(255), nullable=True)
+
+
 class FinanceEntry(BaseModel):
     __tablename__ = "finance_entries"
 
@@ -33,6 +53,26 @@ class FinanceEntry(BaseModel):
     date = Column(Date, nullable=True)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    label_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_labels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_entities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_sources.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    investment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("investments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class FinanceSavings(BaseModel):
@@ -74,3 +114,18 @@ class RevolutMovement(BaseModel):
     category = Column(String(80), nullable=False, default="Altro")
     date = Column(Date, nullable=False)
     notes = Column(Text, nullable=True)
+    label_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_labels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    entity_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_entities.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("finance_sources.id", ondelete="SET NULL"),
+        nullable=True,
+    )

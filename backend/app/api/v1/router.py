@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments
 
 
 # Create main v1 router
@@ -287,4 +287,14 @@ api_router.include_router(
     finance.router,
     prefix="/finance",
     tags=["finance"],
+)
+
+
+# Include investments endpoints
+# Endpoints: CRUD investments, snapshots, link to finance entries
+# Requires authentication
+api_router.include_router(
+    investments.router,
+    prefix="/investments",
+    tags=["investments"],
 )

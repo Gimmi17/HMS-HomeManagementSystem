@@ -1,5 +1,12 @@
 import api from './api'
 
+export interface FinanceSource {
+  id: string
+  name: string
+  description?: string | null
+  created_at: string
+}
+
 export interface FinanceEntry {
   id: string
   user_id: string
@@ -13,6 +20,8 @@ export interface FinanceEntry {
   date?: string | null
   start_date?: string | null
   end_date?: string | null
+  source_id?: string | null
+  investment_id?: string | null
   created_at: string
 }
 
@@ -30,6 +39,8 @@ export interface RevolutMovement {
   category: string
   date: string
   notes?: string | null
+  entity_id?: string | null
+  source_id?: string | null
   created_at: string
 }
 
@@ -37,8 +48,23 @@ export interface OCRParsed {
   label: string
   amount: number
   type: 'income' | 'expense'
-  date?: string | null
+  tx_date?: string | null
   subtype: 'done' | 'recurring'
+  entity?: string | null
+  source?: string | null
+}
+
+export interface FinanceLabel {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface FinanceEntity {
+  id: string
+  name: string
+  category?: string | null
+  created_at: string
 }
 
 export interface HouseMember {
@@ -73,6 +99,11 @@ export const financeService = {
     date?: string | null
     start_date?: string | null
     end_date?: string | null
+    label_id?: string | null
+    entity_id?: string | null
+    entity_name?: string | null
+    source_id?: string | null
+    source_name?: string | null
   }): Promise<FinanceEntry> {
     const res = await api.post('/finance/entries', data)
     return res.data
@@ -98,7 +129,7 @@ export const financeService = {
     const res = await api.get('/finance/revolut')
     return res.data
   },
-  async createRevolut(data: { label: string; amount: number; category: string; date: string; notes?: string }): Promise<RevolutMovement> {
+  async createRevolut(data: { label: string; amount: number; category: string; date: string; notes?: string; entity_name?: string; entity_id?: string; source_name?: string; source_id?: string }): Promise<RevolutMovement> {
     const res = await api.post('/finance/revolut', data)
     return res.data
   },
@@ -118,6 +149,35 @@ export const financeService = {
   async houseSummary(): Promise<HouseSummary> {
     const res = await api.get('/finance/house/summary')
     return res.data
+  },
+
+  async listLabels(): Promise<FinanceLabel[]> {
+    const res = await api.get('/finance/labels')
+    return res.data
+  },
+
+  async listEntities(): Promise<FinanceEntity[]> {
+    const res = await api.get('/finance/entities')
+    return res.data
+  },
+  async createEntity(data: { name: string; category?: string }): Promise<FinanceEntity> {
+    const res = await api.post('/finance/entities', data)
+    return res.data
+  },
+  async deleteEntity(id: string): Promise<void> {
+    await api.delete(`/finance/entities/${id}`)
+  },
+
+  async listSources(): Promise<FinanceSource[]> {
+    const res = await api.get('/finance/sources')
+    return res.data
+  },
+  async createSource(data: { name: string; description?: string }): Promise<FinanceSource> {
+    const res = await api.post('/finance/sources', data)
+    return res.data
+  },
+  async deleteSource(id: string): Promise<void> {
+    await api.delete(`/finance/sources/${id}`)
   },
 }
 

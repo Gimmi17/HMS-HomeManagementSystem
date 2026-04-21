@@ -13,6 +13,12 @@ interface SettingsLink {
 
 const settingsLinks: SettingsLink[] = [
   {
+    to: '/settings/profile',
+    title: 'Profilo & Anagrafica',
+    description: 'Dati personali, codice fiscale e salute',
+    icon: '👤',
+  },
+  {
     to: '/settings/grocy',
     title: 'Grocy',
     description: 'Sincronizza la dispensa con Grocy',
@@ -23,6 +29,12 @@ const settingsLinks: SettingsLink[] = [
     title: 'LLM / AI',
     description: 'Configura server AI per OCR e chat',
     icon: '🤖',
+  },
+  {
+    to: '/settings/apple',
+    title: 'Apple',
+    description: 'Apple Health Shortcut e sincronizzazione',
+    icon: '🍎',
   },
 ]
 

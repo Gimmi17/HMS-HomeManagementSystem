@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
+    tesseract-ocr \
+    tesseract-ocr-ita \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
@@ -52,6 +54,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     libpq5 \
+    tesseract-ocr \
+    tesseract-ocr-ita \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from base stage
