@@ -9,6 +9,7 @@ const navItems = [
   { to: '/areas', label: 'Aree', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/finance', label: 'Finanza', icon: '💶' },
+  { to: '/investments', label: 'Investimenti', icon: '💼' },
   { to: '/house', label: 'Casa', icon: '👥' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
 ]
