@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, AnagraficheZones, Admin, ReceiptUpload, LLMSettings, AppleSettings, UserProfileSettings, Areas, AreaDetail, MealPlannerWizard, Finance, FinanceHouse, Investments } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, AnagraficheZones, Admin, ReceiptUpload, LLMSettings, AppleSettings, UserProfileSettings, Areas, AreaDetail, MealPlannerWizard, Finance, FinanceHouse, Investments, CompoundLab } from './pages'
 import { ShoppingListUnified } from './pages/ShoppingList'
 import RecipeForm from './pages/RecipeForm'
 
@@ -210,6 +210,16 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <FinanceHouse />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/finance/compound-lab"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <CompoundLab />
             </MainLayout>
           </PrivateRoute>
         }

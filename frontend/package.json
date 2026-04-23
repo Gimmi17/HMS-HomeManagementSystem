@@ -13,8 +13,10 @@
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
     "axios": "^1.7.7",
+    "chart.js": "^4.5.1",
     "html5-qrcode": "^2.3.8",
     "react": "^18.3.1",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",
     "react-image-crop": "^11.0.10",
     "react-router-dom": "^6.28.0"

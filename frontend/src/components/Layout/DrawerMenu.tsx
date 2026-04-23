@@ -12,6 +12,7 @@ const baseNavItems = [
   { to: '/areas', label: 'Aree', icon: '🗄️' },
   { to: '/health', label: 'Salute', icon: '❤️' },
   { to: '/finance', label: 'Finanza', icon: '💶' },
+  { to: '/finance/compound-lab', label: 'Compound Lab', icon: '📈' },
   { to: '/investments', label: 'Investimenti', icon: '💼' },
   { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
   { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
