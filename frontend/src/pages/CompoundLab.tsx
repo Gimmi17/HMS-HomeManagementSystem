@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -15,6 +15,7 @@ import {
   type Plugin,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import tradingService, { type BalancePoint, type TradingSummary } from '@/services/trading'
 
 ChartJS.register(
   CategoryScale,
@@ -38,6 +39,8 @@ const COL = {
   roseFill: 'rgba(244, 63, 94, 0.14)',
   sky: '#0ea5e9',
   indigo: '#6366f1',
+  violet: '#a78bfa',
+  violetFill: 'rgba(167, 139, 250, 0.15)',
   slate: '#e5e7eb',
   axis: '#6b7280',
   grid: 'rgba(75, 85, 99, 0.22)',
@@ -782,7 +785,7 @@ export function CompoundLab() {
   })
 
   const [equityHidden, setEquityHidden] = useState<Record<string, boolean>>({
-    no_dd: true, net_value: false, capital: false, buffer: false,
+    no_dd: true, net_value: false, capital: false, buffer: false, real: false,
   })
   const [equityScale, setEquityScale] = useState<'linear' | 'logarithmic'>('linear')
   const [sensParam, setSensParam] = useState<SensParam>('beta')
@@ -790,6 +793,54 @@ export function CompoundLab() {
   const [optimizing, setOptimizing] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>('')
   const saveTimer = useRef<number | null>(null)
+
+  // ── Real trading data from android-trader-monitor ──
+  const [realSummary, setRealSummary] = useState<TradingSummary | null>(null)
+  const [realHistory, setRealHistory] = useState<BalancePoint[]>([])
+  const [realLoading, setRealLoading] = useState(true)
+  const [realError, setRealError] = useState('')
+
+  const loadRealData = useCallback(async () => {
+    setRealLoading(true)
+    setRealError('')
+    try {
+      const [summary, history] = await Promise.all([
+        tradingService.getSummary(),
+        tradingService.getBalanceHistory(undefined, 2000),
+      ])
+      setRealSummary(summary)
+      setRealHistory(history)
+    } catch {
+      setRealError('Trader monitor offline')
+    } finally {
+      setRealLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadRealData() }, [loadRealData])
+
+  // Map real balance history to simulation months axis
+  // Uses the earliest data point as month 0, then calculates elapsed months
+  const realEquityPoints = useMemo(() => {
+    if (realHistory.length < 2) return []
+    // Aggregate by timestamp: sum all traders' balance per unique timestamp
+    const byTime = new Map<string, number>()
+    for (const pt of realHistory) {
+      const key = pt.captured_at
+      byTime.set(key, (byTime.get(key) || 0) + (pt.balance_total ?? 0))
+    }
+    const sorted = [...byTime.entries()]
+      .map(([ts, bal]) => ({ ts: new Date(ts).getTime(), bal }))
+      .filter(p => p.bal > 0) // filter out zero/null
+      .sort((a, b) => a.ts - b.ts)
+    if (sorted.length < 2) return []
+    const t0 = sorted[0].ts
+    const MS_PER_MONTH = 30 * 24 * 60 * 60 * 1000
+    return sorted.map(p => ({
+      x: (p.ts - t0) / MS_PER_MONTH,
+      y: p.bal,
+    }))
+  }, [realHistory])
 
   const update = <K extends keyof Params>(key: K, value: Params[K]) => {
     setParams(p => ({ ...p, [key]: value }))
@@ -869,24 +920,33 @@ export function CompoundLab() {
         pointRadius: 0, tension: 0.1, hidden: equityHidden.no_dd,
       },
       {
-        _key: 'net_value', label: 'Net value',
+        _key: 'net_value', label: 'Net value (sim)',
         data: seriesToXY(result.series.net_value, params.horizon),
         borderColor: COL.emerald, borderWidth: 2, backgroundColor: COL.emeraldFill,
         fill: false, pointRadius: 0, tension: 0.1, hidden: equityHidden.net_value,
       },
       {
-        _key: 'capital', label: 'Capitale',
+        _key: 'capital', label: 'Capitale (sim)',
         data: seriesToXY(result.series.capital, params.horizon),
         borderColor: COL.sky, borderWidth: 1.3, pointRadius: 0, tension: 0.1, hidden: equityHidden.capital,
       },
       {
-        _key: 'buffer', label: 'Buffer',
+        _key: 'buffer', label: 'Buffer (sim)',
         data: seriesToXY(result.series.buffer, params.horizon),
         borderColor: COL.amber, borderWidth: 1.3, pointRadius: 0, tension: 0.1, hidden: equityHidden.buffer,
       },
+      // Real data overlay from android-trader-monitor
+      ...(realEquityPoints.length > 2 ? [{
+        _key: 'real', label: 'Saldo REALE (trader monitor)',
+        data: realEquityPoints,
+        borderColor: COL.violet, borderWidth: 2.5, backgroundColor: COL.violetFill,
+        fill: false, pointRadius: 1.5, pointHoverRadius: 4, tension: 0.2,
+        hidden: equityHidden.real,
+        borderDash: [] as number[],
+      }] : []),
     ]
     return { datasets: datasets as unknown as ChartData<'line'>['datasets'] }
-  }, [result, resultNoDD, equityHidden, params.horizon])
+  }, [result, resultNoDD, equityHidden, params.horizon, realEquityPoints])
 
   const equityOptions: ChartOptions<'line'> = useMemo(() => {
     const opts = baseChartOptions(params.horizon)
@@ -1102,6 +1162,9 @@ export function CompoundLab() {
           </h1>
           <p className="text-xs uppercase tracking-widest text-gray-500 mt-2">
             simulazione giornaliera · buffer autoricaricante · parametri dinamici
+            {realEquityPoints.length > 2 && (
+              <span className="text-violet-400 ml-2">· dati reali attivi</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -1274,6 +1337,7 @@ export function CompoundLab() {
               <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
                 <span className="text-[11px] uppercase tracking-widest text-gray-400">
                   Daily simulation · net value, capitale, buffer
+                  {realEquityPoints.length > 2 && <span className="text-violet-400"> · saldo reale</span>}
                 </span>
                 <span className="text-[10px] text-gray-500">
                   giorni 0 → {m.days_total}
@@ -1285,13 +1349,17 @@ export function CompoundLab() {
                   { key: 'capital', label: 'capitale' },
                   { key: 'buffer', label: 'buffer' },
                   { key: 'no_dd', label: 'no-crash (teorico)' },
-                ] as const).map(t => {
+                  ...(realEquityPoints.length > 2 ? [{ key: 'real' as const, label: 'REALE' }] : []),
+                ]).map(t => {
                   const on = !equityHidden[t.key]
+                  const isReal = t.key === 'real'
                   return (
                     <button key={t.key}
                       onClick={() => setEquityHidden(h => ({ ...h, [t.key]: !h[t.key] }))}
                       className={`px-2.5 py-1 border text-[10px] uppercase tracking-widest rounded ${
-                        on ? 'border-emerald-600 text-emerald-400 bg-emerald-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                        isReal
+                          ? on ? 'border-violet-500 text-violet-400 bg-violet-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                          : on ? 'border-emerald-600 text-emerald-400 bg-emerald-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
                       }`}>
                       {t.label}
                     </button>
@@ -1313,6 +1381,119 @@ export function CompoundLab() {
               </div>
             </div>
           </section>
+
+          {/* §Real — Confronto ipotetico vs effettivo */}
+          {!realLoading && !realError && realSummary && (
+            <section className="mb-7">
+              <h2 className="text-xl font-serif mb-3">
+                <span className="font-sans text-[11px] text-violet-400 mr-2 align-middle">§R</span>
+                Confronto ipotetico vs <em className="text-violet-400 not-italic">effettivo</em>
+              </h2>
+
+              {/* KPI comparison tiles */}
+              <div className="grid grid-cols-2 md:grid-cols-4 bg-gray-800 border border-gray-700 rounded mb-4">
+                {(() => {
+                  const realBal = realSummary.total_balance
+                  const realDep = realSummary.total_deposited
+                  const realPnl = realSummary.total_pnl
+                  // Simulated value at the same elapsed time
+                  const elapsedMonths = realEquityPoints.length > 0
+                    ? realEquityPoints[realEquityPoints.length - 1].x
+                    : 0
+                  const simDayIdx = Math.min(
+                    Math.round(elapsedMonths * DAYS_PER_MONTH) - 1,
+                    result.series.net_value.length - 1
+                  )
+                  const simValue = simDayIdx >= 0 ? result.series.net_value[simDayIdx] : 0
+                  const simCapital = simDayIdx >= 0 ? result.series.capital[simDayIdx] : 0
+                  const delta = realBal - simCapital
+                  const deltaPct = simCapital > 0 ? ((delta / simCapital) * 100) : 0
+
+                  return [
+                    { k: 'Saldo reale', v: `$ ${fmt.format(realBal)}`, cls: 'pos' as TileCls,
+                      sub: `depositato: $ ${fmt.format(realDep)}` },
+                    { k: 'PnL reale', v: `$ ${fmt2.format(realPnl)}`, cls: (realPnl >= 0 ? 'pos' : 'neg') as TileCls,
+                      sub: `${realDep > 0 ? (realPnl / realDep * 100).toFixed(1) : '0'}% del depositato` },
+                    { k: `Sim @ mese ${fmt1.format(elapsedMonths)}`, v: `€ ${fmt.format(simValue)}`, cls: 'neu' as TileCls,
+                      sub: `capitale sim: € ${fmt.format(simCapital)}` },
+                    { k: 'Delta reale vs sim', v: `${delta >= 0 ? '+' : ''}${fmt.format(delta)}`, cls: (delta >= 0 ? 'pos' : 'neg') as TileCls,
+                      sub: `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}% rispetto alla simulazione` },
+                  ].map((t, i) => <MetricTile key={i} {...t} />)
+                })()}
+              </div>
+
+              {/* Traders breakdown */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                {realSummary.traders.map(trader => (
+                  <div key={trader.name} className="bg-gray-800 border border-gray-700 rounded p-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-gray-200">{trader.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        trader.pnl_account >= 0 ? 'bg-emerald-900/30 text-emerald-400' : 'bg-rose-900/30 text-rose-400'
+                      }`}>
+                        {trader.pnl_account >= 0 ? '+' : ''}${trader.pnl_account.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-gray-500">Saldo</span>
+                        <p className="text-gray-200 font-medium">${trader.balance_total.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Depositato</span>
+                        <p className="text-gray-200 font-medium">${trader.balance_deposited.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Credito</span>
+                        <p className="text-gray-200 font-medium">${trader.credit.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Posizioni</span>
+                        <p className="text-gray-200 font-medium">{trader.open_positions}</p>
+                      </div>
+                    </div>
+                    {trader.last_update && (
+                      <p className="text-[10px] text-gray-500 mt-2">
+                        Ultimo scraping: {new Date(trader.last_update).toLocaleString('it-IT')}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Insight box */}
+              <div className="bg-gradient-to-r from-violet-900/20 to-transparent border-l-2 border-violet-500 p-3 text-sm">
+                <span className="text-[10px] uppercase tracking-widest text-violet-400 font-semibold mr-2">confronto</span>
+                {(() => {
+                  const realBal = realSummary.total_balance
+                  const elapsedMonths = realEquityPoints.length > 0 ? realEquityPoints[realEquityPoints.length - 1].x : 0
+                  const simDayIdx = Math.min(Math.round(elapsedMonths * DAYS_PER_MONTH) - 1, result.series.capital.length - 1)
+                  const simCap = simDayIdx >= 0 ? result.series.capital[simDayIdx] : 0
+                  const ahead = realBal > simCap
+                  return (
+                    <>
+                      Dopo <strong className="text-violet-400">{fmt1.format(elapsedMonths)} mesi</strong> di operativita,
+                      il portafoglio reale (<strong className="text-violet-400">${fmt.format(realBal)}</strong>) e{' '}
+                      <strong className={ahead ? 'text-emerald-400' : 'text-rose-400'}>
+                        {ahead ? 'avanti' : 'indietro'}
+                      </strong>{' '}
+                      rispetto alla simulazione (<strong className="text-emerald-400">€{fmt.format(simCap)}</strong>).
+                      {' '}La linea viola nel grafico equity mostra l'andamento reale sovrapposto alla proiezione.
+                    </>
+                  )
+                })()}
+              </div>
+            </section>
+          )}
+
+          {realError && (
+            <div className="mb-7 bg-gray-800 border border-gray-700 border-l-4 border-l-rose-500 rounded p-4">
+              <p className="text-xs text-rose-400">
+                Dati reali non disponibili — {realError}
+              </p>
+              <button onClick={loadRealData} className="text-xs text-gray-400 underline mt-1">Riprova</button>
+            </div>
+          )}
 
           {/* Drag & Cashflow */}
           <section className="mb-7">
