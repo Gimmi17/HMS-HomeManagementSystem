@@ -1097,7 +1097,7 @@ export function CompoundLab() {
       <header className="flex items-end justify-between pb-4 mb-5 border-b border-gray-700 gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-serif">
-            Compound <em className="text-emerald-400 not-italic">Lab</em>{' '}
+            Proiezione <em className="text-emerald-400 not-italic">Finanziaria</em>{' '}
             <span className="text-gray-500 text-lg">· v2</span>
           </h1>
           <p className="text-xs uppercase tracking-widest text-gray-500 mt-2">
@@ -1170,7 +1170,7 @@ export function CompoundLab() {
             </summary>
             <div className="px-6 pb-6 text-sm text-gray-400 leading-relaxed">
               <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Cos'è questo strumento</h3>
-              <p className="mb-2"><strong className="text-gray-100">Compound Lab</strong> è un simulatore deterministico per ottimizzare una strategia di accumulo + cashflow basata su un trading bot con rendimento giornaliero. Permette di confrontare numericamente diverse strategie variando in tempo reale i parametri principali: budget, prestito, leverage, fasi, payoff fund.</p>
+              <p className="mb-2"><strong className="text-gray-100">Proiezione Finanziaria</strong> è un simulatore deterministico per ottimizzare una strategia di accumulo + cashflow basata su un trading bot con rendimento giornaliero. Permette di confrontare numericamente diverse strategie variando in tempo reale i parametri principali: budget, prestito, leverage, fasi, payoff fund.</p>
               <p className="mb-2"><strong className="text-gray-100">Lo scopo non è dare consigli</strong>, ma esporre la matematica del compounding sotto specifiche assunzioni, per ragionare su trade-off con numeri concreti.</p>
 
               <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Assunzioni del modello</h3>

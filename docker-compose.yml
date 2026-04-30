@@ -48,6 +48,10 @@ services:
       # OCR Service
       OCR_SERVICE_URL: http://ocr:8001
 
+      # Trading Monitor (android-trader-monitor)
+      TRADER_MONITOR_URL: ${TRADER_MONITOR_URL:-http://host.docker.internal:8000}
+      TRADER_MONITOR_TOKEN: ${TRADER_MONITOR_TOKEN:-}
+
       # Python
       PYTHONUNBUFFERED: 1
     ports:

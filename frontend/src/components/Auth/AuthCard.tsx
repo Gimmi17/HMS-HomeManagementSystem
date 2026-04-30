@@ -29,6 +29,7 @@ export function AuthCard({ children, title, subtitle }: AuthCardProps) {
           </div>
           <h1 className="text-4xl sm:text-5xl font-brand font-bold text-gray-900 tracking-wide">{title}</h1>
           <p className="text-gray-400 mt-1 text-xs sm:text-sm tracking-widest uppercase">Home Management System</p>
+          <p className="text-gray-500 mt-2 text-sm italic">«Il quartier generale della tua economia domestica»</p>
           {subtitle && (
             <p className="text-gray-500 mt-3 text-sm sm:text-base">{subtitle}</p>
           )}

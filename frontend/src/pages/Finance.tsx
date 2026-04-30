@@ -9,8 +9,13 @@ import financeService, {
   type FinanceEntity,
   type FinanceSource,
 } from '@/services/finance'
+import tradingService, {
+  type TradingSummary,
+  type BalancePoint,
+  type TradeRecord,
+} from '@/services/trading'
 
-type Tab = 'dashboard' | 'storico' | 'ricorrenti' | 'revolut' | 'importa'
+type Tab = 'dashboard' | 'movimenti' | 'ricorrenti' | 'revolut' | 'importa' | 'trading'
 
 const fmtEur = (n: number | null | undefined) =>
   n != null && !Number.isNaN(n) ? `€ ${Number(n).toFixed(2)}` : '-'
@@ -80,7 +85,7 @@ export function Finance() {
       </div>
 
       <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
-        {(['dashboard', 'storico', 'ricorrenti', 'revolut', 'importa'] as Tab[]).map((t) => (
+        {(['dashboard', 'movimenti', 'ricorrenti', 'revolut', 'importa', 'trading'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -117,7 +122,7 @@ export function Finance() {
               }}
             />
           )}
-          {tab === 'storico' && <StoricoTab entries={entries} />}
+          {tab === 'movimenti' && <StoricoTab entries={entries} />}
           {tab === 'ricorrenti' && (
             <RicorrentiTab
               entries={entries}
@@ -163,10 +168,11 @@ export function Finance() {
                   })
                 }
                 await reloadAll()
-                setTab('storico')
+                setTab('movimenti')
               }}
             />
           )}
+          {tab === 'trading' && <TradingTab />}
         </>
       )}
     </div>
@@ -245,9 +251,9 @@ function DashboardTab({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard label="Entrate/mese" value={fmtEur(income)} tone="green" />
         <KpiCard label="Uscite/mese" value={fmtEur(expense)} tone="red" />
-        <KpiCard label="Leftover" value={fmtEur(leftover)} tone={leftover >= 0 ? 'green' : 'red'} />
+        <KpiCard label="Avanzo" value={fmtEur(leftover)} tone={leftover >= 0 ? 'green' : 'red'} />
         <KpiCard
-          label="Runway"
+          label="Autonomia"
           value={runway != null ? `${runway.toFixed(1)} mesi` : '-'}
           tone="indigo"
         />
@@ -1410,6 +1416,302 @@ function BarChart({ data }: { data: [string, number][] }) {
           </g>
         )
       })}
+    </svg>
+  )
+}
+
+// ─── Trading Tab ────────────────────────────────────────────────────────────
+
+function TradingTab() {
+  const [summary, setSummary] = useState<TradingSummary | null>(null)
+  const [balanceHistory, setBalanceHistory] = useState<BalancePoint[]>([])
+  const [trades, setTrades] = useState<TradeRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [selectedTrader, setSelectedTrader] = useState<string>('')
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [s, bh, tr] = await Promise.all([
+        tradingService.getSummary(selectedTrader || undefined),
+        tradingService.getBalanceHistory(selectedTrader || undefined),
+        tradingService.getPnlTrades(selectedTrader || undefined),
+      ])
+      setSummary(s)
+      setBalanceHistory(bh)
+      setTrades(tr)
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Servizio trading non raggiungibile')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [selectedTrader])
+
+  if (loading) return <p className="text-gray-500">Connessione al trader monitor...</p>
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-700 font-medium">Trader Monitor offline</p>
+        <p className="text-red-500 text-sm mt-1">{error}</p>
+        <button onClick={load} className="mt-2 text-sm text-red-600 underline">Riprova</button>
+      </div>
+    )
+  }
+  if (!summary) return null
+
+  const traderNames = summary.traders.map(t => t.name)
+
+  return (
+    <div className="space-y-6">
+      {/* Trader filter */}
+      {traderNames.length > 1 && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Trader:</label>
+          <select
+            value={selectedTrader}
+            onChange={e => setSelectedTrader(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm"
+          >
+            <option value="">Tutti</option>
+            {traderNames.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <TradingKpi label="Saldo totale" value={summary.total_balance} prefix="$" color="blue" />
+        <TradingKpi label="PnL account" value={summary.total_pnl} prefix="$" color={summary.total_pnl >= 0 ? 'green' : 'red'} />
+        <TradingKpi label="Depositato" value={summary.total_deposited} prefix="$" color="gray" />
+        <TradingKpi label="Posizioni aperte" value={summary.open_positions} color="indigo" isInt />
+      </div>
+
+      {/* Traders detail cards */}
+      {summary.traders.map(trader => (
+        <div key={trader.name} className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-800">{trader.name}</h3>
+            <span className="text-xs text-gray-400">
+              {trader.last_update ? new Date(trader.last_update).toLocaleString('it-IT') : 'N/A'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+            <div>
+              <span className="text-gray-500">Saldo</span>
+              <p className="font-medium">$ {trader.balance_total.toFixed(2)}</p>
+            </div>
+            <div>
+              <span className="text-gray-500">PnL</span>
+              <p className={`font-medium ${trader.pnl_account >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                $ {trader.pnl_account.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-500">Depositato</span>
+              <p className="font-medium">$ {trader.balance_deposited.toFixed(2)}</p>
+            </div>
+            <div>
+              <span className="text-gray-500">Credito</span>
+              <p className="font-medium">$ {trader.credit.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {/* Open positions table */}
+          {trader.positions.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-100 text-gray-500">
+                    <th className="text-left py-1 pr-2">Simbolo</th>
+                    <th className="text-left py-1 pr-2">Dir</th>
+                    <th className="text-right py-1 pr-2">Lotto</th>
+                    <th className="text-right py-1 pr-2">Entry</th>
+                    <th className="text-right py-1 pr-2">Attuale</th>
+                    <th className="text-right py-1">PnL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trader.positions.map((p, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="py-1 pr-2 font-medium">{p.symbol}</td>
+                      <td className="py-1 pr-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          p.trade_type === 'Buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {p.trade_type}
+                        </span>
+                      </td>
+                      <td className="py-1 pr-2 text-right">{p.lot_size}</td>
+                      <td className="py-1 pr-2 text-right">{p.entry_price?.toFixed(2)}</td>
+                      <td className="py-1 pr-2 text-right">{p.current_price?.toFixed(2)}</td>
+                      <td className={`py-1 text-right font-medium ${(p.pnl ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        $ {(p.pnl ?? 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {trader.positions.length === 0 && (
+            <p className="text-xs text-gray-400 italic">Nessuna posizione aperta</p>
+          )}
+        </div>
+      ))}
+
+      {/* Balance history chart */}
+      {balanceHistory.length > 2 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <h3 className="font-semibold text-gray-800 mb-3">Andamento saldo</h3>
+          <BalanceChart data={balanceHistory} />
+        </div>
+      )}
+
+      {/* Recent trades table */}
+      {trades.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <h3 className="font-semibold text-gray-800 mb-3">Storico trade</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-500">
+                  <th className="text-left py-2 pr-2">Data</th>
+                  <th className="text-left py-2 pr-2">Trader</th>
+                  <th className="text-left py-2 pr-2">Simbolo</th>
+                  <th className="text-left py-2 pr-2">Dir</th>
+                  <th className="text-right py-2 pr-2">Lotto</th>
+                  <th className="text-right py-2 pr-2">Entry</th>
+                  <th className="text-right py-2 pr-2">Attuale</th>
+                  <th className="text-right py-2">PnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(-50).reverse().map((t, i) => (
+                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-1.5 pr-2 text-gray-500">
+                      {new Date(t.captured_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="py-1.5 pr-2">{t.trader_name}</td>
+                    <td className="py-1.5 pr-2 font-medium">{t.symbol ?? '-'}</td>
+                    <td className="py-1.5 pr-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        t.direction === 'Buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {t.direction ?? '?'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-2 text-right">{t.lot ?? '-'}</td>
+                    <td className="py-1.5 pr-2 text-right">{t.entry_price?.toFixed(2) ?? '-'}</td>
+                    <td className="py-1.5 pr-2 text-right">{t.current_price?.toFixed(2) ?? '-'}</td>
+                    <td className={`py-1.5 text-right font-medium ${(t.pnl_trade ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      $ {(t.pnl_trade ?? 0).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TradingKpi({ label, value, prefix = '', color, isInt }: {
+  label: string; value: number; prefix?: string; color: string; isInt?: boolean
+}) {
+  const colorMap: Record<string, string> = {
+    blue: 'bg-blue-50 border-blue-200 text-blue-700',
+    green: 'bg-green-50 border-green-200 text-green-700',
+    red: 'bg-red-50 border-red-200 text-red-700',
+    gray: 'bg-gray-50 border-gray-200 text-gray-700',
+    indigo: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+  }
+  return (
+    <div className={`rounded-lg border p-3 ${colorMap[color] || colorMap.gray}`}>
+      <p className="text-xs opacity-70">{label}</p>
+      <p className="text-lg font-bold mt-1">
+        {prefix}{isInt ? value : value.toFixed(2)}
+      </p>
+    </div>
+  )
+}
+
+function BalanceChart({ data }: { data: BalancePoint[] }) {
+  const W = 700
+  const H = 220
+  const PAD = 50
+
+  const values = data.map(d => d.balance_total ?? 0)
+  const minV = Math.min(...values)
+  const maxV = Math.max(...values)
+  const range = maxV - minV || 1
+
+  const chartW = W - PAD * 2
+  const chartH = H - PAD * 2
+
+  const points = data.map((d, i) => {
+    const x = PAD + (i / Math.max(data.length - 1, 1)) * chartW
+    const y = PAD + chartH - ((( d.balance_total ?? 0) - minV) / range) * chartH
+    return `${x},${y}`
+  })
+
+  const polyline = points.join(' ')
+
+  // Fill area
+  const areaPoints = [
+    `${PAD},${PAD + chartH}`,
+    ...points,
+    `${PAD + chartW},${PAD + chartH}`,
+  ].join(' ')
+
+  // Y-axis labels
+  const ySteps = 5
+  const yLabels = Array.from({ length: ySteps + 1 }, (_, i) => {
+    const val = minV + (range / ySteps) * i
+    const y = PAD + chartH - (i / ySteps) * chartH
+    return { val, y }
+  })
+
+  // X-axis labels (show ~6 dates)
+  const xStep = Math.max(1, Math.floor(data.length / 6))
+  const xLabels = data.filter((_, i) => i % xStep === 0 || i === data.length - 1).map((d) => {
+    const origIdx = data.indexOf(d)
+    const x = PAD + (origIdx / Math.max(data.length - 1, 1)) * chartW
+    return { x, label: new Date(d.captured_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }) }
+  })
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 280 }}>
+      {/* Grid lines */}
+      {yLabels.map((yl, i) => (
+        <g key={i}>
+          <line x1={PAD} y1={yl.y} x2={W - PAD} y2={yl.y} stroke="#e5e7eb" strokeWidth={1} />
+          <text x={PAD - 6} y={yl.y + 4} textAnchor="end" fontSize={9} fill="#9ca3af">
+            ${yl.val.toFixed(0)}
+          </text>
+        </g>
+      ))}
+      {/* Area fill */}
+      <polygon points={areaPoints} fill="url(#balGrad)" opacity={0.3} />
+      <defs>
+        <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3b82f6" />
+          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      {/* Line */}
+      <polyline points={polyline} fill="none" stroke="#3b82f6" strokeWidth={2} />
+      {/* X labels */}
+      {xLabels.map((xl, i) => (
+        <text key={i} x={xl.x} y={H - 6} textAnchor="middle" fontSize={9} fill="#9ca3af">
+          {xl.label}
+        </text>
+      ))}
     </svg>
   )
 }

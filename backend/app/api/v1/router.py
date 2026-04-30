@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments, trading
 
 
 # Create main v1 router
@@ -297,4 +297,14 @@ api_router.include_router(
     investments.router,
     prefix="/investments",
     tags=["investments"],
+)
+
+
+# Include trading endpoints
+# Proxy to android-trader-monitor service for copy-trading analytics
+# No auth required (reads from external service)
+api_router.include_router(
+    trading.router,
+    prefix="/trading",
+    tags=["trading"],
 )
