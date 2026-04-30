@@ -29,21 +29,21 @@ ChartJS.register(
   Title,
 )
 
-// ─── Palette (HMS dark theme accents) ───────────────────────────────────────
+// ─── Palette (chart colors — independent of UI theme) ──────────────────────
 const COL = {
   emerald: '#10b981',
-  emeraldFill: 'rgba(16, 185, 129, 0.12)',
+  emeraldFill: 'rgba(16, 185, 129, 0.15)',
   amber: '#f59e0b',
-  amberFill: 'rgba(245, 158, 11, 0.18)',
+  amberFill: 'rgba(245, 158, 11, 0.15)',
   rose: '#f43f5e',
-  roseFill: 'rgba(244, 63, 94, 0.14)',
+  roseFill: 'rgba(244, 63, 94, 0.12)',
   sky: '#0ea5e9',
   indigo: '#6366f1',
   violet: '#a78bfa',
   violetFill: 'rgba(167, 139, 250, 0.15)',
-  slate: '#e5e7eb',
+  slate: '#9ca3af',
   axis: '#6b7280',
-  grid: 'rgba(75, 85, 99, 0.22)',
+  grid: 'rgba(209, 213, 219, 0.5)',
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -622,7 +622,7 @@ const CONTROL_SECTIONS: { title: string; note?: string; controls: ControlDef[]; 
     ],
     extra: (p) => (
       <div className="text-xs text-gray-500 mt-1">
-        soglia auto: <span className="text-amber-400">€ {fmt.format(p.wTarget / (p.wPct / 100))}</span>
+        soglia auto: <span className="text-amber-600">€ {fmt.format(p.wTarget / (p.wPct / 100))}</span>
       </div>
     ),
   },
@@ -653,7 +653,7 @@ const CONTROL_SECTIONS: { title: string; note?: string; controls: ControlDef[]; 
     ],
     extra: (p) => (
       <div className="text-xs text-gray-500 mt-1">
-        rata calcolata: <span className="text-amber-400">€ {fmt.format(computeMonthlyPayment(p.loanAmount, p.loanTAEG, p.loanMonths))}</span> /mese
+        rata calcolata: <span className="text-amber-600">€ {fmt.format(computeMonthlyPayment(p.loanAmount, p.loanTAEG, p.loanMonths))}</span> /mese
       </div>
     ),
   },
@@ -687,9 +687,9 @@ function SliderInput({
 }) {
   return (
     <div className="mb-3">
-      <div className="flex justify-between items-baseline text-xs text-gray-400 mb-1">
+      <div className="flex justify-between items-baseline text-xs text-gray-600 mb-1">
         <span>{def.label}</span>
-        <span className="text-amber-400 font-medium tabular-nums">{def.format(value)}</span>
+        <span className="text-primary-700 font-medium tabular-nums">{def.format(value)}</span>
       </div>
       <div className="grid grid-cols-[1fr_70px] gap-2 items-center">
         <input
@@ -699,7 +699,7 @@ function SliderInput({
           step={def.step}
           value={value}
           onChange={e => onChange(parseFloat(e.target.value))}
-          className="w-full accent-emerald-500 h-1.5 bg-gray-700 rounded-none cursor-pointer"
+          className="w-full accent-primary-600 h-1.5 bg-gray-200 rounded cursor-pointer"
         />
         <input
           type="number"
@@ -709,7 +709,7 @@ function SliderInput({
             const v = parseFloat(e.target.value)
             if (!Number.isNaN(v)) onChange(v)
           }}
-          className="w-full bg-gray-900 text-white border border-gray-700 focus:border-emerald-500 focus:outline-none px-2 py-1 text-xs rounded"
+          className="w-full bg-white text-gray-900 border border-gray-300 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 px-2 py-1 text-xs rounded"
         />
       </div>
     </div>
@@ -719,12 +719,12 @@ function SliderInput({
 // ─── Tile component ──────────────────────────────────────────────────────────
 type TileCls = 'pos' | 'neu' | 'neg'
 function MetricTile({ k, v, cls, sub }: { k: string; v: string; cls: TileCls; sub: string }) {
-  const color = cls === 'pos' ? 'text-emerald-400' : cls === 'neg' ? 'text-rose-400' : 'text-amber-400'
+  const color = cls === 'pos' ? 'text-emerald-600' : cls === 'neg' ? 'text-red-600' : 'text-amber-600'
   return (
-    <div className="p-4 border-r border-gray-700 last:border-r-0">
+    <div className="p-4 border-r border-gray-200 last:border-r-0">
       <div className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">{k}</div>
-      <div className={`text-2xl font-serif leading-tight tabular-nums ${color}`}>{v}</div>
-      <div className="text-[11px] text-gray-400 mt-1">{sub}</div>
+      <div className={`text-2xl font-bold leading-tight tabular-nums ${color}`}>{v}</div>
+      <div className="text-[11px] text-gray-500 mt-1">{sub}</div>
     </div>
   )
 }
@@ -1152,34 +1152,34 @@ export function CompoundLab() {
   )
 
   return (
-    <div className="bg-gray-900 text-gray-100 min-h-screen -m-4 sm:-m-6 p-4 sm:p-6">
+    <div className="space-y-6">
       {/* Header */}
-      <header className="flex items-end justify-between pb-4 mb-5 border-b border-gray-700 gap-4 flex-wrap">
+      <header className="flex items-end justify-between pb-4 mb-2 border-b border-gray-200 gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-serif">
-            Proiezione <em className="text-emerald-400 not-italic">Finanziaria</em>{' '}
-            <span className="text-gray-500 text-lg">· v2</span>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Proiezione Finanziaria
+            <span className="text-gray-400 text-base font-normal ml-2">v2</span>
           </h1>
-          <p className="text-xs uppercase tracking-widest text-gray-500 mt-2">
-            simulazione giornaliera · buffer autoricaricante · parametri dinamici
+          <p className="text-xs text-gray-500 mt-1">
+            Simulazione giornaliera · buffer autoricaricante · parametri dinamici
             {realEquityPoints.length > 2 && (
-              <span className="text-violet-400 ml-2">· dati reali attivi</span>
+              <span className="text-violet-600 font-medium ml-2">· dati reali attivi</span>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <span className="inline-block w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="inline-block w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
           LIVE RECOMPUTE
-          <span className="px-2 py-0.5 border border-emerald-700 text-emerald-400 bg-emerald-900/20 tracking-widest">INTERACTIVE</span>
+          <span className="px-2 py-0.5 border border-primary-300 text-primary-700 bg-primary-50 rounded text-[10px] tracking-widest font-medium">INTERACTIVE</span>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ─── Control Panel ─── */}
-        <aside className="bg-gray-800 border border-gray-700 rounded p-4 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+        <aside className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
           {CONTROL_SECTIONS.map((section, idx) => (
-            <div key={idx} className="mb-5 pb-4 border-b border-dashed border-gray-700 last:border-b-0 last:mb-0">
-              <div className="text-[10px] uppercase tracking-widest text-emerald-400 font-semibold mb-2">
+            <div key={idx} className="mb-5 pb-4 border-b border-dashed border-gray-200 last:border-b-0 last:mb-0">
+              <div className="text-[10px] uppercase tracking-widest text-primary-600 font-semibold mb-2">
                 {section.title}
               </div>
               {section.note && (
@@ -1199,85 +1199,85 @@ export function CompoundLab() {
 
           <div className="flex gap-2 mt-3 flex-wrap">
             <button onClick={handleReset}
-              className="flex-1 border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
+              className="flex-1 border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
               Reset
             </button>
             <button onClick={handleSave}
-              className="flex-1 border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
-              💾 Salva
+              className="flex-1 border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
+              Salva
             </button>
             <button onClick={handleClearSave}
-              className="flex-1 border border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
+              className="flex-1 border border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800 px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
               Pulisci
             </button>
           </div>
           <button onClick={handleOptimize} disabled={optimizing}
-            className="w-full mt-2 border border-emerald-600 text-emerald-400 bg-emerald-900/20 hover:bg-emerald-900/40 disabled:opacity-50 px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
+            className="w-full mt-2 bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 px-3 py-1.5 text-[10px] uppercase tracking-widest rounded">
             {optimizing ? 'Optimizing...' : 'Auto-opt α/β/RF'}
           </button>
-          <div className="text-[11px] text-gray-400 mt-2 text-center min-h-[14px]">{saveStatus}</div>
+          <div className="text-[11px] text-gray-500 mt-2 text-center min-h-[14px]">{saveStatus}</div>
         </aside>
 
         {/* ─── Content ─── */}
         <main className="min-w-0">
           {/* Documentazione collapsible */}
-          <details className="bg-gray-800 border border-gray-700 border-l-4 border-l-emerald-500 rounded mb-5">
-            <summary className="px-5 py-3 cursor-pointer flex items-center justify-between select-none hover:bg-gray-750">
-              <span className="font-serif italic text-gray-100">
+          <details className="bg-white border border-gray-200 border-l-4 border-l-primary-500 rounded-xl shadow-sm mb-5">
+            <summary className="px-5 py-3 cursor-pointer flex items-center justify-between select-none hover:bg-gray-50">
+              <span className="text-gray-700">
                 Scheda progetto · contesto, scopo, come si legge
-                <span className="text-emerald-400 not-italic text-[10px] uppercase tracking-widest ml-2 font-sans">
-                  scheda info
+                <span className="text-primary-600 text-[10px] uppercase tracking-widest ml-2 font-semibold">
+                  info
                 </span>
               </span>
-              <span className="text-emerald-400">▸</span>
+              <span className="text-primary-500">▸</span>
             </summary>
-            <div className="px-6 pb-6 text-sm text-gray-400 leading-relaxed">
-              <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Cos'è questo strumento</h3>
-              <p className="mb-2"><strong className="text-gray-100">Proiezione Finanziaria</strong> è un simulatore deterministico per ottimizzare una strategia di accumulo + cashflow basata su un trading bot con rendimento giornaliero. Permette di confrontare numericamente diverse strategie variando in tempo reale i parametri principali: budget, prestito, leverage, fasi, payoff fund.</p>
-              <p className="mb-2"><strong className="text-gray-100">Lo scopo non è dare consigli</strong>, ma esporre la matematica del compounding sotto specifiche assunzioni, per ragionare su trade-off con numeri concreti.</p>
+            <div className="px-6 pb-6 text-sm text-gray-600 leading-relaxed">
+              <h3 className="text-primary-600 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-200">Cos'e questo strumento</h3>
+              <p className="mb-2"><strong className="text-gray-900">Proiezione Finanziaria</strong> e un simulatore deterministico per ottimizzare una strategia di accumulo + cashflow basata su un trading bot con rendimento giornaliero. Permette di confrontare numericamente diverse strategie variando in tempo reale i parametri principali: budget, prestito, leverage, fasi, payoff fund.</p>
+              <p className="mb-2"><strong className="text-gray-900">Lo scopo non e dare consigli</strong>, ma esporre la matematica del compounding sotto specifiche assunzioni, per ragionare su trade-off con numeri concreti.</p>
 
-              <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Assunzioni del modello</h3>
+              <h3 className="text-primary-600 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-200">Assunzioni del modello</h3>
               <ul className="list-disc ml-5 space-y-1">
-                <li>Rendimento giornaliero: <code className="bg-gray-900 text-emerald-400 px-1 rounded">0.40%</code> costante</li>
-                <li>Crash grande: <code className="bg-gray-900 text-emerald-400 px-1 rounded">-10%</code> ogni <code className="bg-gray-900 text-emerald-400 px-1 rounded">90 giorni</code></li>
-                <li>Crash piccolo: <code className="bg-gray-900 text-emerald-400 px-1 rounded">-2%</code> ogni <code className="bg-gray-900 text-emerald-400 px-1 rounded">21 giorni</code></li>
+                <li>Rendimento giornaliero: <code className="bg-gray-100 text-primary-700 px-1 rounded">0.40%</code> costante</li>
+                <li>Crash grande: <code className="bg-gray-100 text-primary-700 px-1 rounded">-10%</code> ogni <code className="bg-gray-100 text-primary-700 px-1 rounded">90 giorni</code></li>
+                <li>Crash piccolo: <code className="bg-gray-100 text-primary-700 px-1 rounded">-2%</code> ogni <code className="bg-gray-100 text-primary-700 px-1 rounded">21 giorni</code></li>
                 <li>I due crash sono indipendenti (possono cadere lo stesso giorno)</li>
-                <li>Granularità giornaliera: 30 giorni × 48 mesi = 1.440 step</li>
+                <li>Granularita giornaliera: 30 giorni x 48 mesi = 1.440 step</li>
               </ul>
 
-              <div className="bg-rose-900/10 border-l-2 border-rose-500 p-3 my-3 text-gray-200 text-xs">
-                <span className="text-rose-400 uppercase tracking-widest font-semibold mr-2">⚠ limiti</span>
-                Il mondo reale non ha crash deterministici né rendimenti costanti. I bot di trading hanno distribuzioni a code grasse, drawdown clusterizzati, possibili blow-up. <strong className="text-gray-100">Non confondere output deterministici con probabilità di realizzazione.</strong>
+              <div className="bg-red-50 border-l-2 border-red-400 p-3 my-3 text-gray-700 text-xs">
+                <span className="text-red-600 uppercase tracking-widest font-semibold mr-2">Limiti</span>
+                Il mondo reale non ha crash deterministici ne rendimenti costanti. I bot di trading hanno distribuzioni a code grasse, drawdown clusterizzati, possibili blow-up. <strong className="text-gray-900">Non confondere output deterministici con probabilita di realizzazione.</strong>
               </div>
 
-              <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Concetti chiave</h3>
+              <h3 className="text-primary-600 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-200">Concetti chiave</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
                 <div>
-                  <p className="mb-2"><strong className="text-gray-100">Capitale</strong> — euro investiti nel bot. Cresce dello 0.40% al giorno. Subisce i crash.</p>
-                  <p className="mb-2"><strong className="text-gray-100">Buffer</strong> — cassa parcheggiata fuori dal bot. Non rende, ma viene deployato sul capitale durante i crash.</p>
-                  <p className="mb-2"><strong className="text-gray-100">Cashflow</strong> — quando il capitale supera la soglia, ogni mese si preleva il 3%. Una % torna nel buffer, il resto va in tasca o al payoff fund.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Capitale</strong> — euro investiti nel bot. Cresce dello 0.40% al giorno. Subisce i crash.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Buffer</strong> — cassa parcheggiata fuori dal bot. Non rende, ma viene deployato sul capitale durante i crash.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Cashflow</strong> — quando il capitale supera la soglia, ogni mese si preleva il 3%. Una % torna nel buffer, il resto va in tasca o al payoff fund.</p>
                 </div>
                 <div>
-                  <p className="mb-2"><strong className="text-gray-100">Leverage del buffer</strong> — durante l'accumulo, prelevi N €/m dal buffer e li metti nel capitale per accelerare la crescita.</p>
-                  <p className="mb-2"><strong className="text-gray-100">Two-phase strategy</strong> — fase 1 con budget alto + leverage; fase 2 con budget ridotto e rata coperta dal sistema.</p>
-                  <p className="mb-2"><strong className="text-gray-100">Payoff fund</strong> — una % del cashflow netto si accumula in un fondo dedicato per estinguere il prestito anticipatamente.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Leverage del buffer</strong> — durante l'accumulo, prelevi N euro/m dal buffer e li metti nel capitale per accelerare la crescita.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Two-phase strategy</strong> — fase 1 con budget alto + leverage; fase 2 con budget ridotto e rata coperta dal sistema.</p>
+                  <p className="mb-2"><strong className="text-gray-900">Payoff fund</strong> — una % del cashflow netto si accumula in un fondo dedicato per estinguere il prestito anticipatamente.</p>
                 </div>
               </div>
 
-              <h3 className="text-emerald-400 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-700">◉ Scoperte matematiche</h3>
+              <h3 className="text-primary-600 text-[11px] uppercase tracking-widest font-semibold mt-4 mb-2 pb-1 border-b border-dashed border-gray-200">Scoperte matematiche</h3>
               <ul className="list-disc ml-5 space-y-1">
-                <li><strong className="text-gray-100">Il drawdown è il fattore dominante</strong>: erode 70-85% del compound teorico.</li>
-                <li><strong className="text-gray-100">Sacrificio iniziale ha ROI 2-3×</strong>: versare di più nei primi 6 mesi vale molto di più che versare costante per 48 mesi.</li>
-                <li><strong className="text-gray-100">Il prestito ha rendimento marginale decrescente</strong>: a budget basso vale +28k, a budget alto vale solo +12k.</li>
-                <li><strong className="text-gray-100">Sweet spot prestito = 5.000€</strong>. Oltre, il ROI marginale crolla.</li>
-                <li><strong className="text-gray-100">Recovery factor non-monotono</strong>: l'ottimo è ~45%, non 100%.</li>
-                <li><strong className="text-gray-100">Rebuild mode è un trade-off netto</strong>: protegge il buffer ma azzera il cashflow.</li>
+                <li><strong className="text-gray-900">Il drawdown e il fattore dominante</strong>: erode 70-85% del compound teorico.</li>
+                <li><strong className="text-gray-900">Sacrificio iniziale ha ROI 2-3x</strong>: versare di piu nei primi 6 mesi vale molto di piu che versare costante per 48 mesi.</li>
+                <li><strong className="text-gray-900">Il prestito ha rendimento marginale decrescente</strong>: a budget basso vale +28k, a budget alto vale solo +12k.</li>
+                <li><strong className="text-gray-900">Sweet spot prestito = 5.000 euro</strong>. Oltre, il ROI marginale crolla.</li>
+                <li><strong className="text-gray-900">Recovery factor non-monotono</strong>: l'ottimo e ~45%, non 100%.</li>
+                <li><strong className="text-gray-900">Rebuild mode e un trade-off netto</strong>: protegge il buffer ma azzera il cashflow.</li>
               </ul>
             </div>
           </details>
 
           {/* Top metric tiles */}
-          <div className="grid grid-cols-2 md:grid-cols-4 bg-gray-800 border border-gray-700 rounded mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-4 bg-white border border-gray-200 rounded-xl shadow-sm mb-5">
             {tiles.map((t, i) => (
               <MetricTile key={i} {...t} />
             ))}
@@ -1285,14 +1285,14 @@ export function CompoundLab() {
 
           {/* Milestones */}
           <section className="mb-7">
-            <h2 className="text-xl font-serif mb-3">
-              <span className="font-sans text-[11px] text-emerald-400 mr-2 align-middle">§0</span>
+            <h2 className="text-lg font-bold text-gray-900 mb-3">
+              <span className="text-[11px] text-primary-600 mr-2 align-middle font-medium">§0</span>
               Milestone — quando raggiungo X€/mese
             </h2>
-            <div className="bg-gray-800 border border-gray-700 rounded overflow-hidden">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-gray-900">
+                  <tr className="bg-gray-50">
                     <th className="text-left p-3 text-gray-500 uppercase tracking-wider font-medium text-[10px]">Milestone (prelievo lordo €/mese)</th>
                     {msTargets.map(t => (
                       <th key={t} className="text-right p-3 text-gray-500 uppercase tracking-wider font-medium text-[10px]">
@@ -1302,20 +1302,20 @@ export function CompoundLab() {
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
-                  <tr className="border-t border-gray-700">
-                    <td className="p-3 text-gray-200">Raggiunta al mese</td>
+                  <tr className="border-t border-gray-200">
+                    <td className="p-3 text-gray-800">Raggiunta al mese</td>
                     {msTargets.map(t => {
                       const day = m.milestones[t]
                       const reached = day && day <= params.horizon * 30
                       return (
-                        <td key={t} className={`text-right p-3 ${reached ? 'text-emerald-400 font-medium' : 'text-gray-500 italic'}`}>
+                        <td key={t} className={`text-right p-3 ${reached ? 'text-emerald-600 font-medium' : 'text-gray-500 italic'}`}>
                           {reached ? fmt1.format(day! / 30) : `> ${params.horizon}`}
                         </td>
                       )
                     })}
                   </tr>
-                  <tr className="border-t border-gray-700">
-                    <td className="p-3 text-gray-200">Capitale necessario</td>
+                  <tr className="border-t border-gray-200">
+                    <td className="p-3 text-gray-800">Capitale necessario</td>
                     {msTargets.map(t => (
                       <td key={t} className="text-right p-3 text-gray-400">
                         € {fmt.format(t / (params.wPct / 100))}
@@ -1329,15 +1329,15 @@ export function CompoundLab() {
 
           {/* Equity */}
           <section className="mb-7">
-            <h2 className="text-xl font-serif mb-3">
-              <span className="font-sans text-[11px] text-emerald-400 mr-2 align-middle">§1</span>
+            <h2 className="text-lg font-bold text-gray-900 mb-3">
+              <span className="text-[11px] text-primary-600 mr-2 align-middle font-medium">§1</span>
               Equity curve &amp; flussi
             </h2>
-            <div className="bg-gray-800 border border-gray-700 rounded p-4">
-              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
-                <span className="text-[11px] uppercase tracking-widest text-gray-400">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-200">
+                <span className="text-[11px] uppercase tracking-widest text-gray-500">
                   Daily simulation · net value, capitale, buffer
-                  {realEquityPoints.length > 2 && <span className="text-violet-400"> · saldo reale</span>}
+                  {realEquityPoints.length > 2 && <span className="text-violet-600"> · saldo reale</span>}
                 </span>
                 <span className="text-[10px] text-gray-500">
                   giorni 0 → {m.days_total}
@@ -1358,8 +1358,8 @@ export function CompoundLab() {
                       onClick={() => setEquityHidden(h => ({ ...h, [t.key]: !h[t.key] }))}
                       className={`px-2.5 py-1 border text-[10px] uppercase tracking-widest rounded ${
                         isReal
-                          ? on ? 'border-violet-500 text-violet-400 bg-violet-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
-                          : on ? 'border-emerald-600 text-emerald-400 bg-emerald-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                          ? on ? 'border-violet-500 text-violet-600 bg-violet-900/20' : 'border-gray-300 text-gray-500 hover:border-gray-400'
+                          : on ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-gray-300 text-gray-500 hover:border-gray-400'
                       }`}>
                       {t.label}
                     </button>
@@ -1370,7 +1370,7 @@ export function CompoundLab() {
                   <button key={s}
                     onClick={() => setEquityScale(s)}
                     className={`px-2.5 py-1 border text-[10px] uppercase tracking-widest rounded ${
-                      equityScale === s ? 'border-emerald-600 text-emerald-400 bg-emerald-900/20' : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                      equityScale === s ? 'border-primary-500 text-primary-700 bg-primary-50' : 'border-gray-300 text-gray-500 hover:border-gray-400'
                     }`}>
                     {s === 'logarithmic' ? 'log' : 'linear'}
                   </button>
@@ -1385,9 +1385,9 @@ export function CompoundLab() {
           {/* §Real — Confronto ipotetico vs effettivo */}
           {!realLoading && !realError && realSummary && (
             <section className="mb-7">
-              <h2 className="text-xl font-serif mb-3">
-                <span className="font-sans text-[11px] text-violet-400 mr-2 align-middle">§R</span>
-                Confronto ipotetico vs <em className="text-violet-400 not-italic">effettivo</em>
+              <h2 className="text-lg font-bold text-gray-900 mb-3">
+                <span className="font-sans text-[11px] text-violet-600 mr-2 align-middle">§R</span>
+                Confronto ipotetico vs <em className="text-violet-600 not-italic">effettivo</em>
               </h2>
 
               {/* KPI comparison tiles */}
@@ -1425,11 +1425,11 @@ export function CompoundLab() {
               {/* Traders breakdown */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 {realSummary.traders.map(trader => (
-                  <div key={trader.name} className="bg-gray-800 border border-gray-700 rounded p-3">
+                  <div key={trader.name} className="bg-white border border-gray-200 rounded-lg p-3">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-gray-200">{trader.name}</span>
+                      <span className="text-sm font-medium text-gray-800">{trader.name}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        trader.pnl_account >= 0 ? 'bg-emerald-900/30 text-emerald-400' : 'bg-rose-900/30 text-rose-400'
+                        trader.pnl_account >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                       }`}>
                         {trader.pnl_account >= 0 ? '+' : ''}${trader.pnl_account.toFixed(2)}
                       </span>
@@ -1437,19 +1437,19 @@ export function CompoundLab() {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
                         <span className="text-gray-500">Saldo</span>
-                        <p className="text-gray-200 font-medium">${trader.balance_total.toFixed(2)}</p>
+                        <p className="text-gray-800 font-medium">${trader.balance_total.toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="text-gray-500">Depositato</span>
-                        <p className="text-gray-200 font-medium">${trader.balance_deposited.toFixed(2)}</p>
+                        <p className="text-gray-800 font-medium">${trader.balance_deposited.toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="text-gray-500">Credito</span>
-                        <p className="text-gray-200 font-medium">${trader.credit.toFixed(2)}</p>
+                        <p className="text-gray-800 font-medium">${trader.credit.toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="text-gray-500">Posizioni</span>
-                        <p className="text-gray-200 font-medium">{trader.open_positions}</p>
+                        <p className="text-gray-800 font-medium">{trader.open_positions}</p>
                       </div>
                     </div>
                     {trader.last_update && (
@@ -1462,8 +1462,8 @@ export function CompoundLab() {
               </div>
 
               {/* Insight box */}
-              <div className="bg-gradient-to-r from-violet-900/20 to-transparent border-l-2 border-violet-500 p-3 text-sm">
-                <span className="text-[10px] uppercase tracking-widest text-violet-400 font-semibold mr-2">confronto</span>
+              <div className="bg-violet-50 border-l-2 border-violet-400 p-3 text-sm rounded">
+                <span className="text-[10px] uppercase tracking-widest text-violet-600 font-semibold mr-2">confronto</span>
                 {(() => {
                   const realBal = realSummary.total_balance
                   const elapsedMonths = realEquityPoints.length > 0 ? realEquityPoints[realEquityPoints.length - 1].x : 0
@@ -1472,12 +1472,12 @@ export function CompoundLab() {
                   const ahead = realBal > simCap
                   return (
                     <>
-                      Dopo <strong className="text-violet-400">{fmt1.format(elapsedMonths)} mesi</strong> di operativita,
-                      il portafoglio reale (<strong className="text-violet-400">${fmt.format(realBal)}</strong>) e{' '}
-                      <strong className={ahead ? 'text-emerald-400' : 'text-rose-400'}>
+                      Dopo <strong className="text-violet-600">{fmt1.format(elapsedMonths)} mesi</strong> di operativita,
+                      il portafoglio reale (<strong className="text-violet-600">${fmt.format(realBal)}</strong>) e{' '}
+                      <strong className={ahead ? 'text-emerald-600' : 'text-red-600'}>
                         {ahead ? 'avanti' : 'indietro'}
                       </strong>{' '}
-                      rispetto alla simulazione (<strong className="text-emerald-400">€{fmt.format(simCap)}</strong>).
+                      rispetto alla simulazione (<strong className="text-emerald-600">€{fmt.format(simCap)}</strong>).
                       {' '}La linea viola nel grafico equity mostra l'andamento reale sovrapposto alla proiezione.
                     </>
                   )
@@ -1487,8 +1487,8 @@ export function CompoundLab() {
           )}
 
           {realError && (
-            <div className="mb-7 bg-gray-800 border border-gray-700 border-l-4 border-l-rose-500 rounded p-4">
-              <p className="text-xs text-rose-400">
+            <div className="mb-7 bg-red-50 border border-red-200 border-l-4 border-l-red-400 rounded-xl p-4">
+              <p className="text-xs text-red-600">
                 Dati reali non disponibili — {realError}
               </p>
               <button onClick={loadRealData} className="text-xs text-gray-400 underline mt-1">Riprova</button>
@@ -1498,9 +1498,9 @@ export function CompoundLab() {
           {/* Drag & Cashflow */}
           <section className="mb-7">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-gray-800 border border-gray-700 rounded p-4">
-                <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
-                  <span className="text-[11px] uppercase tracking-widest text-gray-400">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+                <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-200">
+                  <span className="text-[11px] uppercase tracking-widest text-gray-500">
                     Cumulative crash loss vs buffer recovery
                   </span>
                   <span className="text-[10px] text-gray-500">€ · daily</span>
@@ -1509,9 +1509,9 @@ export function CompoundLab() {
                   <Line data={lossesData} options={baseChartOptions(params.horizon)} />
                 </div>
               </div>
-              <div className="bg-gray-800 border border-gray-700 rounded p-4">
-                <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
-                  <span className="text-[11px] uppercase tracking-widest text-gray-400">
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+                <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-200">
+                  <span className="text-[11px] uppercase tracking-widest text-gray-500">
                     Cashflow netto cumulato
                   </span>
                   <span className="text-[10px] text-gray-500">€ · what you take home</span>
@@ -1525,13 +1525,13 @@ export function CompoundLab() {
 
           {/* Buffer dynamics */}
           <section className="mb-7">
-            <h2 className="text-xl font-serif mb-3">
-              <span className="font-sans text-[11px] text-emerald-400 mr-2 align-middle">§2</span>
+            <h2 className="text-lg font-bold text-gray-900 mb-3">
+              <span className="text-[11px] text-primary-600 mr-2 align-middle font-medium">§2</span>
               Dinamica del buffer
             </h2>
-            <div className="bg-gray-800 border border-gray-700 rounded p-4">
-              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
-                <span className="text-[11px] uppercase tracking-widest text-gray-400">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-200">
+                <span className="text-[11px] uppercase tracking-widest text-gray-500">
                   Buffer vs target · deploy &amp; refill
                 </span>
                 <span className="text-[10px] text-gray-500">€ · phases highlighted</span>
@@ -1540,11 +1540,11 @@ export function CompoundLab() {
                 <Line data={bufferData} options={baseChartOptions(params.horizon)} />
               </div>
             </div>
-            <div className="bg-gradient-to-r from-amber-900/20 to-transparent border-l-2 border-amber-500 p-3 mt-3 text-sm">
-              <span className="text-[10px] uppercase tracking-widest text-amber-400 font-semibold mr-2">◉ buffer stats</span>
-              Buffer ha deployato <strong className="text-emerald-400">€ {bufferInsight.deploy}</strong> contro perdite crash totali di € {bufferInsight.loss} (recupero <strong className="text-emerald-400">{bufferInsight.recoveryPct}</strong>).
-              Il refill cumulato in fase cashflow ammonta a <strong className="text-emerald-400">€ {bufferInsight.refill}</strong> ({bufferInsight.refillPct} del prelievo lordo).
-              Il prelievo netto effettivamente incassato è <strong className="text-emerald-400">€ {bufferInsight.net}</strong> ({bufferInsight.netPct} del lordo).
+            <div className="bg-amber-50 border-l-2 border-amber-400 p-3 mt-3 text-sm rounded">
+              <span className="text-[10px] uppercase tracking-widest text-amber-600 font-semibold mr-2">◉ buffer stats</span>
+              Buffer ha deployato <strong className="text-emerald-600">€ {bufferInsight.deploy}</strong> contro perdite crash totali di € {bufferInsight.loss} (recupero <strong className="text-emerald-600">{bufferInsight.recoveryPct}</strong>).
+              Il refill cumulato in fase cashflow ammonta a <strong className="text-emerald-600">€ {bufferInsight.refill}</strong> ({bufferInsight.refillPct} del prelievo lordo).
+              Il prelievo netto effettivamente incassato è <strong className="text-emerald-600">€ {bufferInsight.net}</strong> ({bufferInsight.netPct} del lordo).
             </div>
           </section>
 
@@ -1552,27 +1552,27 @@ export function CompoundLab() {
           <section className="mb-7">
             <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
               <h2 className="text-xl font-serif">
-                <span className="font-sans text-[11px] text-emerald-400 mr-2 align-middle">§3</span>
+                <span className="text-[11px] text-primary-600 mr-2 align-middle font-medium">§3</span>
                 Sensitivity — 1D sweep
               </h2>
               <div className="flex gap-2">
                 <select value={sensParam} onChange={e => setSensParam(e.target.value as SensParam)}
-                  className="bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 text-xs rounded focus:outline-none focus:border-emerald-500">
+                  className="bg-white border border-gray-300 text-gray-700 px-2 py-1 text-xs rounded focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500">
                   {(Object.keys(SENS_RANGES) as SensParam[]).map(k => (
                     <option key={k} value={k}>{SENS_RANGES[k].label}</option>
                   ))}
                 </select>
                 <select value={sensMetric} onChange={e => setSensMetric(e.target.value as SensMetric)}
-                  className="bg-gray-900 border border-gray-700 text-gray-200 px-2 py-1 text-xs rounded focus:outline-none focus:border-emerald-500">
+                  className="bg-white border border-gray-300 text-gray-700 px-2 py-1 text-xs rounded focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500">
                   {(Object.keys(SENS_LABELS) as SensMetric[]).map(k => (
                     <option key={k} value={k}>{SENS_LABELS[k].lbl}</option>
                   ))}
                 </select>
               </div>
             </div>
-            <div className="bg-gray-800 border border-gray-700 rounded p-4">
-              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-700">
-                <span className="text-[11px] uppercase tracking-widest text-gray-400">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+              <div className="flex justify-between items-baseline pb-3 mb-3 border-b border-gray-200">
+                <span className="text-[11px] uppercase tracking-widest text-gray-500">
                   Sweep parametrico · gli altri parametri restano fissi
                 </span>
                 <span className="text-[10px] text-gray-500">parameter → metric</span>
@@ -1581,19 +1581,19 @@ export function CompoundLab() {
                 <Line data={sensChartData} options={sensChartOptions} plugins={[sensMarkerPlugin]} />
               </div>
             </div>
-            <div className="bg-gradient-to-r from-amber-900/20 to-transparent border-l-2 border-amber-500 p-3 mt-3 text-sm">
-              <span className="text-[10px] uppercase tracking-widest text-amber-400 font-semibold mr-2">◉ sweep result</span>
-              Ottimo di <strong className="text-emerald-400">{sensData.range.label.split(' ')[0]}</strong> per {SENS_LABELS[sensMetric].lbl} ={' '}
-              <strong className="text-emerald-400">{sensData.best.x}</strong> con valore{' '}
-              <strong className="text-emerald-400">{SENS_LABELS[sensMetric].fmt(sensData.best.y)}</strong>.
+            <div className="bg-amber-50 border-l-2 border-amber-400 p-3 mt-3 text-sm rounded">
+              <span className="text-[10px] uppercase tracking-widest text-amber-600 font-semibold mr-2">◉ sweep result</span>
+              Ottimo di <strong className="text-emerald-600">{sensData.range.label.split(' ')[0]}</strong> per {SENS_LABELS[sensMetric].lbl} ={' '}
+              <strong className="text-emerald-600">{sensData.best.x}</strong> con valore{' '}
+              <strong className="text-emerald-600">{SENS_LABELS[sensMetric].fmt(sensData.best.y)}</strong>.
               {' '}Valore corrente: {sensCurrentValue} → {SENS_LABELS[sensMetric].fmt(sensNearest.y)}.
               <span className="text-gray-500"> · linea ambra = valore attuale · punto verde = ottimo</span>
             </div>
           </section>
 
-          <footer className="mt-10 pt-4 border-t border-gray-700 text-[10px] text-gray-500 flex justify-between">
-            <span>trading-bot compound lab · <em className="not-italic text-gray-400">daily deterministic sim</em></span>
-            <span>no financial advice — solo matematica del compounding</span>
+          <footer className="mt-10 pt-4 border-t border-gray-200 text-[10px] text-gray-400 flex justify-between">
+            <span>Compound Lab · simulazione deterministica giornaliera</span>
+            <span>No financial advice — solo matematica del compounding</span>
           </footer>
         </main>
       </div>
