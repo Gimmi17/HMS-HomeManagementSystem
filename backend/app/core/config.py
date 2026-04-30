@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     MQTT_USER: str = ""  # MQTT username (optional)
     MQTT_PASSWORD: str = ""  # MQTT password (optional)
 
+    # Trading Monitor Integration (android-trader-monitor)
+    TRADER_MONITOR_URL: str = "http://host.docker.internal:8000"  # Trader monitor API base URL
+    TRADER_MONITOR_TOKEN: str = ""  # Bearer token for trader monitor API
+
     # Application Settings
     API_VERSION: str = "v1"  # API version prefix
     PROJECT_NAME: str = "HMS API"  # Project name for docs

@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { MainLayout } from './components/Layout'
 import { LoginForm, RegisterForm, ForgotPasswordForm } from './components/Auth'
-import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, AnagraficheZones, Admin, ReceiptUpload, LLMSettings, Areas, AreaDetail, MealPlannerWizard } from './pages'
+import { Dashboard, Recipes, Meals, MealForm, Pantry, Giacenze, Health, House, RecipeDetail, Settings, GrocySettings, Stores, ShoppingLists, ShoppingListForm, DatabaseImport, Categories, SqlConsole, Anagrafiche, AnagraficheUsers, AnagraficheHouses, AnagraficheFoods, AnagraficheProducts, AnagraficheBrands, AnagraficheBarcodeSources, AnagraficheZones, Admin, ReceiptUpload, LLMSettings, AppleSettings, UserProfileSettings, Areas, AreaDetail, MealPlannerWizard, Finance, FinanceHouse, Investments, CompoundLab } from './pages'
 import { ShoppingListUnified } from './pages/ShoppingList'
 import RecipeForm from './pages/RecipeForm'
 
@@ -195,6 +195,46 @@ function App() {
         }
       />
       <Route
+        path="/finance"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Finance />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/finance/house"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <FinanceHouse />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/finance/compound-lab"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <CompoundLab />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/investments"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <Investments />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/house"
         element={
           <PrivateRoute>
@@ -309,6 +349,26 @@ function App() {
           <PrivateRoute>
             <MainLayout>
               <LLMSettings />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings/apple"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <AppleSettings />
+            </MainLayout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/settings/profile"
+        element={
+          <PrivateRoute>
+            <MainLayout>
+              <UserProfileSettings />
             </MainLayout>
           </PrivateRoute>
         }

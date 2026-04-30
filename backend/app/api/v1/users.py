@@ -12,10 +12,12 @@ All endpoints require authentication via JWT token.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user import UserResponse, UserUpdate, PasswordChangeRequest
+from app.models.biometric_profile import BiometricProfile
+from app.schemas.user import UserResponse, UserUpdate, PasswordChangeRequest, UserAnagraficaUpdate, UserAnagraficaResponse
 from app.services import auth_service
 from app.api.v1.deps import get_current_user
 
@@ -285,6 +287,116 @@ async def change_user_password(
         )
 
     return {"message": "Password changed successfully"}
+
+
+# ============================================================================
+# ANAGRAFICA ENDPOINTS
+# ============================================================================
+
+@router.get(
+    "/me/anagrafica",
+    response_model=UserAnagraficaResponse,
+    summary="Get user anagrafica",
+    description="Returns personal/registry data for the authenticated user",
+)
+async def get_user_anagrafica(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserAnagraficaResponse:
+    """Get user anagrafica — merge of preferences['anagrafica'] + biometric profile."""
+    prefs = current_user.preferences or {}
+    ana   = prefs.get("anagrafica", {})
+
+    # Cross-reference biometric profile for health fields if not set in anagrafica
+    bio = db.query(BiometricProfile).filter(
+        BiometricProfile.user_id == current_user.id
+    ).first()
+
+    birth_date  = ana.get("birth_date")  or (str(bio.birth_date) if bio and bio.birth_date else None)
+    gender      = ana.get("gender")      or (bio.biological_sex  if bio else None)
+    height_cm   = ana.get("height_cm")   or (float(bio.height_cm) if bio and bio.height_cm else None)
+
+    # Parse full_name into first/last if dedicated fields are empty
+    first_name = ana.get("first_name", "")
+    last_name  = ana.get("last_name", "")
+    if not first_name and not last_name and current_user.full_name:
+        parts = current_user.full_name.split(" ", 1)
+        first_name = parts[0]
+        last_name  = parts[1] if len(parts) > 1 else ""
+
+    return UserAnagraficaResponse(
+        id=current_user.id,
+        email=current_user.email,
+        full_name=current_user.full_name,
+        first_name=first_name or None,
+        last_name=last_name or None,
+        codice_fiscale=ana.get("codice_fiscale"),
+        birth_date=birth_date,
+        birth_place=ana.get("birth_place"),
+        gender=gender,
+        height_cm=height_cm,
+        phone=ana.get("phone"),
+        address=ana.get("address"),
+        blood_type=ana.get("blood_type"),
+        allergies_medical=ana.get("allergies_medical", []),
+        emergency_contact_name=ana.get("emergency_contact_name"),
+        emergency_contact_phone=ana.get("emergency_contact_phone"),
+        notes=ana.get("notes"),
+    )
+
+
+@router.put(
+    "/me/anagrafica",
+    response_model=UserAnagraficaResponse,
+    summary="Update user anagrafica",
+    description="Update personal/registry data (merges with existing, does not replace)",
+)
+async def update_user_anagrafica(
+    data: UserAnagraficaUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserAnagraficaResponse:
+    """Update user anagrafica via preferences['anagrafica'] merge."""
+    prefs = dict(current_user.preferences or {})
+    ana   = dict(prefs.get("anagrafica", {}))
+
+    # Merge only provided fields
+    update_dict = data.model_dump(exclude_none=True)
+    ana.update(update_dict)
+    prefs["anagrafica"] = ana
+
+    # Also update full_name if first/last changed
+    first = ana.get("first_name", "")
+    last  = ana.get("last_name", "")
+    if first or last:
+        new_full = f"{first} {last}".strip()
+        current_user.full_name = new_full
+
+    current_user.preferences = prefs
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    # Also sync birth_date + gender to biometric profile if changed
+    if "birth_date" in update_dict or "gender" in update_dict:
+        bio = db.query(BiometricProfile).filter(
+            BiometricProfile.user_id == current_user.id
+        ).first()
+        if bio:
+            from datetime import date
+            if "birth_date" in update_dict and update_dict["birth_date"]:
+                try:
+                    bio.birth_date = date.fromisoformat(update_dict["birth_date"])
+                except ValueError:
+                    pass
+            if "gender" in update_dict:
+                bio.biological_sex = update_dict["gender"]
+            db.add(bio)
+            db.commit()
+
+    # Re-fetch to return updated data
+    db.refresh(current_user)
+    return await get_user_anagrafica(current_user=current_user, db=db)
 
 
 # Future endpoints to implement:

@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { recipesService } from '@/services/recipes'
+import { foodsService } from '@/services/foods'
+import { productsService } from '@/services/products'
+import type { ProductCatalogItem } from '@/services/products'
 import { useHouse } from '@/context/HouseContext'
-import { DynamicIngredientInput } from '@/components/Recipes/DynamicIngredientInput'
 import { NutritionSummary } from '@/components/Recipes/NutritionSummary'
+import { NutritionCard } from '@/components/Recipes/NutritionCard'
 import { TagInput } from '@/components/Recipes/TagInput'
 import type { RecipeIngredient } from '@/types'
 
@@ -27,6 +30,7 @@ import type { RecipeIngredient } from '@/types'
 
 export default function RecipeForm() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const { currentHouse } = useHouse()
   const isEditMode = !!id
@@ -41,10 +45,37 @@ export default function RecipeForm() {
   const [tags, setTags] = useState<string[]>([])
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([])
 
+  // Live nutrition state
+  const [foodsMap, setFoodsMap] = useState<Map<string, any>>(new Map())
+
+  // Ingredient search state
+  const [ingSearch, setIngSearch] = useState('')
+  const [ingResults, setIngResults] = useState<ProductCatalogItem[]>([])
+  const [ingLoading, setIngLoading] = useState(false)
+  const [ingQty, setIngQty] = useState('')
+  const [ingUnit, setIngUnit] = useState('pz')
+  const [selectedProduct, setSelectedProduct] = useState<ProductCatalogItem | null>(null)
+
   // UI state
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /**
+   * Prefill form from navigation state (e.g. generated recipe)
+   */
+  useEffect(() => {
+    if (!isEditMode && location.state?.prefill) {
+      const prefill = location.state.prefill
+      if (prefill.name) setName(prefill.name)
+      if (prefill.description) setDescription(prefill.description)
+      if (prefill.procedure) setProcedure(prefill.procedure)
+      if (prefill.preparation_time_min) setPreparationTime(prefill.preparation_time_min)
+      if (prefill.difficulty) setDifficulty(prefill.difficulty)
+      if (prefill.tags) setTags(prefill.tags)
+      if (prefill.ingredients) setIngredients(prefill.ingredients)
+    }
+  }, []) // only on mount
 
   /**
    * Load recipe data in edit mode
@@ -54,6 +85,50 @@ export default function RecipeForm() {
       loadRecipe(id)
     }
   }, [isEditMode, id, currentHouse])
+
+  /**
+   * Load missing foods from API when ingredients change
+   */
+  useEffect(() => {
+    const missingIds = ingredients
+      .map((ing) => ing.food_id)
+      .filter((fid): fid is string => !!fid && !foodsMap.has(fid))
+
+    if (missingIds.length === 0) return
+
+    const fetchMissing = async () => {
+      const results = await Promise.allSettled(
+        missingIds.map((fid) => foodsService.getById(fid))
+      )
+      setFoodsMap((prev) => {
+        const next = new Map(prev)
+        results.forEach((res, idx) => {
+          if (res.status === 'fulfilled') {
+            next.set(missingIds[idx], res.value)
+          }
+        })
+        return next
+      })
+    }
+
+    fetchMissing()
+  }, [ingredients])
+
+  /**
+   * Debounced product search
+   */
+  useEffect(() => {
+    if (ingSearch.length < 2) { setIngResults([]); return }
+    const timer = setTimeout(() => {
+      if (!currentHouse?.id) return
+      setIngLoading(true)
+      productsService.search(currentHouse.id, ingSearch)
+        .then(setIngResults)
+        .catch(() => setIngResults([]))
+        .finally(() => setIngLoading(false))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [ingSearch, currentHouse?.id])
 
   /**
    * Fetch recipe data from API and populate form
@@ -92,6 +167,24 @@ export default function RecipeForm() {
   }
 
   /**
+   * Live nutrition calculation from ingredients + foods in cache
+   */
+  const liveNutrition = useMemo(() => {
+    let calories = 0, proteins_g = 0, carbs_g = 0, fats_g = 0
+    for (const ing of ingredients) {
+      if (!ing.food_id) continue
+      const food = foodsMap.get(ing.food_id)
+      if (!food) continue
+      const ratio = (ing.quantity_g ?? ing.quantity ?? 0) / 100
+      calories += (food.calories ?? 0) * ratio
+      proteins_g += (food.proteins_g ?? 0) * ratio
+      carbs_g += (food.carbs_g ?? 0) * ratio
+      fats_g += (food.fats_g ?? 0) * ratio
+    }
+    return { calories, proteins_g, carbs_g, fats_g }
+  }, [ingredients, foodsMap])
+
+  /**
    * Calculate total nutrition from all ingredients
    */
   const calculateTotalNutrition = () => {
@@ -104,6 +197,40 @@ export default function RecipeForm() {
       carbs_g: 0,
       fats_g: 0,
     }
+  }
+
+  /**
+   * Add ingredient from selected product
+   */
+  const addIngredient = () => {
+    if (!selectedProduct || !ingQty) return
+    const qty = parseFloat(ingQty)
+    if (isNaN(qty) || qty <= 0) return
+
+    const quantity_g = ['g', 'ml'].includes(ingUnit) ? qty : qty * 100
+
+    const newIngredient: RecipeIngredient & { product_id?: string; product_name?: string } = {
+      product_id: selectedProduct.id,
+      product_name: selectedProduct.name,
+      food_name: selectedProduct.name,
+      quantity: qty,
+      unit: ingUnit,
+      quantity_g,
+    }
+
+    setIngredients((prev) => [...prev, newIngredient as RecipeIngredient])
+    setIngSearch('')
+    setSelectedProduct(null)
+    setIngQty('')
+    setIngUnit('pz')
+    setIngResults([])
+  }
+
+  /**
+   * Remove ingredient at index
+   */
+  const removeIngredient = (index: number) => {
+    setIngredients((prev) => prev.filter((_, i) => i !== index))
   }
 
   /**
@@ -141,9 +268,11 @@ export default function RecipeForm() {
         preparation_time_min: preparationTime > 0 ? preparationTime : undefined,
         difficulty,
         tags,
-        ingredients: ingredients.map(ing => ({
+        ingredients: ingredients.map((ing: any) => ({
           food_id: ing.food_id,
+          product_id: ing.product_id,
           food_name: ing.food_name,
+          product_name: ing.product_name,
           quantity: ing.quantity,
           unit: ing.unit,
           quantity_g: ing.quantity_g,
@@ -331,14 +460,111 @@ export default function RecipeForm() {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">
                 Ingredienti *
               </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Cerca e aggiungi gli ingredienti. Usa il pulsante + per aggiungere nuove righe.
-              </p>
 
-              <DynamicIngredientInput
-                ingredients={ingredients}
-                onChange={setIngredients}
-              />
+              {/* Add ingredient form */}
+              <div className="space-y-3 p-4 bg-gray-50 rounded-xl mb-4">
+                <h4 className="font-medium text-sm text-gray-700">Aggiungi ingrediente</h4>
+
+                {/* Product search */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={ingSearch}
+                    onChange={(e) => { setIngSearch(e.target.value); setSelectedProduct(null) }}
+                    placeholder="Cerca prodotto... (es: pane, hamburger)"
+                    className="input w-full"
+                  />
+                  {ingLoading && (
+                    <span className="absolute right-3 top-2.5 text-gray-400 text-xs">...</span>
+                  )}
+                  {ingResults.length > 0 && !selectedProduct && (
+                    <ul className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                      {ingResults.map((p) => (
+                        <li
+                          key={p.id}
+                          onClick={() => { setSelectedProduct(p); setIngSearch(p.name); setIngResults([]) }}
+                          className="px-3 py-2.5 hover:bg-primary-50 cursor-pointer text-sm flex items-center gap-2"
+                        >
+                          <span className="font-medium flex-1">{p.name}</span>
+                          {p.brand && <span className="text-gray-400 text-xs">{p.brand}</span>}
+                          {p.energy_kcal && (
+                            <span className="text-gray-400 text-xs">{Math.round(p.energy_kcal)} kcal/100g</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Quantity + unit + add */}
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={ingQty}
+                    onChange={(e) => setIngQty(e.target.value)}
+                    placeholder="Quantità"
+                    min="0.01"
+                    step="0.01"
+                    className="input flex-1"
+                  />
+                  <select
+                    value={ingUnit}
+                    onChange={(e) => setIngUnit(e.target.value)}
+                    className="input w-28"
+                  >
+                    <option value="pz">pz</option>
+                    <option value="g">g</option>
+                    <option value="kg">kg</option>
+                    <option value="ml">ml</option>
+                    <option value="l">l</option>
+                    <option value="cucchiaio">cucchiaio</option>
+                    <option value="cucchiaino">cucchiaino</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addIngredient}
+                    disabled={!selectedProduct || !ingQty}
+                    className="btn btn-primary px-4"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {selectedProduct && (
+                  <p className="text-xs text-green-600">
+                    ✓ {selectedProduct.name}
+                    {selectedProduct.brand ? ` — ${selectedProduct.brand}` : ''}
+                  </p>
+                )}
+              </div>
+
+              {/* Ingredients list */}
+              {ingredients.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">
+                  Nessun ingrediente aggiunto. Cercane uno sopra.
+                </p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {ingredients.map((ing, i) => (
+                    <div key={i} className="flex items-center gap-2 py-2">
+                      <span className="flex-1 text-sm font-medium">
+                        {(ing as any).product_name || ing.food_name}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        {ing.quantity} {ing.unit}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeIngredient(i)}
+                        className="text-red-400 hover:text-red-600 text-sm px-1"
+                        title="Rimuovi"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Procedure Card */}
@@ -378,6 +604,19 @@ export default function RecipeForm() {
                   <span className="font-medium text-gray-900">{ingredients.length}</span>
                 </div>
               </div>
+
+              {/* Live Nutrition Preview */}
+              {ingredients.length > 0 && liveNutrition.calories > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Valori stimati</p>
+                  <NutritionCard
+                    calories={liveNutrition.calories}
+                    proteins_g={liveNutrition.proteins_g}
+                    carbs_g={liveNutrition.carbs_g}
+                    fats_g={liveNutrition.fats_g}
+                  />
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="bg-white rounded-lg shadow p-4 space-y-3">

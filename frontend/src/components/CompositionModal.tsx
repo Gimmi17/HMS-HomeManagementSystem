@@ -26,6 +26,9 @@ export default function CompositionModal({ product, onClose, onSaved }: Composit
   // Create food mini modal
   const [showCreateFood, setShowCreateFood] = useState(false)
 
+  // Incomplete composition warning
+  const [showIncompleteWarning, setShowIncompleteWarning] = useState(false)
+
   // Load existing composition
   useEffect(() => {
     const load = async () => {
@@ -119,6 +122,13 @@ export default function CompositionModal({ product, onClose, onSaved }: Composit
       return
     }
 
+    // NUOVO: warning se incompleta ma non blocco
+    if (totalPercentage > 0 && totalPercentage < 100 && !showIncompleteWarning) {
+      setShowIncompleteWarning(true)
+      return
+    }
+
+    setShowIncompleteWarning(false)
     setIsSaving(true)
     setError(null)
     try {
@@ -295,6 +305,13 @@ export default function CompositionModal({ product, onClose, onSaved }: Composit
           </div>
 
           {/* Footer actions */}
+          {showIncompleteWarning && (
+            <div className='px-4 pb-2'>
+              <div className='bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800'>
+                Composizione al {totalPercentage.toFixed(1)}%. Vuoi salvare comunque?
+              </div>
+            </div>
+          )}
           <div className="p-4 border-t flex gap-3 flex-shrink-0">
             <button
               onClick={onClose}
@@ -307,7 +324,7 @@ export default function CompositionModal({ product, onClose, onSaved }: Composit
               disabled={isSaving || items.length === 0 || totalPercentage > 100}
               className="flex-1 py-2.5 rounded-lg bg-primary-600 text-white font-medium hover:bg-primary-700 disabled:opacity-50"
             >
-              {isSaving ? 'Salvataggio...' : 'Salva'}
+              {isSaving ? 'Salvataggio...' : showIncompleteWarning ? 'Salva comunque' : 'Salva'}
             </button>
           </div>
         </div>

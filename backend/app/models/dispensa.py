@@ -56,6 +56,15 @@ class DispensaItem(BaseModel):
     # Barcode
     barcode = Column(String(100), nullable=True)
 
+    # Link al catalogo prodotti (opzionale, popolato quando il barcode è riconosciuto)
+    product_catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('product_catalog.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+        comment='Link al ProductCatalog se barcode riconosciuto'
+    )
+
     # Grocy product link
     grocy_product_id = Column(Integer, nullable=True)
     grocy_product_name = Column(String(255), nullable=True)
@@ -104,6 +113,14 @@ class DispensaItem(BaseModel):
     warranty_expiry_date = Column(Date, nullable=True)
     trial_expiry_date = Column(Date, nullable=True)
 
+    # Product catalog link
+    product_catalog_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("product_catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     # Relationships
     house = relationship("House")
     category = relationship("Category")
@@ -111,6 +128,22 @@ class DispensaItem(BaseModel):
     source_list = relationship("ShoppingList")
     source_item = relationship("ShoppingListItem", foreign_keys=[source_item_id])
     added_by_user = relationship("User")
+    product_catalog = relationship("ProductCatalog", lazy="select")
+
+    # Computed properties for schema serialization
+    @property
+    def product_name(self) -> "str | None":
+        return self.product_catalog.name if self.product_catalog else None
+
+    @property
+    def product_brand(self) -> "str | None":
+        return self.product_catalog.brand if self.product_catalog else None
+
+    @property
+    def product_energy_kcal(self) -> "float | None":
+        if self.product_catalog and self.product_catalog.energy_kcal is not None:
+            return float(self.product_catalog.energy_kcal)
+        return None
 
     def __repr__(self):
         return f"<DispensaItem(id={self.id}, name='{self.name}', qty={self.quantity})>"

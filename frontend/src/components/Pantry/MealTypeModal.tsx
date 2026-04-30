@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { DispensaItem } from '@/types'
 
 type MealType = 'colazione' | 'spuntino' | 'pranzo' | 'cena'
@@ -17,10 +18,17 @@ const MEAL_OPTIONS: { type: MealType; label: string; icon: string; color: string
 ]
 
 export function MealTypeModal({ item, onSelect, onSkip, onClose }: MealTypeModalProps) {
+  const [isClosing, setIsClosing] = useState(false)
+
+  const handleClose = () => {
+    setIsClosing(true)
+    setTimeout(onClose, 200)
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={handleClose}>
       <div
-        className="bg-white rounded-t-2xl w-full max-w-md p-4 pb-8 space-y-3 animate-slide-up"
+        className={`bg-white rounded-t-2xl w-full max-w-md p-4 pb-8 space-y-3 ${isClosing ? 'animate-slide-down' : 'animate-slide-up'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-center mb-2">
@@ -32,7 +40,7 @@ export function MealTypeModal({ item, onSelect, onSkip, onClose }: MealTypeModal
         {MEAL_OPTIONS.map((opt) => (
           <button
             key={opt.type}
-            onClick={() => onSelect(opt.type)}
+            onClick={() => { onSelect(opt.type); handleClose() }}
             className={`w-full py-3 rounded-lg font-medium border transition-colors flex items-center justify-center gap-2 ${opt.color} hover:opacity-80`}
           >
             <span>{opt.icon}</span>
@@ -41,14 +49,14 @@ export function MealTypeModal({ item, onSelect, onSkip, onClose }: MealTypeModal
         ))}
 
         <button
-          onClick={onSkip}
+          onClick={() => { onSkip(); handleClose() }}
           className="w-full py-3 rounded-lg bg-gray-50 text-gray-600 font-medium border border-gray-200 hover:bg-gray-100 transition-colors"
         >
           Consuma senza pasto
         </button>
 
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="w-full py-3 rounded-lg text-gray-500 font-medium hover:bg-gray-50 transition-colors"
         >
           Annulla

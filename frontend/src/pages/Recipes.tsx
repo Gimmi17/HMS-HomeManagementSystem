@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import recipesService from '@/services/recipes'
+import { GenerateRecipeModal } from '@/components/Recipes/GenerateRecipeModal'
 import type { Recipe } from '@/types'
 
 export function Recipes() {
@@ -11,6 +12,7 @@ export function Recipes() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showGenerateModal, setShowGenerateModal] = useState(false)
 
   // Inquiry mode detection
   const inquiry = searchParams.get('inquiry')
@@ -83,9 +85,17 @@ export function Recipes() {
             Annulla
           </button>
         ) : (
-          <Link to="/recipes/new" className="btn btn-primary text-sm px-3 py-2">
-            + Nuova
-          </Link>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowGenerateModal(true)}
+              className="btn btn-secondary text-sm px-3 py-2"
+            >
+              ✨ Genera con AI
+            </button>
+            <Link to="/recipes/new" className="btn btn-primary text-sm px-3 py-2">
+              + Nuova
+            </Link>
+          </div>
         )}
       </div>
 
@@ -195,6 +205,19 @@ export function Recipes() {
           ))}
         </div>
       )}
+
+      {/* Generate Recipe Modal */}
+      <GenerateRecipeModal
+        open={showGenerateModal}
+        onClose={() => setShowGenerateModal(false)}
+        onSaved={(recipe) => {
+          setRecipes((prev) => [recipe, ...prev])
+          setShowGenerateModal(false)
+        }}
+        onEditGenerated={(data) => {
+          navigate('/recipes/new', { state: { prefill: data } })
+        }}
+      />
     </div>
   )
 }

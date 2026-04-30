@@ -22,14 +22,25 @@ All endpoints require authentication and enforce house-level access control.
 
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date, timedelta
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sa_func, distinct
 
 from app.db.session import get_db
 from app.api.v1.deps import get_current_user
 from app.models.user import User
 from app.models.user_house import UserHouse
+from app.models.biometric_profile import BiometricProfile
+from app.models.biometric_log import BiometricLog
+from app.models.health_goal import HealthGoal
+from app.schemas.biometric import (
+    BiometricProfileCreate, BiometricProfileUpdate, BiometricProfileResponse,
+    BiometricLogCreate, BiometricLogUpdate, BiometricLogResponse, BiometricLogListResponse,
+    HealthGoalCreate, HealthGoalUpdate, HealthGoalResponse,
+    BiometricDashboardResponse,
+)
 from app.schemas.health import (
     WeightCreate,
     WeightUpdate,
@@ -318,25 +329,331 @@ def delete_health_record(
 # ANALYTICS ENDPOINTS (Optional)
 # ============================================================================
 
-# Uncomment to enable analytics endpoints:
-#
-# @router.get("/weights/trend", response_model=dict)
-# def get_weight_trend_endpoint(
-#     user_id: UUID = Query(...),
-#     house_id: UUID = Query(...),
-#     days: int = Query(30, ge=1, le=365),
-#     db: Session = Depends(get_db)
-# ):
-#     """Get weight trend analysis for user."""
-#     return health_service.get_weight_trend(db, user_id, house_id, days)
-#
-#
-# @router.get("/health/summary", response_model=dict)
-# def get_health_summary_endpoint(
-#     user_id: UUID = Query(...),
-#     house_id: UUID = Query(...),
-#     days: int = Query(30, ge=1, le=365),
-#     db: Session = Depends(get_db)
-# ):
-#     """Get health event summary for user."""
-#     return health_service.get_health_event_summary(db, user_id, house_id, days)
+# ============================================================================
+# BIOMETRIC PROFILE ENDPOINTS
+# ============================================================================
+
+@router.get("/biometric-profile/{house_id}", response_model=BiometricProfileResponse)
+def get_biometric_profile(
+    house_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    profile = db.query(BiometricProfile).filter(
+        BiometricProfile.user_id == current_user.id,
+        BiometricProfile.house_id == house_id,
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profilo biometrico non trovato")
+    return profile
+
+
+@router.post("/biometric-profile/{house_id}", response_model=BiometricProfileResponse, status_code=201)
+def create_biometric_profile(
+    house_id: UUID,
+    data: BiometricProfileCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    existing = db.query(BiometricProfile).filter(
+        BiometricProfile.user_id == current_user.id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Profilo biometrico già esistente, usa PUT per aggiornare")
+    profile = BiometricProfile(
+        user_id=current_user.id,
+        house_id=house_id,
+        **data.model_dump(exclude_none=True),
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+@router.put("/biometric-profile/{house_id}", response_model=BiometricProfileResponse)
+def update_biometric_profile(
+    house_id: UUID,
+    data: BiometricProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    profile = db.query(BiometricProfile).filter(
+        BiometricProfile.user_id == current_user.id,
+        BiometricProfile.house_id == house_id,
+    ).first()
+    if not profile:
+        # Auto-create on PUT if missing
+        profile = BiometricProfile(
+            user_id=current_user.id,
+            house_id=house_id,
+        )
+        db.add(profile)
+
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(profile, key, value)
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+# ============================================================================
+# BIOMETRIC LOG ENDPOINTS
+# ============================================================================
+
+@router.post("/biometric-logs/{house_id}", response_model=BiometricLogResponse, status_code=201)
+def create_biometric_log(
+    house_id: UUID,
+    data: BiometricLogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    log = BiometricLog(
+        user_id=current_user.id,
+        house_id=house_id,
+        metric=data.metric,
+        value=data.value,
+        unit=data.unit,
+        source=data.source,
+        notes=data.notes,
+        recorded_at=data.recorded_at or datetime.now(tz=None),
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+@router.get("/biometric-logs/{house_id}", response_model=BiometricLogListResponse)
+def list_biometric_logs(
+    house_id: UUID,
+    metric: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    q = db.query(BiometricLog).filter(
+        BiometricLog.user_id == current_user.id,
+        BiometricLog.house_id == house_id,
+    )
+    if metric:
+        q = q.filter(BiometricLog.metric == metric)
+    total = q.count()
+    logs = q.order_by(BiometricLog.recorded_at.desc()).offset(offset).limit(limit).all()
+    return BiometricLogListResponse(logs=logs, total=total)
+
+
+@router.delete("/biometric-logs/{house_id}/{log_id}", status_code=204)
+def delete_biometric_log(
+    house_id: UUID,
+    log_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    log = db.query(BiometricLog).filter(
+        BiometricLog.id == log_id,
+        BiometricLog.house_id == house_id,
+        BiometricLog.user_id == current_user.id,
+    ).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Log non trovato")
+    db.delete(log)
+    db.commit()
+    return None
+
+
+# ============================================================================
+# HEALTH GOAL ENDPOINTS
+# ============================================================================
+
+@router.post("/health-goals/{house_id}", response_model=HealthGoalResponse, status_code=201)
+def create_health_goal(
+    house_id: UUID,
+    data: HealthGoalCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    goal = HealthGoal(
+        user_id=current_user.id,
+        house_id=house_id,
+        **data.model_dump(exclude_none=True),
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
+@router.get("/health-goals/{house_id}", response_model=list[HealthGoalResponse])
+def list_health_goals(
+    house_id: UUID,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    q = db.query(HealthGoal).filter(
+        HealthGoal.user_id == current_user.id,
+        HealthGoal.house_id == house_id,
+    )
+    if status_filter:
+        q = q.filter(HealthGoal.status == status_filter)
+    return q.order_by(HealthGoal.created_at.desc()).all()
+
+
+@router.put("/health-goals/{house_id}/{goal_id}", response_model=HealthGoalResponse)
+def update_health_goal(
+    house_id: UUID,
+    goal_id: UUID,
+    data: HealthGoalUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    goal = db.query(HealthGoal).filter(
+        HealthGoal.id == goal_id,
+        HealthGoal.house_id == house_id,
+        HealthGoal.user_id == current_user.id,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Obiettivo non trovato")
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(goal, key, value)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
+@router.delete("/health-goals/{house_id}/{goal_id}", status_code=204)
+def delete_health_goal(
+    house_id: UUID,
+    goal_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+    goal = db.query(HealthGoal).filter(
+        HealthGoal.id == goal_id,
+        HealthGoal.house_id == house_id,
+        HealthGoal.user_id == current_user.id,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Obiettivo non trovato")
+    db.delete(goal)
+    db.commit()
+    return None
+
+
+# ============================================================================
+# HEALTH DASHBOARD
+# ============================================================================
+
+ACTIVITY_MULTIPLIERS = {
+    "sedentary": 1.2,
+    "light": 1.375,
+    "moderate": 1.55,
+    "active": 1.725,
+    "very_active": 1.9,
+}
+
+
+def _compute_bmi(height_cm: Optional[Decimal], weight_kg: Optional[float]) -> Optional[float]:
+    if not height_cm or not weight_kg:
+        return None
+    h_m = float(height_cm) / 100.0
+    if h_m <= 0:
+        return None
+    return round(weight_kg / (h_m * h_m), 1)
+
+
+def _compute_tdee(
+    profile: BiometricProfile,
+    weight_kg: Optional[float],
+) -> Optional[float]:
+    if not profile.biological_sex or not profile.birth_date or not profile.height_cm or not weight_kg:
+        return None
+    age = (date.today() - profile.birth_date).days / 365.25
+    h = float(profile.height_cm)
+    w = weight_kg
+    # Harris-Benedict
+    if profile.biological_sex == "M":
+        bmr = 88.362 + (13.397 * w) + (4.799 * h) - (5.677 * age)
+    else:
+        bmr = 447.593 + (9.247 * w) + (3.098 * h) - (4.330 * age)
+    multiplier = ACTIVITY_MULTIPLIERS.get(profile.activity_level or "sedentary", 1.2)
+    return round(bmr * multiplier, 0)
+
+
+@router.get("/health-dashboard/{house_id}", response_model=BiometricDashboardResponse)
+def get_health_dashboard(
+    house_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    verify_house_membership(db, current_user.id, house_id)
+
+    profile = db.query(BiometricProfile).filter(
+        BiometricProfile.user_id == current_user.id,
+        BiometricProfile.house_id == house_id,
+    ).first()
+
+    # Latest log per metric
+    subq = (
+        db.query(
+            BiometricLog.metric,
+            sa_func.max(BiometricLog.recorded_at).label("max_ts"),
+        )
+        .filter(
+            BiometricLog.user_id == current_user.id,
+            BiometricLog.house_id == house_id,
+        )
+        .group_by(BiometricLog.metric)
+        .subquery()
+    )
+    latest_rows = (
+        db.query(BiometricLog)
+        .join(
+            subq,
+            (BiometricLog.metric == subq.c.metric)
+            & (BiometricLog.recorded_at == subq.c.max_ts),
+        )
+        .filter(
+            BiometricLog.user_id == current_user.id,
+            BiometricLog.house_id == house_id,
+        )
+        .all()
+    )
+    latest_logs = {row.metric: row for row in latest_rows}
+
+    goals = (
+        db.query(HealthGoal)
+        .filter(
+            HealthGoal.user_id == current_user.id,
+            HealthGoal.house_id == house_id,
+            HealthGoal.status == "active",
+        )
+        .order_by(HealthGoal.created_at.desc())
+        .all()
+    )
+
+    weight_log = latest_logs.get("weight_kg")
+    current_weight = float(weight_log.value) if weight_log else None
+    bmi = _compute_bmi(profile.height_cm if profile else None, current_weight)
+    tdee = _compute_tdee(profile, current_weight) if profile else None
+
+    return BiometricDashboardResponse(
+        profile=profile,
+        latest_logs=latest_logs,
+        goals=goals,
+        bmi=bmi,
+        tdee=tdee,
+    )

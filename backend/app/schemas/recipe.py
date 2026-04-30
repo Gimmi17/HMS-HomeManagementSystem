@@ -54,6 +54,8 @@ class RecipeIngredient(BaseModel):
     unit: str = Field(default="g", max_length=50, description="Unit of measurement (g, kg, ml, l, pezzi, etc.)")
     quantity_g: float = Field(..., gt=0, description="Quantity in grams (for nutrition calculation)")
     needs_configuration: bool = Field(default=False, description="True if ingredient needs to be linked to a food")
+    product_id: Optional[UUID] = Field(None, description="UUID del prodotto da product_catalog (alternativa a food_id per prodotti con barcode)")
+    product_name: Optional[str] = Field(None, max_length=255, description="Nome prodotto (cache)")
 
     model_config = ConfigDict(from_attributes=True)
 

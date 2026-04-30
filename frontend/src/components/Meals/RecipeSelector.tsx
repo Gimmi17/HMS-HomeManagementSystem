@@ -1,15 +1,16 @@
 /**
  * RecipeSelector Component
  *
- * Dropdown selector for existing recipes
- * Fetches recipes from the API based on current house context
- * Displays recipe name and shows nutritional info when selected
+ * Searchable dropdown selector for existing recipes.
+ * Fetches recipes from the API based on current house context.
+ * Displays recipe name and shows nutritional info when selected.
  */
 
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 import recipesService from '@/services/recipes'
+import SearchableSelect from '@/components/ui/SearchableSelect'
 import type { Recipe } from '@/types'
 
 interface RecipeSelectorProps {
@@ -51,46 +52,46 @@ export function RecipeSelector({ value, onChange, disabled = false }: RecipeSele
     fetchRecipes()
   }, [currentHouse?.id])
 
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const recipeId = e.target.value || null
-    const safeRecipes = Array.isArray(recipes) ? recipes : []
-    const selectedRecipe = safeRecipes.find((r) => r.id === recipeId) || null
-    onChange(recipeId, selectedRecipe)
+  const safeRecipes = Array.isArray(recipes) ? recipes : []
+
+  const options = safeRecipes.map((r) => ({
+    value: r.id,
+    label: r.name,
+    sublabel: r.total_calories ? `${Math.round(r.total_calories)} kcal` : '',
+  }))
+
+  const selectedRecipe = safeRecipes.find((r) => r.id === value) ?? null
+
+  const handleChange = (val: string | null) => {
+    const recipe = val ? safeRecipes.find((r) => r.id === val) ?? null : null
+    onChange(val, recipe)
   }
 
-  const safeRecipes = Array.isArray(recipes) ? recipes : []
-  const selectedRecipe = safeRecipes.find((r) => r.id === value)
+  const newRecipeLink = (
+    <Link
+      to="/recipes/new"
+      className="flex items-center justify-center w-10 h-10 bg-green-500 text-white rounded-lg hover:bg-green-600 flex-shrink-0"
+      title="Nuova ricetta"
+    >
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+      </svg>
+    </Link>
+  )
 
   return (
     <div className="space-y-2">
       <label className="label">Seleziona ricetta</label>
 
-      {/* Recipe dropdown + new recipe button */}
-      <div className="flex gap-2">
-        <select
-          value={value || ''}
-          onChange={handleChange}
-          disabled={disabled || isLoading}
-          className="input flex-1 min-w-0"
-        >
-          <option value="">-- Seleziona una ricetta --</option>
-          {safeRecipes.map((recipe) => (
-            <option key={recipe.id} value={recipe.id}>
-              {recipe.name}
-              {recipe.total_calories && ` (${Math.round(recipe.total_calories)} kcal)`}
-            </option>
-          ))}
-        </select>
-        <Link
-          to="/recipes/new"
-          className="flex items-center justify-center w-10 h-10 bg-green-500 text-white rounded-lg hover:bg-green-600 flex-shrink-0"
-          title="Nuova ricetta"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-          </svg>
-        </Link>
-      </div>
+      <SearchableSelect
+        options={options}
+        value={value}
+        onChange={handleChange}
+        placeholder="-- Seleziona una ricetta --"
+        emptyLabel="Nessuna ricetta trovata"
+        disabled={disabled || isLoading}
+        renderSuffix={newRecipeLink}
+      />
 
       {/* Loading state */}
       {isLoading && (

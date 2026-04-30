@@ -75,6 +75,12 @@ class DispensaItemResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # Product catalog info (se disponibile)
+    product_catalog_id: Optional[UUID] = None
+    product_name: Optional[str] = None
+    product_brand: Optional[str] = None
+    product_energy_kcal: Optional[float] = None
+
     model_config = {"from_attributes": True}
 
 

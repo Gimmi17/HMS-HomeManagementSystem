@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments, trading
 
 
 # Create main v1 router
@@ -87,6 +87,13 @@ api_router.include_router(
     tags=["Grocy Integration"],
 )
 
+
+# Include recipe AI endpoints
+# Endpoints: POST /recipes/generate
+# LLM-powered recipe generation from pantry ingredients
+# Requires authentication
+from .recipe_ai import router as recipe_ai_router
+api_router.include_router(recipe_ai_router, prefix="/recipes", tags=["recipes-ai"])
 
 # Include recipes endpoints
 # Endpoints: POST/GET/PUT/DELETE /recipes
@@ -262,4 +269,42 @@ api_router.include_router(
     meal_planner.router,
     # prefix is already defined in meal_planner.router (/meal-planner)
     tags=["Meal Planner"],
+)
+
+
+# Include meal stock endpoints
+# Endpoints: GET /meals/{id}/recipe-stock-preview, POST /meals/{id}/consume-recipe-stock
+# Stock decrement from pantry when logging a recipe-based meal
+# Requires authentication
+from .meal_stock import router as meal_stock_router
+api_router.include_router(meal_stock_router, tags=["Meal Stock"])
+
+
+# Include finance endpoints
+# Endpoints: CRUD on entries/savings/revolut, OCR import, house summary
+# Requires authentication
+api_router.include_router(
+    finance.router,
+    prefix="/finance",
+    tags=["finance"],
+)
+
+
+# Include investments endpoints
+# Endpoints: CRUD investments, snapshots, link to finance entries
+# Requires authentication
+api_router.include_router(
+    investments.router,
+    prefix="/investments",
+    tags=["investments"],
+)
+
+
+# Include trading endpoints
+# Proxy to android-trader-monitor service for copy-trading analytics
+# No auth required (reads from external service)
+api_router.include_router(
+    trading.router,
+    prefix="/trading",
+    tags=["trading"],
 )

@@ -28,8 +28,9 @@ import {
   PantryConsumeModal,
   PantryAddToListModal,
   PantryGrocySection,
-  MealTypeModal,
 } from '@/components/Pantry'
+import { PantryConsumeHowModal } from '@/components/Pantry/PantryConsumeHowModal'
+import type { ConsumeHowResult } from '@/components/Pantry/PantryConsumeHowModal'
 import mealsService from '@/services/meals'
 
 type FilterMode = 'all' | 'expiring' | 'expired' | 'consumed'
@@ -326,15 +327,24 @@ export function Pantry() {
     setMealTypeItem(entry)
   }
 
-  const doConsumeWithMeal = async (entry: DispensaItem, mealType?: 'colazione' | 'spuntino' | 'pranzo' | 'cena') => {
+  const doConsumeWithMeal = async (entry: DispensaItem, result: ConsumeHowResult) => {
     try {
       await dispensaService.consumeItem(houseId, entry.id)
-      if (mealType) {
-        await mealsService.create(houseId, {
-          meal_type: mealType,
+      if (result.method !== 'skip' && result.mealType) {
+        const newMeal = await mealsService.create(houseId, {
+          recipe_id: result.recipeId || undefined,
+          meal_type: result.mealType,
           consumed_at: new Date().toISOString(),
-          notes: entry.name,
+          notes: result.recipeId ? undefined : entry.name,
         })
+        // Decrementa stock ricetta se collegata a prodotti dispensa
+        if (result.recipeId && result.recipe?.ingredients?.some((ing: any) => ing.product_id)) {
+          try {
+            await mealsService.consumeRecipeStock(newMeal.id, houseId, 1.0)
+          } catch (e) {
+            console.error('Stock decrement non critico:', e)
+          }
+        }
       }
       showToast(`"${entry.name}" consumato`, 'success')
       fetchData()
@@ -835,17 +845,12 @@ export function Pantry() {
 
       {/* Meal Type Selection Modal */}
       {mealTypeItem && (
-        <MealTypeModal
+        <PantryConsumeHowModal
           item={mealTypeItem}
-          onSelect={(mealType) => {
+          onConfirm={(result) => {
             const item = mealTypeItem
             setMealTypeItem(null)
-            doConsumeWithMeal(item, mealType)
-          }}
-          onSkip={() => {
-            const item = mealTypeItem
-            setMealTypeItem(null)
-            doConsumeWithMeal(item)
+            doConsumeWithMeal(item, result)
           }}
           onClose={() => setMealTypeItem(null)}
         />

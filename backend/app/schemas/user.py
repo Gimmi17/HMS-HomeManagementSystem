@@ -7,7 +7,7 @@ They provide automatic validation, serialization, and documentation.
 """
 
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
 
@@ -426,3 +426,54 @@ class RecoveryStatusResponse(BaseModel):
         ...,
         description="Whether user has configured password recovery"
     )
+
+
+# ============================================================================
+# ANAGRAFICA SCHEMAS
+# ============================================================================
+
+BLOOD_TYPES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "0+", "0-"}
+GENDERS = {"M", "F"}
+
+
+class UserAnagraficaUpdate(BaseModel):
+    """Schema for updating user anagrafica (all fields optional, merge semantics)."""
+    first_name:              Optional[str]       = Field(None, max_length=100)
+    last_name:               Optional[str]       = Field(None, max_length=100)
+    codice_fiscale:          Optional[str]       = Field(None, max_length=16, min_length=16)
+    birth_date:              Optional[str]       = Field(None, description="ISO date YYYY-MM-DD")
+    birth_place:             Optional[str]       = Field(None, max_length=200)
+    gender:                  Optional[str]       = Field(None, description="M or F")
+    height_cm:               Optional[float]     = Field(None, gt=0, le=300)
+    phone:                   Optional[str]       = Field(None, max_length=30)
+    address:                 Optional[str]       = Field(None, max_length=300)
+    blood_type:              Optional[str]       = Field(None, description="e.g. A+, 0-")
+    allergies_medical:       Optional[List[str]] = Field(None)
+    emergency_contact_name:  Optional[str]       = Field(None, max_length=200)
+    emergency_contact_phone: Optional[str]       = Field(None, max_length=30)
+    notes:                   Optional[str]       = Field(None, max_length=2000)
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class UserAnagraficaResponse(BaseModel):
+    """Schema for user anagrafica response."""
+    id:                      UUID
+    email:                   str
+    full_name:               Optional[str]       = None
+    first_name:              Optional[str]       = None
+    last_name:               Optional[str]       = None
+    codice_fiscale:          Optional[str]       = None
+    birth_date:              Optional[str]       = None
+    birth_place:             Optional[str]       = None
+    gender:                  Optional[str]       = None
+    height_cm:               Optional[float]     = None
+    phone:                   Optional[str]       = None
+    address:                 Optional[str]       = None
+    blood_type:              Optional[str]       = None
+    allergies_medical:       List[str]           = Field(default_factory=list)
+    emergency_contact_name:  Optional[str]       = None
+    emergency_contact_phone: Optional[str]       = None
+    notes:                   Optional[str]       = None
+
+    model_config = ConfigDict(from_attributes=True)

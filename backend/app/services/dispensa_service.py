@@ -11,7 +11,7 @@ Key responsibilities:
 """
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from typing import Optional, Dict
 from datetime import datetime, date, timedelta, timezone
 from uuid import UUID
@@ -113,6 +113,13 @@ class DispensaService:
         Create a dispensa item.
         Always creates a new row (no merge). Each entry is an individual stock entry.
         """
+        # Resolve product_catalog_id from barcode (if provided)
+        product_catalog_id = None
+        if data.barcode:
+            pb = db.query(ProductBarcode).filter(ProductBarcode.barcode == data.barcode).first()
+            if pb:
+                product_catalog_id = pb.product_id
+
         item = DispensaItem(
             house_id=house_id,
             name=data.name,
@@ -122,6 +129,7 @@ class DispensaService:
             expiry_date=data.expiry_date,
             original_expiry_date=data.original_expiry_date,
             barcode=data.barcode,
+            product_catalog_id=product_catalog_id,
             grocy_product_id=data.grocy_product_id,
             grocy_product_name=data.grocy_product_name,
             source_item_id=data.source_item_id,
@@ -241,6 +249,28 @@ class DispensaService:
             category = db.query(Category).filter(Category.id == sl_item.category_id).first()
             if category and category.default_area_id:
                 return category.default_area_id
+
+        # 3. Try grocy_product_id → last area used in dispensa history
+        if sl_item.grocy_product_id:
+            last_dispensa = db.query(DispensaItem).filter(
+                DispensaItem.grocy_product_id == sl_item.grocy_product_id,
+                DispensaItem.area_id != None,
+            ).order_by(DispensaItem.created_at.desc()).first()
+            if last_dispensa and last_dispensa.area_id:
+                return last_dispensa.area_id
+
+        # 4. Try name match → last area used in dispensa history
+        product_name = (sl_item.grocy_product_name or sl_item.name or '').strip()
+        if product_name:
+            last_dispensa = db.query(DispensaItem).filter(
+                or_(
+                    DispensaItem.grocy_product_name.ilike(f"%{product_name}%"),
+                    DispensaItem.name.ilike(f"%{product_name}%"),
+                ),
+                DispensaItem.area_id != None,
+            ).order_by(DispensaItem.created_at.desc()).first()
+            if last_dispensa and last_dispensa.area_id:
+                return last_dispensa.area_id
 
         return None
 
@@ -578,3 +608,55 @@ class DispensaService:
             "expiring_soon": expiring_soon,
             "expired": expired,
         }
+
+    @staticmethod
+    def get_suggestions(
+        db: Session,
+        house_id: UUID,
+    ) -> Dict:
+        """
+        Return dispensa items that need restocking:
+        - quantity == 0 → reason 'out_of_stock'
+
+        Deduplicates by grocy_product_id (if set) or name.
+        Returns suggestions with area info if available.
+        """
+        from app.models.area import Area as AreaModel
+
+        candidates = db.query(DispensaItem).filter(
+            DispensaItem.house_id == house_id,
+            DispensaItem.is_consumed == False,
+            DispensaItem.quantity == 0,
+        ).order_by(DispensaItem.created_at.desc()).all()
+
+        # Dedup: prefer grocy_product_id key, fallback to lowercase name
+        seen: set = set()
+        unique: list[DispensaItem] = []
+        for item in candidates:
+            key = f"grocy:{item.grocy_product_id}" if item.grocy_product_id else f"name:{(item.name or '').strip().lower()}"
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
+
+        # Gather area names
+        area_ids = {item.area_id for item in unique if item.area_id}
+        area_map: Dict = {}
+        if area_ids:
+            areas = db.query(AreaModel).filter(AreaModel.id.in_(area_ids)).all()
+            area_map = {a.id: a.name for a in areas}
+
+        suggestions = []
+        for item in unique:
+            suggestions.append({
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "category_id": str(item.category_id) if item.category_id else None,
+                "grocy_product_id": item.grocy_product_id,
+                "grocy_product_name": item.grocy_product_name,
+                "reason": "out_of_stock",
+                "area_id": str(item.area_id) if item.area_id else None,
+                "area_name": area_map.get(item.area_id) if item.area_id else None,
+            })
+
+        return {"suggestions": suggestions, "total": len(suggestions)}

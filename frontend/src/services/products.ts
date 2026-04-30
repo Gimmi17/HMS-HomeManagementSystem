@@ -1,5 +1,17 @@
 import api from './api'
 
+export interface ProductCatalogItem {
+  id: string
+  name: string
+  brand?: string
+  barcode?: string
+  unit?: string
+  energy_kcal?: number
+  proteins_g?: number
+  carbs_g?: number
+  fats_g?: number
+}
+
 export interface ProductLookupResult {
   found: boolean
   barcode: string
@@ -37,6 +49,14 @@ export interface ProductSuggestResponse {
 }
 
 export const productsService = {
+  /**
+   * Search products in the house catalog (full-text, returns ProductCatalogItem[])
+   */
+  async search(houseId: string, q: string): Promise<ProductCatalogItem[]> {
+    const res = await api.get(`/products/search?house_id=${houseId}&q=${encodeURIComponent(q)}&limit=30`)
+    return res.data
+  },
+
   /**
    * Look up a product by barcode using Open Food Facts
    */

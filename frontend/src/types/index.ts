@@ -374,6 +374,8 @@ export interface ShoppingList {
   name: string
   status: ShoppingListStatus
   verification_status: VerificationStatus
+  editing_by?: string | null
+  editing_since?: string | null
   items: ShoppingListItem[]
   created_at: string
   updated_at: string

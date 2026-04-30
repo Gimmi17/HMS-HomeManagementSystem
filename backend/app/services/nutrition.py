@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 
 from app.models.food import Food
+from app.models.product_catalog import ProductCatalog
 
 
 def calculate_nutrition(
@@ -191,27 +192,44 @@ def calculate_primary_macros(
     }
 
     for ingredient in ingredients:
+        product_id = ingredient.get("product_id")
         food_id = ingredient.get("food_id")
         quantity_g = float(ingredient.get("quantity_g", 0))
 
-        if not food_id or quantity_g <= 0:
-            continue
-
-        food = db.query(Food).filter(Food.id == food_id).first()
-        if not food:
+        if quantity_g <= 0:
             continue
 
         ratio = quantity_g / 100.0
 
-        proteins = _safe_decimal_to_float(food.proteins_g) * ratio
-        fats = _safe_decimal_to_float(food.fats_g) * ratio
-        carbs = _safe_decimal_to_float(food.carbs_g) * ratio
+        if product_id:
+            # Nutrition from ProductCatalog (barcode-based ingredient)
+            product = db.query(ProductCatalog).filter(ProductCatalog.id == product_id).first()
+            if not product:
+                continue
+            proteins = float(product.proteins_g or 0) * ratio
+            fats = float(product.fats_g or 0) * ratio
+            carbs = float(product.carbs_g or 0) * ratio
+            # Use energy_kcal directly if available, otherwise compute from macros
+            if product.energy_kcal is not None:
+                totals["calories"] += float(product.energy_kcal) * ratio
+            else:
+                totals["calories"] += (proteins * 4) + (carbs * 4) + (fats * 9)
+        elif food_id:
+            # Nutrition from Food table (classic path)
+            food = db.query(Food).filter(Food.id == food_id).first()
+            if not food:
+                continue
+            proteins = _safe_decimal_to_float(food.proteins_g) * ratio
+            fats = _safe_decimal_to_float(food.fats_g) * ratio
+            carbs = _safe_decimal_to_float(food.carbs_g) * ratio
+            # Calculate calories from macros: protein=4 cal/g, carbs=4 cal/g, fats=9 cal/g
+            totals["calories"] += (proteins * 4) + (carbs * 4) + (fats * 9)
+        else:
+            continue
 
         totals["proteins_g"] += proteins
         totals["fats_g"] += fats
         totals["carbs_g"] += carbs
-        # Calculate calories from macros: protein=4 cal/g, carbs=4 cal/g, fats=9 cal/g
-        totals["calories"] += (proteins * 4) + (carbs * 4) + (fats * 9)
 
     return {key: round(value, 2) for key, value in totals.items()}
 

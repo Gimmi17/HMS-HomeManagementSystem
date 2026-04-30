@@ -6,7 +6,7 @@
  * expiry date, and environment zone selection.
  */
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useHouse } from '@/context/HouseContext'
 import productsService from '@/services/products'
 import type { ProductLookupResult } from '@/services/products'
@@ -153,6 +153,27 @@ export function SaveAsProductModal({
 
         {/* Body */}
         <div className="p-4 space-y-4">
+          {/* Step indicator */}
+          <div className='flex items-center gap-2 mb-2'>
+            {['Barcode','Dettagli','Zona'].map((label, i) => {
+              const stepActive = i===0 ? true : i===1 ? (lookupDone||skipped) : !!(lookupDone||skipped) && !!productName
+              const stepDone = i===0 ? (lookupDone||skipped) : i===1 ? !!(productName) : !!areaId
+              return (
+                <React.Fragment key={i}>
+                  {i>0 && <div className={`flex-1 h-0.5 ${stepDone ? 'bg-primary-500' : 'bg-gray-200'}`} />}
+                  <div className={`flex items-center gap-1 text-xs font-medium ${
+                    stepActive ? (stepDone ? 'text-primary-600' : 'text-gray-900') : 'text-gray-400'
+                  }`}>
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                      stepDone ? 'bg-primary-500 text-white' : stepActive ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-400'
+                    }`}>{stepDone ? '✓' : i+1}</div>
+                    <span className='hidden sm:inline'>{label}</span>
+                  </div>
+                </React.Fragment>
+              )
+            })}
+          </div>
+
           {/* Barcode section */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Codice a barre (EAN)</label>
@@ -186,13 +207,7 @@ export function SaveAsProductModal({
 
             {/* Skip barcode button */}
             {!lookupDone && !skipped && !isSearching && (
-              <button
-                type="button"
-                onClick={handleSkip}
-                className="text-xs text-gray-500 hover:text-gray-700 underline"
-              >
-                Salta, inserisci manualmente
-              </button>
+              <button type='button' onClick={handleSkip} className='btn btn-secondary w-full text-sm'>Salta barcode, inserisci manualmente</button>
             )}
 
             {/* Search spinner */}
@@ -253,6 +268,7 @@ export function SaveAsProductModal({
             {lookupDone && !lookupResult?.found && !skipped && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                 <span className="text-yellow-700 text-sm">Prodotto non trovato nel database</span>
+                <button type='button' onClick={handleSkip} className='btn btn-secondary w-full text-sm mt-2'>Continua senza barcode →</button>
               </div>
             )}
           </div>

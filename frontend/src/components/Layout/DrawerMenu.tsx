@@ -3,16 +3,40 @@ import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import { useHouse } from '@/context/HouseContext'
 
-const baseNavItems = [
-  { to: '/', label: 'Dashboard', icon: '📊' },
-  { to: '/meals', label: 'Pasti', icon: '🍽️' },
-  { to: '/recipes', label: 'Ricette', icon: '📖' },
-  { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
-  { to: '/giacenze', label: 'Giacenze', icon: '🏠' },
-  { to: '/areas', label: 'Aree', icon: '🗄️' },
-  { to: '/health', label: 'Salute', icon: '❤️' },
-  { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
-  { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
+const baseNavGroups = [
+  {
+    label: 'Vita Quotidiana',
+    items: [
+      { to: '/', label: 'Dashboard', icon: '📊' },
+      { to: '/meals', label: 'Pasti', icon: '🍽️' },
+      { to: '/shopping-lists', label: 'Lista Spesa', icon: '🛒' },
+      { to: '/recipes', label: 'Ricette', icon: '📖' },
+    ],
+  },
+  {
+    label: 'Casa',
+    items: [
+      { to: '/giacenze', label: 'Giacenze', icon: '🏠' },
+      { to: '/areas', label: 'Aree', icon: '🗄️' },
+      { to: '/house', label: 'Casa', icon: '👥' },
+      { to: '/anagrafiche', label: 'Anagrafiche', icon: '📋' },
+    ],
+  },
+  {
+    label: 'Finanze',
+    items: [
+      { to: '/finance', label: 'Finanza', icon: '💶' },
+      { to: '/finance/compound-lab', label: 'Proiezione', icon: '📈' },
+      { to: '/investments', label: 'Portafoglio', icon: '💼' },
+    ],
+  },
+  {
+    label: 'Io',
+    items: [
+      { to: '/health', label: 'Salute', icon: '❤️' },
+      { to: '/settings', label: 'Impostazioni', icon: '⚙️' },
+    ],
+  },
 ]
 
 const adminNavItem = { to: '/admin', label: 'Admin', icon: '🛠️' }
@@ -27,9 +51,13 @@ interface DrawerMenuProps {
 
 export function DrawerMenu({ isOpen, onClose, userName, isAdmin, onLogout }: DrawerMenuProps) {
   const { currentHouse, houses, setCurrentHouse } = useHouse()
-  const navItems = isAdmin
-    ? [...baseNavItems.slice(0, -1), adminNavItem, baseNavItems[baseNavItems.length - 1]]
-    : baseNavItems
+  const navGroups = isAdmin
+    ? baseNavGroups.map((group) =>
+        group.label === 'Io'
+          ? { ...group, items: [...group.items.slice(0, -1), adminNavItem, group.items[group.items.length - 1]] }
+          : group
+      )
+    : baseNavGroups
   // Lock body scroll when drawer is open
   useEffect(() => {
     if (isOpen) {
@@ -90,23 +118,33 @@ export function DrawerMenu({ isOpen, onClose, userName, isAdmin, onLogout }: Dra
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3">
-          <ul className="space-y-1">
-            {navItems.map((item) => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  onClick={onClose}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
-                      isActive
-                        ? 'bg-primary-50 text-primary-700 font-medium'
-                        : 'text-gray-600 hover:bg-gray-50'
-                    }`
-                  }
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </NavLink>
+          <ul className="space-y-4">
+            {navGroups.map((group) => (
+              <li key={group.label}>
+                <p className="px-3 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  {group.label}
+                </p>
+                <ul className="space-y-1">
+                  {group.items.map((item) => (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        end={item.to === '/'}
+                        onClick={onClose}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
+                            isActive
+                              ? 'bg-primary-50 text-primary-700 font-medium'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`
+                        }
+                      >
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
