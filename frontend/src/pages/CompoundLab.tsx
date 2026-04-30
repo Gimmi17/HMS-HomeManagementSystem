@@ -788,6 +788,7 @@ export function CompoundLab() {
     no_dd: true, net_value: false, capital: false, buffer: false, real: false,
   })
   const [equityScale, setEquityScale] = useState<'linear' | 'logarithmic'>('linear')
+  const [viewRange, setViewRange] = useState<number>(params.horizon) // visible months on charts (3..horizon)
   const [sensParam, setSensParam] = useState<SensParam>('beta')
   const [sensMetric, setSensMetric] = useState<SensMetric>('net_value')
   const [optimizing, setOptimizing] = useState(false)
@@ -843,7 +844,12 @@ export function CompoundLab() {
   }, [realHistory])
 
   const update = <K extends keyof Params>(key: K, value: Params[K]) => {
-    setParams(p => ({ ...p, [key]: value }))
+    setParams(p => {
+      const next = { ...p, [key]: value }
+      // Keep viewRange clamped when horizon changes
+      if (key === 'horizon') setViewRange(r => Math.min(r, value as number))
+      return next
+    })
   }
 
   const flashStatus = (msg: string) => {
@@ -910,6 +916,9 @@ export function CompoundLab() {
     ]
   }, [params, m])
 
+  // Clamp viewRange to valid bounds
+  const vr = Math.max(3, Math.min(viewRange, params.horizon))
+
   // Equity chart data
   const equityData: ChartData<'line'> = useMemo(() => {
     const datasets = [
@@ -949,10 +958,10 @@ export function CompoundLab() {
   }, [result, resultNoDD, equityHidden, params.horizon, realEquityPoints])
 
   const equityOptions: ChartOptions<'line'> = useMemo(() => {
-    const opts = baseChartOptions(params.horizon)
+    const opts = baseChartOptions(vr)
     if (opts.scales?.y) opts.scales.y.type = equityScale
     return opts
-  }, [params.horizon, equityScale])
+  }, [vr, equityScale])
 
   // Losses chart
   const lossesData: ChartData<'line'> = useMemo(() => ({
@@ -1327,6 +1336,21 @@ export function CompoundLab() {
             </div>
           </section>
 
+          {/* View range slider */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-5 flex items-center gap-4 flex-wrap">
+            <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Periodo visibile</label>
+            <input
+              type="range"
+              min={3}
+              max={params.horizon}
+              step={1}
+              value={vr}
+              onChange={e => setViewRange(parseInt(e.target.value))}
+              className="flex-1 min-w-[150px] accent-primary-600 h-1.5 bg-gray-200 rounded cursor-pointer"
+            />
+            <span className="text-sm font-bold text-primary-700 tabular-nums w-20 text-right">{vr} mesi</span>
+          </div>
+
           {/* Equity */}
           <section className="mb-7">
             <h2 className="text-lg font-bold text-gray-900 mb-3">
@@ -1340,7 +1364,7 @@ export function CompoundLab() {
                   {realEquityPoints.length > 2 && <span className="text-violet-600"> · saldo reale</span>}
                 </span>
                 <span className="text-[10px] text-gray-500">
-                  giorni 0 → {m.days_total}
+                  mesi 0 → {vr}{vr < params.horizon && ` / ${params.horizon}`}
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 mb-3">
@@ -1506,7 +1530,7 @@ export function CompoundLab() {
                   <span className="text-[10px] text-gray-500">€ · daily</span>
                 </div>
                 <div style={{ height: 300 }}>
-                  <Line data={lossesData} options={baseChartOptions(params.horizon)} />
+                  <Line data={lossesData} options={baseChartOptions(vr)} />
                 </div>
               </div>
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
@@ -1517,7 +1541,7 @@ export function CompoundLab() {
                   <span className="text-[10px] text-gray-500">€ · what you take home</span>
                 </div>
                 <div style={{ height: 300 }}>
-                  <Line data={cashflowData} options={baseChartOptions(params.horizon)} />
+                  <Line data={cashflowData} options={baseChartOptions(vr)} />
                 </div>
               </div>
             </div>
@@ -1537,7 +1561,7 @@ export function CompoundLab() {
                 <span className="text-[10px] text-gray-500">€ · phases highlighted</span>
               </div>
               <div style={{ height: 300 }}>
-                <Line data={bufferData} options={baseChartOptions(params.horizon)} />
+                <Line data={bufferData} options={baseChartOptions(vr)} />
               </div>
             </div>
             <div className="bg-amber-50 border-l-2 border-amber-400 p-3 mt-3 text-sm rounded">
