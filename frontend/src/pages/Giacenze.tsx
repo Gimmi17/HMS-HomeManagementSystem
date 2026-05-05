@@ -379,8 +379,26 @@ export function Giacenze() {
               </Link>
             )}
           </div>
+        ) : (stats?.total ?? 0) === 0 ? (
+          <div className="py-6 space-y-3">
+            <p className="text-gray-700 text-sm font-medium">La tua dispensa è vuota — aggiungi i primi prodotti di base</p>
+            <div className="flex flex-wrap gap-2">
+              {['Pasta', 'Latte', 'Uova', 'Pane', 'Caffè'].map((name) => (
+                <Link
+                  key={name}
+                  to={`/pantry?quick_add=${encodeURIComponent(name)}`}
+                  className="px-3 py-1.5 text-xs font-medium rounded-full border border-gray-200 bg-white hover:border-primary-300 hover:bg-primary-50 transition-colors text-gray-700"
+                >
+                  + {name}
+                </Link>
+              ))}
+            </div>
+            <Link to="/pantry" className="text-xs text-primary-600 hover:text-primary-700">
+              Vai alla dispensa →
+            </Link>
+          </div>
         ) : (
-          <p className="text-gray-500 text-sm">Nessun prodotto in scadenza</p>
+          <p className="text-gray-500 text-sm py-2">✓ Nessun prodotto in scadenza</p>
         )}
       </div>
 

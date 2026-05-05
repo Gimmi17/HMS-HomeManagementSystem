@@ -212,6 +212,21 @@ async def trading_summary(
     }
 
 
+@router.get("/analytics/certified-dates")
+async def certified_dates() -> list[str]:
+    """
+    Distinct calendar dates that have at least one certified position snapshot.
+    'Certified' means the scraper captured a row with a non-null pnl_account.
+    Returns sorted list of ISO date strings (YYYY-MM-DD).
+    """
+    raw: list[dict[str, Any]] = await _get("/api/positions", {"limit": 5000})
+    dates: set[str] = set()
+    for row in raw:
+        if row.get("pnl_account") is not None:
+            dates.add(row["captured_at"][:10])
+    return sorted(dates)
+
+
 @router.get("/health")
 async def trading_health() -> dict[str, str]:
     """Check connectivity to android-trader-monitor."""

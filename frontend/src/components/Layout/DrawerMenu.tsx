@@ -27,6 +27,7 @@ const baseNavGroups = [
     items: [
       { to: '/finance', label: 'Finanza', icon: '💶' },
       { to: '/finance/compound-lab', label: 'Proiezione', icon: '📈' },
+      { to: '/finance/calendar', label: 'Calendario', icon: '📅' },
       { to: '/investments', label: 'Portafoglio', icon: '💼' },
     ],
   },

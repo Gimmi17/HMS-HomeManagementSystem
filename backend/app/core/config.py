@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # Trading Monitor Integration (android-trader-monitor)
     TRADER_MONITOR_URL: str = "http://host.docker.internal:8000"  # Trader monitor API base URL
     TRADER_MONITOR_TOKEN: str = ""  # Bearer token for trader monitor API
+    GOLD_ALERT_URL: str = "http://host.docker.internal:8001"  # Gold Alert API base URL
 
     # Application Settings
     API_VERSION: str = "v1"  # API version prefix

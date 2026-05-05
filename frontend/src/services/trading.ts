@@ -83,6 +83,11 @@ export const tradingService = {
     return res.data
   },
 
+  async getCertifiedDates(): Promise<string[]> {
+    const res = await api.get('/trading/analytics/certified-dates')
+    return res.data
+  },
+
   async checkHealth(): Promise<TradingHealth> {
     const res = await api.get('/trading/health')
     return res.data

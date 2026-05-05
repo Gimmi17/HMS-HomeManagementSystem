@@ -16,6 +16,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import tradingService, { type BalancePoint, type TradingSummary } from '@/services/trading'
+import { type Params, DAYS_PER_MONTH, STORAGE_KEY, DEFAULTS, simulate, computeMonthlyPayment } from '@/utils/compoundSimulate'
 
 ChartJS.register(
   CategoryScale,
@@ -46,480 +47,22 @@ const COL = {
   grid: 'rgba(209, 213, 219, 0.5)',
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-interface Params {
-  daily: number
-  horizon: number
-  cap0: number
-  bigPct: number
-  bigPer: number
-  smallPct: number
-  smallPer: number
-  budget: number
-  floor: number
-  coef: number
-  boostBudget: number
-  boostMonths: number
-  wPct: number
-  wTarget: number
-  beta: number
-  alpha: number
-  rf: number
-  rebuildAlpha: number
-  rebuildTrigger: number
-  loanAmount: number
-  loanTAEG: number
-  loanMonths: number
-  loanToBuffer: number
-  bufferLeverage: number
-  bufferLeverageFloor: number
-  bufferMax: number
-  phaseSwitchMonth: number
-  budgetPhase2: number
-  payoffFundPct: number
-  loanPayedBySystem: boolean
-}
-
-interface SimSeries {
-  day: number[]
-  month: number[]
-  capital: number[]
-  buffer: number[]
-  net_value: number[]
-  cum_crash_loss: number[]
-  cum_buffer_deploy: number[]
-  cum_cashflow_net: number[]
-  cum_withdrawn_gross: number[]
-  cum_loan_payments: number[]
-  injection: number[]
-  withdrawal_gross: number[]
-  target_buffer: number[]
-  phase: string[]
-  crash_big: boolean[]
-  crash_small: boolean[]
-  rebuild_mode: boolean[]
-  loan_outstanding: number[]
-}
-
-interface SimMetrics {
-  final_capital: number
-  final_buffer: number
-  net_value: number
-  net_value_gross: number
-  total_injected: number
-  total_out_of_pocket: number
-  cumWithdrawnGross: number
-  cumCashflowNet: number
-  cumCrashLoss: number
-  cumBufferDeploy: number
-  cumBufferRefill: number
-  cumLoanPayments: number
-  outstandingLoanEnd: number
-  monthlyPayment: number
-  loanInterestTotal: number
-  loanBreakEven: number
-  cumBufferLeveraged: number
-  cumBufferOverflow: number
-  breakEvenReachedMonth: number | null
-  cumDeficitCoveredBySystem: number
-  payoffFundFinal: number
-  loanInterestPaid: number
-  loanPaidEarly: boolean
-  earlyPayoffMonth: number | null
-  net_profit: number
-  roi: number
-  cagr_net: number
-  theoretical_monthly: number
-  effective_monthly: number
-  drag_pct_points: number
-  threshold: number
-  first_cashflow_day: number | null
-  first_cashflow_month: number | null
-  days_total: number
-  milestones: Record<number, number>
-  rebuild_days: number
-}
-
-interface SimResult {
-  series: SimSeries
-  metrics: SimMetrics
-}
-
-// ─── Defaults (match original HTML exactly) ──────────────────────────────────
-const DEFAULTS: Params = {
-  daily: 0.4,
-  horizon: 48,
-  cap0: 300,
-  bigPct: 10,
-  bigPer: 90,
-  smallPct: 2,
-  smallPer: 21,
-  budget: 800,
-  floor: 200,
-  coef: 3,
-  boostBudget: 800,
-  boostMonths: 0,
-  wPct: 3,
-  wTarget: 500,
-  beta: 5,
-  alpha: 30,
-  rf: 75,
-  rebuildAlpha: 30,
-  rebuildTrigger: 0,
-  loanAmount: 5000,
-  loanTAEG: 7.3,
-  loanMonths: 48,
-  loanToBuffer: 100,
-  bufferLeverage: 500,
-  bufferLeverageFloor: 2000,
-  bufferMax: 6000,
-  phaseSwitchMonth: 4,
-  budgetPhase2: 200,
-  payoffFundPct: 50,
-  loanPayedBySystem: true,
-}
-
-const DAYS_PER_MONTH = 30
-const STORAGE_KEY = 'hms_compound_lab_v2_config'
-
 // ─── Formatters ──────────────────────────────────────────────────────────────
 const fmt = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 })
 const fmt1 = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 })
 const fmt2 = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 })
 
-// ─── Simulation engine ───────────────────────────────────────────────────────
-function computeMonthlyPayment(amount: number, taegPct: number, months: number): number {
-  if (amount <= 0 || months <= 0) return 0
-  if (taegPct === 0) return amount / months
-  const i = Math.pow(1 + taegPct / 100, 1 / 12) - 1
-  return (amount * i) / (1 - Math.pow(1 + i, -months))
-}
-
-function simulate(params: Params, skipCrashes = false): SimResult {
-  const {
-    daily, horizon, cap0,
-    bigPct, bigPer, smallPct, smallPer,
-    budget, floor, coef,
-    boostBudget, boostMonths,
-    wPct, wTarget,
-    beta, alpha, rf,
-    rebuildAlpha, rebuildTrigger,
-    loanAmount, loanTAEG, loanMonths, loanToBuffer,
-    bufferLeverage, bufferLeverageFloor, bufferMax,
-    phaseSwitchMonth, budgetPhase2, loanPayedBySystem, payoffFundPct,
-  } = params
-
-  const days = Math.round(horizon * DAYS_PER_MONTH)
-  const dailyRet = daily / 100
-  const bigLoss = bigPct / 100
-  const smallLoss = smallPct / 100
-  const coefR = coef / 100
-  const wPctR = wPct / 100
-  const betaR = beta / 100
-  const alphaR = alpha / 100
-  const rebuildAlphaR = rebuildAlpha / 100
-  const rebuildTriggerR = rebuildTrigger / 100
-  const rfR = rf / 100
-  const threshold = wTarget / wPctR
-  const loanToBufferR = loanToBuffer / 100
-
-  const loanI = loanTAEG > 0 ? Math.pow(1 + loanTAEG / 100, 1 / 12) - 1 : 0
-  const monthlyPayment = computeMonthlyPayment(loanAmount, loanTAEG, loanMonths)
-  const totalToRepay = monthlyPayment * loanMonths
-  const loanInterestTotal = totalToRepay - loanAmount
-  const loanBreakEven = totalToRepay
-  let loanCapitalRemaining = loanAmount
-  let loanInterestPaid = 0
-  let loanPaidEarly = false
-  let earlyPayoffMonth: number | null = null
-  let payoffFund = 0
-  const payoffPctR = payoffFundPct / 100
-
-  let capital = cap0 + loanAmount * (1 - loanToBufferR)
-  let buffer = loanAmount * loanToBufferR
-  let cumInjected = 0
-  let cumWithdrawnGross = 0
-  let cumCashflowNet = 0
-  let cumCrashLoss = 0
-  let cumBufferDeploy = 0
-  let cumBufferRefill = 0
-  let cumLoanPayments = 0
-  let cumDeficitCoveredBySystem = 0
-  let cumBufferLeveraged = 0
-  let cumBufferOverflow = 0
-  let breakEvenReachedMonth: number | null = null
-  let firstCashflowDay: number | null = null
-  let inRebuildMode = false
-  let rebuildDays = 0
-
-  const msTargets = [500, 1000, 2000, 3000, 5000, 10000]
-  const msReached: Record<number, number> = {}
-
-  const series: SimSeries = {
-    day: [], month: [],
-    capital: [], buffer: [], net_value: [],
-    cum_crash_loss: [], cum_buffer_deploy: [],
-    cum_cashflow_net: [], cum_withdrawn_gross: [],
-    cum_loan_payments: [],
-    injection: [], withdrawal_gross: [],
-    target_buffer: [],
-    phase: [],
-    crash_big: [], crash_small: [],
-    rebuild_mode: [],
-    loan_outstanding: [],
-  }
-
-  for (let d = 1; d <= days; d++) {
-    capital *= 1 + dailyRet
-
-    let dayCrashLoss = 0
-    let isBigCrash = false, isSmallCrash = false
-    if (!skipCrashes && d % bigPer === 0) {
-      const loss = capital * bigLoss
-      capital -= loss
-      dayCrashLoss += loss
-      isBigCrash = true
-    }
-    if (!skipCrashes && d % smallPer === 0) {
-      const loss = capital * smallLoss
-      capital -= loss
-      dayCrashLoss += loss
-      isSmallCrash = true
-    }
-    cumCrashLoss += dayCrashLoss
-
-    let dayBufferDeploy = 0
-    if (dayCrashLoss > 0 && buffer > 0) {
-      const targetDeploy = dayCrashLoss * rfR
-      dayBufferDeploy = Math.min(buffer, targetDeploy)
-      capital += dayBufferDeploy
-      buffer -= dayBufferDeploy
-      cumBufferDeploy += dayBufferDeploy
-    }
-
-    let dayInjection = 0, dayWithdrawGross = 0, dayCashflowNet = 0, dayBufferRefill = 0
-    let outstandingLoan = loanCapitalRemaining
-    if (d % DAYS_PER_MONTH === 1 || d === 1) {
-      const monthIdx = Math.floor((d - 1) / DAYS_PER_MONTH) + 1
-      const inCashflow = capital >= threshold
-      const monthlyTargetBuffer = capital * betaR
-      const inPhase2 = phaseSwitchMonth > 0 && monthIdx > phaseSwitchMonth
-
-      let currentBudget: number
-      if (boostMonths > 0 && monthIdx <= boostMonths) currentBudget = boostBudget
-      else if (inPhase2) currentBudget = budgetPhase2
-      else currentBudget = budget
-
-      let actualPayment = 0
-      if (loanCapitalRemaining > 0 && monthIdx <= loanMonths) {
-        const interestPayment = loanCapitalRemaining * loanI
-        let principalPayment = monthlyPayment - interestPayment
-        if (principalPayment > loanCapitalRemaining) {
-          principalPayment = loanCapitalRemaining
-          actualPayment = principalPayment + interestPayment
-        } else {
-          actualPayment = monthlyPayment
-        }
-        loanCapitalRemaining -= principalPayment
-        loanInterestPaid += interestPayment
-        cumLoanPayments += actualPayment
-      }
-      outstandingLoan = loanCapitalRemaining
-
-      if (!inCashflow) {
-        let budgetAvailable = currentBudget
-        let deficitToCover = 0
-
-        if (inPhase2 && loanPayedBySystem && actualPayment > 0) {
-          budgetAvailable = currentBudget - actualPayment
-          if (budgetAvailable < 0) {
-            deficitToCover = -budgetAvailable
-            budgetAvailable = 0
-          }
-        }
-
-        if (deficitToCover > 0) {
-          const fromBuffer = Math.min(buffer, deficitToCover)
-          buffer -= fromBuffer
-          const remaining = deficitToCover - fromBuffer
-          capital -= remaining
-          cumDeficitCoveredBySystem += deficitToCover
-        }
-
-        if (budgetAvailable > 0) {
-          let inj = Math.max(floor, budgetAvailable - coefR * capital)
-          inj = Math.min(inj, budgetAvailable)
-          const bufferContrib = budgetAvailable - inj
-          capital += inj
-          cumInjected += inj
-          dayInjection = inj
-
-          if (bufferMax > 0 && buffer + bufferContrib > bufferMax) {
-            const toBuffer = Math.max(0, bufferMax - buffer)
-            const toCapital = bufferContrib - toBuffer
-            buffer += toBuffer
-            capital += toCapital
-            cumBufferOverflow += toCapital
-          } else {
-            buffer += bufferContrib
-          }
-        }
-
-        if (bufferLeverage > 0 && loanAmount > 0 && capital < loanBreakEven && !inPhase2) {
-          const available = Math.max(0, buffer - bufferLeverageFloor)
-          const leverage = Math.min(bufferLeverage, available)
-          if (leverage > 0) {
-            buffer -= leverage
-            capital += leverage
-            cumBufferLeveraged += leverage
-          }
-        }
-
-        if (breakEvenReachedMonth === null && loanAmount > 0 && capital >= loanBreakEven) {
-          breakEvenReachedMonth = monthIdx
-        }
-      } else {
-        if (firstCashflowDay === null) firstCashflowDay = d
-        const wGross = capital * wPctR
-        capital -= wGross
-        cumWithdrawnGross += wGross
-        dayWithdrawGross = wGross
-
-        let wAfterLoan = wGross
-        if (inPhase2 && loanPayedBySystem && actualPayment > 0) {
-          wAfterLoan -= actualPayment
-          if (wAfterLoan < 0) {
-            const deficit = -wAfterLoan
-            const fromBuffer = Math.min(buffer, deficit)
-            buffer -= fromBuffer
-            const remaining = deficit - fromBuffer
-            capital -= remaining
-            cumDeficitCoveredBySystem += deficit
-            wAfterLoan = 0
-          }
-        }
-
-        inRebuildMode = buffer < monthlyTargetBuffer * rebuildTriggerR
-        const effectiveAlpha = inRebuildMode ? rebuildAlphaR : alphaR
-        let refill = 0
-        if (buffer < monthlyTargetBuffer && wAfterLoan > 0) {
-          refill = Math.min(wAfterLoan * effectiveAlpha, monthlyTargetBuffer - buffer)
-          if (bufferMax > 0) {
-            refill = Math.min(refill, Math.max(0, bufferMax - buffer))
-          }
-          buffer += refill
-          cumBufferRefill += refill
-        }
-        const wAfterRefill = Math.max(0, wAfterLoan - refill)
-
-        let toPayoff = 0
-        if (inPhase2 && loanCapitalRemaining > 0 && payoffPctR > 0 && wAfterRefill > 0) {
-          toPayoff = wAfterRefill * payoffPctR
-          payoffFund += toPayoff
-
-          if (payoffFund >= loanCapitalRemaining) {
-            const payoffUsed = loanCapitalRemaining
-            cumLoanPayments += payoffUsed
-            payoffFund -= payoffUsed
-            loanCapitalRemaining = 0
-            loanPaidEarly = true
-            earlyPayoffMonth = monthIdx
-            cumCashflowNet += payoffFund
-            payoffFund = 0
-          }
-        }
-
-        const netCashflow = wAfterRefill - toPayoff
-        cumCashflowNet += netCashflow
-        dayCashflowNet = netCashflow
-        dayBufferRefill = refill
-        if (inRebuildMode) rebuildDays++
-      }
-    }
-
-    const currentMonthlyGross = capital >= threshold ? capital * wPctR : 0
-    for (const t of msTargets) {
-      if (msReached[t] === undefined && currentMonthlyGross >= t) {
-        msReached[t] = d
-      }
-    }
-
-    const netValue = capital + buffer + cumCashflowNet - cumLoanPayments
-    series.day.push(d)
-    series.month.push(d / DAYS_PER_MONTH)
-    series.capital.push(capital)
-    series.buffer.push(buffer)
-    series.net_value.push(netValue)
-    series.cum_crash_loss.push(cumCrashLoss)
-    series.cum_buffer_deploy.push(cumBufferDeploy)
-    series.cum_cashflow_net.push(cumCashflowNet)
-    series.cum_withdrawn_gross.push(cumWithdrawnGross)
-    series.cum_loan_payments.push(cumLoanPayments)
-    series.injection.push(dayInjection)
-    series.withdrawal_gross.push(dayWithdrawGross)
-    series.target_buffer.push(capital * betaR)
-    series.phase.push(capital >= threshold ? 'cashflow' : 'accumulation')
-    series.crash_big.push(isBigCrash)
-    series.crash_small.push(isSmallCrash)
-    series.rebuild_mode.push(inRebuildMode)
-    series.loan_outstanding.push(outstandingLoan)
-    void dayCashflowNet; void dayBufferRefill
-  }
-
-  const totalOut = cap0 + cumInjected + cumDeficitCoveredBySystem
-  const outstandingLoanEnd = loanCapitalRemaining
-  const netValue = capital + buffer + payoffFund + cumCashflowNet - totalOut - outstandingLoanEnd
-  const netValueGross = capital + buffer + payoffFund + cumCashflowNet
-  const netProfit = netValue - totalOut
-  const years = horizon / 12
-  const cagrNet = totalOut > 0 ? Math.pow(Math.max(1, netValue) / totalOut, 1 / years) - 1 : 0
-  const theoreticalMonthly = Math.pow(1 + dailyRet, DAYS_PER_MONTH) - 1
-  const effectiveMonthly = Math.pow(Math.max(1, netValue) / cap0, 1 / horizon) - 1
-
-  return {
-    series,
-    metrics: {
-      final_capital: capital,
-      final_buffer: buffer,
-      net_value: netValue,
-      net_value_gross: netValueGross,
-      total_injected: cumInjected,
-      total_out_of_pocket: totalOut,
-      cumWithdrawnGross, cumCashflowNet, cumCrashLoss, cumBufferDeploy, cumBufferRefill,
-      cumLoanPayments, outstandingLoanEnd,
-      monthlyPayment, loanInterestTotal, loanBreakEven,
-      cumBufferLeveraged, cumBufferOverflow,
-      breakEvenReachedMonth,
-      cumDeficitCoveredBySystem,
-      payoffFundFinal: payoffFund,
-      loanInterestPaid,
-      loanPaidEarly, earlyPayoffMonth,
-      net_profit: netProfit,
-      roi: totalOut > 0 ? netProfit / totalOut : 0,
-      cagr_net: cagrNet,
-      theoretical_monthly: theoreticalMonthly,
-      effective_monthly: effectiveMonthly,
-      drag_pct_points: (theoreticalMonthly - effectiveMonthly) * 100,
-      threshold,
-      first_cashflow_day: firstCashflowDay,
-      first_cashflow_month: firstCashflowDay ? firstCashflowDay / DAYS_PER_MONTH : null,
-      days_total: Math.round(horizon * DAYS_PER_MONTH),
-      milestones: msReached,
-      rebuild_days: rebuildDays,
-    },
-  }
-}
-
 // ─── Down-sampling ──────────────────────────────────────────────────────────
-function seriesToXY(series: number[], horizon: number, maxPoints = 600): { x: number; y: number }[] {
+function seriesToXY(series: number[], horizon: number, maxPoints = 600, useDays = false): { x: number; y: number }[] {
   const len = series.length
   if (len === 0) return []
   const step = Math.max(1, Math.ceil(len / maxPoints))
   const out: { x: number; y: number }[] = []
   for (let i = 0; i < len; i += step) {
-    out.push({ x: (i + 1) / DAYS_PER_MONTH, y: series[i] })
+    const xMonths = (i + 1) / DAYS_PER_MONTH
+    out.push({ x: useDays ? (i + 1) : xMonths, y: series[i] })
   }
-  const lastX = horizon
+  const lastX = useDays ? len : horizon
   if (out.length === 0 || out[out.length - 1].x !== lastX) {
     out.push({ x: lastX, y: series[len - 1] })
   }
@@ -527,7 +70,7 @@ function seriesToXY(series: number[], horizon: number, maxPoints = 600): { x: nu
 }
 
 // ─── Sensitivity config ──────────────────────────────────────────────────────
-type SensParam = keyof Omit<Params, 'loanPayedBySystem'>
+type SensParam = keyof Omit<Params, 'loanPayedBySystem' | 'copyTraderFee'>
 type SensMetric = 'net_value' | 'cashflow_net' | 'final_capital' | 'cagr_net' | 'first_cashflow_month'
 
 const SENS_RANGES: Record<SensParam, { min: number; max: number; step: number; label: string }> = {
@@ -581,6 +124,13 @@ interface ControlDef {
 }
 
 const CONTROL_SECTIONS: { title: string; note?: string; controls: ControlDef[]; extra?: (p: Params) => React.ReactNode }[] = [
+  {
+    title: '◉ Copy Trader Fee',
+    note: 'Percentuale del guadagno giornaliero trattenuta dal copy trader. Default 30%.',
+    controls: [
+      { key: 'copyTraderFee', label: 'Fee giornaliera copy trader %', min: 0, max: 60, step: 1, format: v => v.toFixed(0) + '%' },
+    ],
+  },
   {
     title: '◉ Growth',
     controls: [
@@ -679,14 +229,15 @@ const CONTROL_SECTIONS: { title: string; note?: string; controls: ControlDef[]; 
 
 // ─── Slider control ──────────────────────────────────────────────────────────
 function SliderInput({
-  def, value, onChange,
+  def, value, onChange, disabled,
 }: {
   def: ControlDef
   value: number
   onChange: (v: number) => void
+  disabled?: boolean
 }) {
   return (
-    <div className="mb-3">
+    <div className={`mb-3 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
       <div className="flex justify-between items-baseline text-xs text-gray-600 mb-1">
         <span>{def.label}</span>
         <span className="text-primary-700 font-medium tabular-nums">{def.format(value)}</span>
@@ -699,7 +250,8 @@ function SliderInput({
           step={def.step}
           value={value}
           onChange={e => onChange(parseFloat(e.target.value))}
-          className="w-full accent-primary-600 h-1.5 bg-gray-200 rounded cursor-pointer"
+          disabled={disabled}
+          className="w-full accent-primary-600 h-1.5 bg-gray-200 rounded cursor-pointer disabled:cursor-not-allowed"
         />
         <input
           type="number"
@@ -731,6 +283,8 @@ function MetricTile({ k, v, cls, sub }: { k: string; v: string; cls: TileCls; su
 
 // ─── Chart common options ────────────────────────────────────────────────────
 function baseChartOptions(horizon: number, extra?: Partial<ChartOptions<'line'>>): ChartOptions<'line'> {
+  const useDays = horizon < 1
+  const xMax = useDays ? Math.ceil(horizon * DAYS_PER_MONTH) : horizon
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -739,9 +293,12 @@ function baseChartOptions(horizon: number, extra?: Partial<ChartOptions<'line'>>
       x: {
         type: 'linear',
         min: 0,
-        max: horizon,
-        title: { display: true, text: 'mese', color: COL.axis, font: { size: 10 } },
-        ticks: { color: COL.axis },
+        max: xMax,
+        title: { display: true, text: useDays ? 'giorno' : 'mese', color: COL.axis, font: { size: 10 } },
+        ticks: {
+          color: COL.axis,
+          ...(useDays ? { stepSize: 1, callback: (v: number | string) => Math.round(Number(v)) } : {}),
+        },
         grid: { color: COL.grid },
       },
       y: {
@@ -762,7 +319,10 @@ function baseChartOptions(horizon: number, extra?: Partial<ChartOptions<'line'>>
         titleColor: '#e5e7eb',
         bodyColor: '#e5e7eb',
         callbacks: {
-          title: items => `mese ${fmt2.format(Number(items[0].parsed.x ?? 0))}`,
+          title: items => {
+            const x = Number(items[0].parsed.x ?? 0)
+            return useDays ? `giorno ${Math.round(x)}` : `mese ${fmt2.format(x)}`
+          },
           label: ctx => `${ctx.dataset.label}: € ${fmt.format(Number(ctx.parsed.y ?? 0))}`,
         },
       },
@@ -793,6 +353,8 @@ export function CompoundLab() {
   const [sensMetric, setSensMetric] = useState<SensMetric>('net_value')
   const [optimizing, setOptimizing] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>('')
+  const [certifiedOnly, setCertifiedOnly] = useState(false)
+  const [certifiedDates, setCertifiedDates] = useState<string[]>([])
   const saveTimer = useRef<number | null>(null)
 
   // ── Real trading data from android-trader-monitor ──
@@ -805,12 +367,14 @@ export function CompoundLab() {
     setRealLoading(true)
     setRealError('')
     try {
-      const [summary, history] = await Promise.all([
+      const [summary, history, dates] = await Promise.all([
         tradingService.getSummary(),
         tradingService.getBalanceHistory(undefined, 2000),
+        tradingService.getCertifiedDates(),
       ])
       setRealSummary(summary)
       setRealHistory(history)
+      setCertifiedDates(dates)
     } catch {
       setRealError('Trader monitor offline')
     } finally {
@@ -858,8 +422,10 @@ export function CompoundLab() {
     saveTimer.current = window.setTimeout(() => setSaveStatus(''), 2500)
   }
 
-  const result = useMemo(() => simulate(params), [params])
-  const resultNoDD = useMemo(() => simulate(params, true), [params])
+  const _certDays = certifiedOnly && certifiedDates.length > 0 ? certifiedDates.length : undefined
+  const effectiveHorizon = _certDays != null ? _certDays / DAYS_PER_MONTH : params.horizon
+  const result = useMemo(() => simulate(params, false, _certDays), [params, _certDays])
+  const resultNoDD = useMemo(() => simulate(params, true, _certDays), [params, _certDays])
   const m = result.metrics
 
   // Tiles
@@ -874,8 +440,8 @@ export function CompoundLab() {
           sub: `cashflow tasca: € ${fmt.format(m.cumCashflowNet)} · debito residuo: € ${fmt.format(m.outstandingLoanEnd)}` },
         { k: 'Early payoff prestito', v: m.earlyPayoffMonth ? 'mese ' + m.earlyPayoffMonth : '—', cls: m.loanPaidEarly ? 'pos' : 'neu',
           sub: `interessi pagati: € ${fmt.format(m.loanInterestPaid)} · payoff fund: € ${fmt.format(m.payoffFundFinal)}` },
-        { k: 'Prima fase cashflow', v: m.first_cashflow_month ? 'mese ' + fmt1.format(m.first_cashflow_month) : '—', cls: 'pos',
-          sub: `soglia: € ${fmt.format(m.threshold)}` },
+        { k: `Fee trader (${params.copyTraderFee}%)`, v: '€ ' + fmt.format(m.cumTraderFee), cls: 'neg',
+          sub: `Prima cashflow: mese ${m.first_cashflow_month ? fmt1.format(m.first_cashflow_month) : '—'}` },
         { k: 'Deficit coperto sistema', v: '€ ' + fmt.format(m.cumDeficitCoveredBySystem), cls: m.cumDeficitCoveredBySystem > 0 ? 'neu' : 'pos',
           sub: `quando rata > budget fase 2 (${fmt.format(params.budgetPhase2)}€)` },
       ]
@@ -884,8 +450,8 @@ export function CompoundLab() {
       return [
         { k: 'Net Value (netto prestito)', v: '€ ' + fmt.format(m.net_value), cls: m.net_value > 0 ? 'pos' : 'neg',
           sub: `lordo: € ${fmt.format(m.net_value_gross)} · leverage tot: € ${fmt.format(m.cumBufferLeveraged)}` },
-        { k: 'Break-even prestito', v: m.breakEvenReachedMonth ? 'mese ' + m.breakEvenReachedMonth : '—', cls: 'pos',
-          sub: `soglia: € ${fmt.format(m.loanBreakEven)} · rata: € ${fmt.format(m.monthlyPayment)}` },
+        { k: `Fee trader (${params.copyTraderFee}%)`, v: '€ ' + fmt.format(m.cumTraderFee), cls: 'neg',
+          sub: `Break-even: ${m.breakEvenReachedMonth ? 'mese ' + m.breakEvenReachedMonth : '—'} · rata: € ${fmt.format(m.monthlyPayment)}` },
         { k: 'Prima fase cashflow', v: m.first_cashflow_month ? 'mese ' + fmt1.format(m.first_cashflow_month) : '—', cls: 'pos',
           sub: `soglia: € ${fmt.format(m.threshold)}` },
         { k: 'Cashflow netto totale', v: '€ ' + fmt.format(m.cumCashflowNet), cls: 'pos',
@@ -896,8 +462,8 @@ export function CompoundLab() {
       return [
         { k: 'Net Value (netto prestito)', v: '€ ' + fmt.format(m.net_value), cls: m.net_value > 0 ? 'pos' : 'neg',
           sub: `lordo: € ${fmt.format(m.net_value_gross)} · debito residuo: € ${fmt.format(m.outstandingLoanEnd)}` },
-        { k: 'Rata prestito', v: '€ ' + fmt.format(m.monthlyPayment), cls: 'neu',
-          sub: `interessi totali: € ${fmt.format(m.loanInterestTotal)} · pagati: € ${fmt.format(m.loanInterestPaid)}` },
+        { k: `Fee trader (${params.copyTraderFee}%)`, v: '€ ' + fmt.format(m.cumTraderFee), cls: 'neg',
+          sub: `Rata: € ${fmt.format(m.monthlyPayment)} · interessi: € ${fmt.format(m.loanInterestTotal)}` },
         { k: 'Prima fase cashflow', v: m.first_cashflow_month ? 'mese ' + fmt1.format(m.first_cashflow_month) : '—', cls: 'pos',
           sub: `soglia: € ${fmt.format(m.threshold)}` },
         { k: 'Cashflow netto totale', v: '€ ' + fmt.format(m.cumCashflowNet), cls: 'pos',
@@ -909,45 +475,52 @@ export function CompoundLab() {
         sub: `cashflow netto: € ${fmt.format(m.cumCashflowNet)}` },
       { k: 'Versato totale', v: '€ ' + fmt.format(m.total_out_of_pocket), cls: 'neu',
         sub: `profitto netto: € ${fmt.format(m.net_profit)}` },
-      { k: 'CAGR netto', v: fmt2.format(m.cagr_net * 100) + '%', cls: 'pos',
-        sub: `drag vs teorico: ${fmt2.format(m.drag_pct_points)} pt/mese` },
+      { k: `Fee trader (${params.copyTraderFee}%)`, v: '€ ' + fmt.format(m.cumTraderFee), cls: 'neg',
+        sub: `CAGR netto: ${fmt2.format(m.cagr_net * 100)}%` },
       { k: 'Prima fase cashflow', v: m.first_cashflow_month ? 'mese ' + fmt1.format(m.first_cashflow_month) : '—', cls: 'neu',
         sub: `soglia: € ${fmt.format(m.threshold)}` },
     ]
   }, [params, m])
 
-  // Clamp viewRange to valid bounds
-  const vr = Math.max(3, Math.min(viewRange, params.horizon))
+  // Clamp viewRange to valid bounds; when certifiedOnly overrides, use exact certifiedDays horizon
+  const vr = certifiedOnly && _certDays != null
+    ? effectiveHorizon
+    : Math.max(3, Math.min(viewRange, effectiveHorizon))
+
+  // When horizon < 1 month, show X axis in days (integer ticks)
+  const useDaysAxis = vr < 1
 
   // Equity chart data
   const equityData: ChartData<'line'> = useMemo(() => {
     const datasets = [
       {
         _key: 'no_dd', label: 'No-crash (teorico)',
-        data: seriesToXY(resultNoDD.series.net_value, params.horizon),
+        data: seriesToXY(resultNoDD.series.net_value, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.slate, borderWidth: 1, borderDash: [4, 4],
         pointRadius: 0, tension: 0.1, hidden: equityHidden.no_dd,
       },
       {
         _key: 'net_value', label: 'Net value (sim)',
-        data: seriesToXY(result.series.net_value, params.horizon),
+        data: seriesToXY(result.series.net_value, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.emerald, borderWidth: 2, backgroundColor: COL.emeraldFill,
         fill: false, pointRadius: 0, tension: 0.1, hidden: equityHidden.net_value,
       },
       {
         _key: 'capital', label: 'Capitale (sim)',
-        data: seriesToXY(result.series.capital, params.horizon),
+        data: seriesToXY(result.series.capital, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.sky, borderWidth: 1.3, pointRadius: 0, tension: 0.1, hidden: equityHidden.capital,
       },
       {
         _key: 'buffer', label: 'Buffer (sim)',
-        data: seriesToXY(result.series.buffer, params.horizon),
+        data: seriesToXY(result.series.buffer, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.amber, borderWidth: 1.3, pointRadius: 0, tension: 0.1, hidden: equityHidden.buffer,
       },
       // Real data overlay from android-trader-monitor
       ...(realEquityPoints.length > 2 ? [{
         _key: 'real', label: 'Saldo REALE (trader monitor)',
-        data: realEquityPoints,
+        data: useDaysAxis
+          ? realEquityPoints.map(p => ({ x: p.x * DAYS_PER_MONTH, y: p.y }))
+          : realEquityPoints,
         borderColor: COL.violet, borderWidth: 2.5, backgroundColor: COL.violetFill,
         fill: false, pointRadius: 1.5, pointHoverRadius: 4, tension: 0.2,
         hidden: equityHidden.real,
@@ -955,7 +528,7 @@ export function CompoundLab() {
       }] : []),
     ]
     return { datasets: datasets as unknown as ChartData<'line'>['datasets'] }
-  }, [result, resultNoDD, equityHidden, params.horizon, realEquityPoints])
+  }, [result, resultNoDD, equityHidden, effectiveHorizon, realEquityPoints])
 
   const equityOptions: ChartOptions<'line'> = useMemo(() => {
     const opts = baseChartOptions(vr)
@@ -966,41 +539,44 @@ export function CompoundLab() {
   // Losses chart
   const lossesData: ChartData<'line'> = useMemo(() => ({
     datasets: [
-      { label: 'Perdite crash cumulate', data: seriesToXY(result.series.cum_crash_loss, params.horizon),
+      { label: 'Perdite crash cumulate', data: seriesToXY(result.series.cum_crash_loss, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.rose, backgroundColor: COL.roseFill, fill: true, tension: 0.1, pointRadius: 0, borderWidth: 1.5 },
-      { label: 'Buffer deploy cumulato', data: seriesToXY(result.series.cum_buffer_deploy, params.horizon),
+      { label: 'Buffer deploy cumulato', data: seriesToXY(result.series.cum_buffer_deploy, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.emerald, backgroundColor: COL.emeraldFill, fill: true, tension: 0.1, pointRadius: 0, borderWidth: 1.5 },
     ],
-  }), [result, params.horizon])
+  }), [result, effectiveHorizon, useDaysAxis])
 
   // Cashflow chart
   const cashflowData: ChartData<'line'> = useMemo(() => ({
     datasets: [
-      { label: 'Cashflow netto cumulato', data: seriesToXY(result.series.cum_cashflow_net, params.horizon),
+      { label: 'Cashflow netto cumulato', data: seriesToXY(result.series.cum_cashflow_net, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.emerald, backgroundColor: COL.emeraldFill, fill: true, tension: 0.1, pointRadius: 0, borderWidth: 1.8 },
-      { label: 'Prelievo lordo cumulato', data: seriesToXY(result.series.cum_withdrawn_gross, params.horizon),
+      { label: 'Prelievo lordo cumulato', data: seriesToXY(result.series.cum_withdrawn_gross, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.amber, fill: false, tension: 0.1, pointRadius: 0, borderWidth: 1.3, borderDash: [3, 3] },
+      { label: `Fee copy trader (${params.copyTraderFee}%)`, data: seriesToXY(result.series.cum_trader_fee, effectiveHorizon, 600, useDaysAxis),
+        borderColor: COL.rose, backgroundColor: COL.roseFill, fill: false, tension: 0.1, pointRadius: 0, borderWidth: 1.5, borderDash: [4, 2] },
     ],
-  }), [result, params.horizon])
+  }), [result, effectiveHorizon, params.copyTraderFee])
 
   // Buffer chart
   const bufferData: ChartData<'line'> = useMemo(() => ({
     datasets: [
-      { label: 'Buffer corrente', data: seriesToXY(result.series.buffer, params.horizon),
+      { label: 'Buffer corrente', data: seriesToXY(result.series.buffer, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.amber, backgroundColor: COL.amberFill, fill: true, tension: 0.1, pointRadius: 0, borderWidth: 1.8 },
-      { label: 'Target β × capitale', data: seriesToXY(result.series.target_buffer, params.horizon),
+      { label: 'Target β × capitale', data: seriesToXY(result.series.target_buffer, effectiveHorizon, 600, useDaysAxis),
         borderColor: COL.slate, fill: false, tension: 0.1, pointRadius: 0, borderWidth: 1.2, borderDash: [3, 3] },
     ],
-  }), [result, params.horizon])
+  }), [result, effectiveHorizon, useDaysAxis])
 
   // Sensitivity
   const sensData = useMemo(() => {
     const range = SENS_RANGES[sensParam]
     const points: { x: number; y: number }[] = []
+    const certDaysForSens = certifiedOnly && certifiedDates.length > 0 ? certifiedDates.length : undefined
     for (let v = range.min; v <= range.max + 1e-9; v += range.step) {
       const vRounded = +v.toFixed(3)
       const next: Params = { ...params, [sensParam]: vRounded } as Params
-      const res = simulate(next)
+      const res = simulate(next, false, certDaysForSens)
       let y: number
       switch (sensMetric) {
         case 'net_value': y = res.metrics.net_value; break
@@ -1016,7 +592,7 @@ export function CompoundLab() {
     const isMinimize = sensMetric === 'first_cashflow_month'
     const best = points.reduce((a, b) => (isMinimize ? (a.y < b.y ? a : b) : (a.y > b.y ? a : b)))
     return { range, points, best }
-  }, [sensParam, sensMetric, params])
+  }, [sensParam, sensMetric, params, certifiedOnly, certifiedDates])
 
   const sensChartData: ChartData<'line'> = useMemo(() => ({
     datasets: [
@@ -1174,6 +750,9 @@ export function CompoundLab() {
             {realEquityPoints.length > 2 && (
               <span className="text-violet-600 font-medium ml-2">· dati reali attivi</span>
             )}
+            {certifiedOnly && certifiedDates.length > 0 && (
+              <span className="text-emerald-600 font-medium ml-2">· {certifiedDates.length} giorni certificati</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -1186,6 +765,35 @@ export function CompoundLab() {
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ─── Control Panel ─── */}
         <aside className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+          {/* ── Certified Days Toggle ── */}
+          <div className="mb-5 pb-4 border-b border-dashed border-gray-200">
+            <div className="text-[10px] uppercase tracking-widest text-primary-600 font-semibold mb-1">◉ Giorni Certificati</div>
+            <p className="text-[10px] text-gray-500 mb-2 leading-snug">
+              Usa solo i giorni in cui il DB PuPrime ha dati reali certificati (scraping riuscito).
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-gray-700 leading-tight">Solo giorni certificati</span>
+              <button
+                onClick={() => setCertifiedOnly(v => !v)}
+                disabled={certifiedDates.length === 0}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none disabled:opacity-40 ${certifiedOnly ? 'bg-primary-600' : 'bg-gray-300'}`}
+                title={certifiedDates.length === 0 ? 'Nessun dato certificato disponibile' : undefined}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${certifiedOnly ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+            {certifiedDates.length > 0 ? (
+              <div className={`text-[10px] mt-1.5 ${certifiedOnly ? 'text-primary-600 font-medium' : 'text-gray-400'}`}>
+                {certifiedDates.length} giorni nel DB
+                {certifiedDates.length >= 2 && ` · ${certifiedDates[0]} → ${certifiedDates[certifiedDates.length - 1]}`}
+              </div>
+            ) : (
+              <div className="text-[10px] text-amber-500 mt-1.5">
+                {realLoading ? 'Caricamento…' : 'Nessun dato nel DB'}
+              </div>
+            )}
+          </div>
+
           {CONTROL_SECTIONS.map((section, idx) => (
             <div key={idx} className="mb-5 pb-4 border-b border-dashed border-gray-200 last:border-b-0 last:mb-0">
               <div className="text-[10px] uppercase tracking-widest text-primary-600 font-semibold mb-2">
@@ -1200,6 +808,7 @@ export function CompoundLab() {
                   def={def}
                   value={params[def.key] as number}
                   onChange={v => update(def.key, v as never)}
+                  disabled={def.key === 'horizon' && certifiedOnly && certifiedDates.length > 0}
                 />
               ))}
               {section.extra?.(params)}

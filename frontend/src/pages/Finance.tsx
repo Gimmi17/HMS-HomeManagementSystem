@@ -122,7 +122,7 @@ export function Finance() {
               }}
             />
           )}
-          {tab === 'movimenti' && <StoricoTab entries={entries} />}
+          {tab === 'movimenti' && <StoricoTab entries={entries} onSwitchTab={setTab} />}
           {tab === 'ricorrenti' && (
             <RicorrentiTab
               entries={entries}
@@ -326,6 +326,7 @@ function DashboardTab({
         <EntriesTable
           rows={entries.filter((e) => e.subtype === 'done').slice(0, 10)}
           onDelete={onDelete}
+          onAddClick={() => setShowAdd(true)}
         />
       </div>
     </div>
@@ -334,7 +335,7 @@ function DashboardTab({
 
 // ─── Storico ────────────────────────────────────────────────────────────────
 
-function StoricoTab({ entries }: { entries: FinanceEntry[] }) {
+function StoricoTab({ entries, onSwitchTab }: { entries: FinanceEntry[]; onSwitchTab?: (tab: Tab) => void }) {
   const [sort, setSort] = useState<'date' | 'amount' | 'label'>('date')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const [search, setSearch] = useState('')
@@ -403,7 +404,29 @@ function StoricoTab({ entries }: { entries: FinanceEntry[] }) {
       </div>
       <div className="card">
         {filtered.length === 0 ? (
-          <p className="text-gray-500 text-sm">Nessuna transazione</p>
+          entries.filter((e) => e.subtype === 'done').length === 0 ? (
+            <div className="py-8 text-center space-y-3">
+              <p className="text-2xl">💰</p>
+              <p className="text-gray-700 font-medium">Inizia dal tuo primo movimento</p>
+              <p className="text-gray-400 text-xs">Tieni traccia di entrate e uscite</p>
+              <div className="flex justify-center gap-2 flex-wrap">
+                <button
+                  onClick={() => onSwitchTab?.('dashboard')}
+                  className="btn btn-primary text-sm"
+                >
+                  + Aggiungi
+                </button>
+                <button
+                  onClick={() => onSwitchTab?.('revolut')}
+                  className="btn btn-secondary text-sm"
+                >
+                  Importa da Revolut
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm py-4 text-center">Nessun risultato — prova a cambiare i filtri.</p>
+          )
         ) : (
           <table className="w-full text-sm">
             <thead className="text-gray-500 text-xs">
@@ -578,6 +601,8 @@ function RevolutTab({
   const [sourceName, setSourceName] = useState('Revolut')
   const [entities, setEntities] = useState<FinanceEntity[]>([])
   const [sources, setSources] = useState<FinanceSource[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     financeService.listEntities().then(setEntities).catch(() => {})
@@ -657,21 +682,29 @@ function RevolutTab({
             onSubmit={async (e) => {
               e.preventDefault()
               if (!label || !amount) return
-              await onAdd({
-                label,
-                amount: parseFloat(amount),
-                category,
-                date,
-                notes: notes || undefined,
-                entity_name: entityInput.trim() || undefined,
-                source_name: sourceName.trim() || undefined,
-              })
-              setLabel('')
-              setAmount('')
-              setNotes('')
-              setEntityInput('')
-              setSourceName('Revolut')
-              setShowAdd(false)
+              setError('')
+              setLoading(true)
+              try {
+                await onAdd({
+                  label,
+                  amount: parseFloat(amount),
+                  category,
+                  date,
+                  notes: notes || undefined,
+                  entity_name: entityInput.trim() || undefined,
+                  source_name: sourceName.trim() || undefined,
+                })
+                setLabel('')
+                setAmount('')
+                setNotes('')
+                setEntityInput('')
+                setSourceName('Revolut')
+                setShowAdd(false)
+              } catch (err: any) {
+                setError(err?.response?.data?.detail || err?.message || 'Errore nel salvataggio')
+              } finally {
+                setLoading(false)
+              }
             }}
             className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4 p-3 bg-gray-50 rounded"
           >
@@ -707,14 +740,15 @@ function RevolutTab({
               <SourceSelector value={sourceName} onChange={setSourceName} />
             </div>
             <div className="flex items-end">
-              <button type="submit" className="btn btn-primary w-full">
-                Salva
+              <button type="submit" className="btn btn-primary w-full" disabled={loading}>
+                {loading ? 'Salvataggio...' : 'Salva'}
               </button>
             </div>
             <div className="md:col-span-6">
               <label className="label">Note</label>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} className="input" />
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} className="input" disabled={loading} />
             </div>
+            {error && <div className="md:col-span-6"><p className="text-red-600 text-sm">{error}</p></div>}
           </form>
         )}
 
@@ -1092,6 +1126,8 @@ function EntryForm({
   const [sourceName, setSourceName] = useState('')
   const [entityName, setEntityName] = useState('')
   const [entities, setEntities] = useState<FinanceEntity[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   useEffect(() => {
     financeService.listEntities().then(setEntities).catch(() => {})
   }, [])
@@ -1100,28 +1136,36 @@ function EntryForm({
   const handle = async (e: FormEvent) => {
     e.preventDefault()
     if (!label || !amount) return
-    const payload: any = {
-      label,
-      amount: parseFloat(amount),
-      type,
-      subtype,
+    setError('')
+    setLoading(true)
+    try {
+      const payload: any = {
+        label,
+        amount: parseFloat(amount),
+        type,
+        subtype,
+      }
+      if (entityName) payload.entity_name = entityName
+      if (sourceName) payload.source_name = sourceName
+      if (subtype === 'recurring') {
+        payload.frequency = frequency
+        if (frequency === 'every_n_months' && freqN) payload.frequency_n = parseInt(freqN)
+        if (startDate) payload.start_date = startDate
+        if (endDate) payload.end_date = endDate
+      } else {
+        payload.date = date
+      }
+      await onSubmit(payload)
+      setLabel('')
+      setAmount('')
+      setEntityName('')
+      setSourceName('')
+      onDone()
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Errore nel salvataggio')
+    } finally {
+      setLoading(false)
     }
-    if (entityName) payload.entity_name = entityName
-    if (sourceName) payload.source_name = sourceName
-    if (subtype === 'recurring') {
-      payload.frequency = frequency
-      if (frequency === 'every_n_months' && freqN) payload.frequency_n = parseInt(freqN)
-      if (startDate) payload.start_date = startDate
-      if (endDate) payload.end_date = endDate
-    } else {
-      payload.date = date
-    }
-    await onSubmit(payload)
-    setLabel('')
-    setAmount('')
-    setEntityName('')
-    setSourceName('')
-    onDone()
   }
 
   return (
@@ -1200,13 +1244,16 @@ function EntryForm({
         </div>
       )}
 
-      <div className="col-span-2 md:col-span-4 flex gap-2 justify-end">
-        <button type="button" onClick={onDone} className="btn btn-secondary">
-          Annulla
-        </button>
-        <button type="submit" className="btn btn-primary">
-          Salva
-        </button>
+      <div className="col-span-2 md:col-span-4">
+        {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onDone} className="btn btn-secondary" disabled={loading}>
+            Annulla
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Salvataggio...' : 'Salva'}
+          </button>
+        </div>
       </div>
     </form>
   )
@@ -1215,11 +1262,22 @@ function EntryForm({
 function EntriesTable({
   rows,
   onDelete,
+  onAddClick,
 }: {
   rows: FinanceEntry[]
   onDelete: (id: string) => Promise<void>
+  onAddClick?: () => void
 }) {
-  if (rows.length === 0) return <p className="text-gray-500 text-sm">Nessuna transazione</p>
+  if (rows.length === 0) return (
+    <div className="py-6 text-center space-y-2">
+      <p className="text-gray-500 text-sm">Nessuna transazione ancora</p>
+      {onAddClick && (
+        <button onClick={onAddClick} className="btn btn-primary text-sm">
+          + Aggiungi il primo movimento
+        </button>
+      )}
+    </div>
+  )
   return (
     <table className="w-full text-sm">
       <thead className="text-gray-500 text-xs">

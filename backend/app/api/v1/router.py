@@ -18,7 +18,7 @@ Structure:
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments, trading
+from app.api.v1 import auth, users, foods, health, grocy, houses, recipes, meals, shopping_lists, stores, products, product_catalog, product_nutrition, error_logs, admin, categories, dispensa, anagrafiche, receipts, llm, areas, meal_planner, recipe_ai, meal_stock, finance, investments, trading, ga_finance
 
 
 # Create main v1 router
@@ -307,4 +307,14 @@ api_router.include_router(
     trading.router,
     prefix="/trading",
     tags=["trading"],
+)
+
+
+# Include Gold Alert finance endpoints
+# Proxy to Gold Alert service for finance entries, revolut, labels, entities, sources, savings
+# No auth required (Gold Alert is an internal service)
+api_router.include_router(
+    ga_finance.router,
+    prefix="/ga-finance",
+    tags=["ga-finance"],
 )

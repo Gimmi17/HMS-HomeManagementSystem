@@ -58,8 +58,8 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
-    // If 401 and not already retrying, try to refresh token
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // If 401 or 403 (no auth header — HTTPBearer behaviour) and not already retrying
+    if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
       // Prevent multiple logout attempts
       if (isLoggingOut) {
         return Promise.reject(error)
