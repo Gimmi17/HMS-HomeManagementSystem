@@ -50,12 +50,12 @@ export const INVESTMENT_TYPES = [
 
 export const investmentService = {
   async list(): Promise<Investment[]> {
-    const res = await api.get('/investments/')
+    const res = await api.get('/ga-finance/investments/')
     return res.data
   },
 
   async get(id: string): Promise<Investment> {
-    const res = await api.get(`/investments/${id}`)
+    const res = await api.get(`/ga-finance/investments/${id}`)
     return res.data
   },
 
@@ -70,21 +70,21 @@ export const investmentService = {
     is_active?: boolean
     notes?: string | null
   }): Promise<Investment> {
-    const res = await api.post('/investments/', data)
+    const res = await api.post('/ga-finance/investments/', data)
     return res.data
   },
 
   async update(id: string, data: Partial<Investment>): Promise<Investment> {
-    const res = await api.put(`/investments/${id}`, data)
+    const res = await api.put(`/ga-finance/investments/${id}`, data)
     return res.data
   },
 
   async remove(id: string): Promise<void> {
-    await api.delete(`/investments/${id}`)
+    await api.delete(`/ga-finance/investments/${id}`)
   },
 
   async listSnapshots(investmentId: string): Promise<InvestmentSnapshot[]> {
-    const res = await api.get(`/investments/${investmentId}/snapshots`)
+    const res = await api.get(`/ga-finance/investments/${investmentId}/snapshots`)
     return res.data
   },
 
@@ -99,20 +99,20 @@ export const investmentService = {
       notes?: string | null
     }
   ): Promise<InvestmentSnapshot> {
-    const res = await api.post(`/investments/${investmentId}/snapshots`, data)
+    const res = await api.post(`/ga-finance/investments/${investmentId}/snapshots`, data)
     return res.data
   },
 
   async deleteSnapshot(investmentId: string, snapshotId: string): Promise<void> {
-    await api.delete(`/investments/${investmentId}/snapshots/${snapshotId}`)
+    await api.delete(`/ga-finance/investments/${investmentId}/snapshots/${snapshotId}`)
   },
 
   async linkEntry(entryId: string, investmentId: string | null): Promise<void> {
-    await api.patch(`/investments/link-entry/${entryId}`, { investment_id: investmentId })
+    await api.patch(`/ga-finance/investments/link-entry/${entryId}`, { investment_id: investmentId })
   },
 
   async getLinkedEntries(investmentId: string): Promise<LinkedEntry[]> {
-    const res = await api.get(`/investments/linked-entries/${investmentId}`)
+    const res = await api.get(`/ga-finance/investments/linked-entries/${investmentId}`)
     return res.data
   },
 }

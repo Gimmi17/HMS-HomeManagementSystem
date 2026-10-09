@@ -241,3 +241,60 @@ async def import_ocr(request: Request) -> Any:
 async def summary() -> Any:
     """Proxy to Gold Alert's /api/finance/summary (monthly recurring breakdown)."""
     return await _get("/api/finance/summary")
+
+
+# ── Investments ───────────────────────────────────────────────────────────────
+
+@router.get("/investments/summary")
+async def investments_summary() -> Any:
+    return await _get("/api/investments/summary")
+
+
+@router.get("/investments/linked-entries/{inv_id}")
+async def get_linked_entries(inv_id: str) -> Any:
+    return await _get(f"/api/investments/linked-entries/{inv_id}")
+
+
+@router.get("/investments/{inv_id}/snapshots")
+async def list_snapshots(inv_id: str) -> Any:
+    return await _get(f"/api/investments/{inv_id}/snapshots")
+
+
+@router.post("/investments/{inv_id}/snapshots", status_code=201)
+async def add_snapshot(inv_id: str, body: dict[str, Any]) -> Any:
+    return await _post(f"/api/investments/{inv_id}/snapshots", body)
+
+
+@router.delete("/investments/snapshots/{snapshot_id}", status_code=204)
+async def delete_snapshot(snapshot_id: str) -> None:
+    await _delete(f"/api/investments/snapshots/{snapshot_id}")
+
+
+@router.patch("/investments/link-entry/{entry_id}")
+async def link_entry(entry_id: str, body: dict[str, Any]) -> Any:
+    return await _patch(f"/api/investments/link-entry/{entry_id}", body)
+
+
+@router.get("/investments")
+async def list_investments() -> Any:
+    return await _get("/api/investments")
+
+
+@router.get("/investments/{inv_id}")
+async def get_investment(inv_id: str) -> Any:
+    return await _get(f"/api/investments/{inv_id}")
+
+
+@router.post("/investments", status_code=201)
+async def create_investment(body: dict[str, Any]) -> Any:
+    return await _post("/api/investments", body)
+
+
+@router.patch("/investments/{inv_id}")
+async def update_investment(inv_id: str, body: dict[str, Any]) -> Any:
+    return await _patch(f"/api/investments/{inv_id}", body)
+
+
+@router.delete("/investments/{inv_id}", status_code=204)
+async def delete_investment(inv_id: str) -> None:
+    await _delete(f"/api/investments/{inv_id}")

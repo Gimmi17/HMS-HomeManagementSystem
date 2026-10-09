@@ -86,7 +86,7 @@ export interface HouseSummary {
 
 export const financeService = {
   async listEntries(): Promise<FinanceEntry[]> {
-    const res = await api.get('/finance/entries')
+    const res = await api.get('/ga-finance/entries')
     return res.data
   },
   async createEntry(data: {
@@ -105,79 +105,79 @@ export const financeService = {
     source_id?: string | null
     source_name?: string | null
   }): Promise<FinanceEntry> {
-    const res = await api.post('/finance/entries', data)
+    const res = await api.post('/ga-finance/entries', data)
     return res.data
   },
   async deleteEntry(id: string): Promise<void> {
-    await api.delete(`/finance/entries/${id}`)
+    await api.delete(`/ga-finance/entries/${id}`)
   },
-  async updateEntry(id: string, data: { label?: string; amount?: number; start_date?: string | null; end_date?: string | null }): Promise<FinanceEntry> {
-    const res = await api.patch(`/finance/entries/${id}`, data)
+  async updateEntry(id: string, data: { label?: string; amount?: number; type?: string; kind?: string; date?: string | null; start_date?: string | null; end_date?: string | null }): Promise<FinanceEntry> {
+    const res = await api.patch(`/ga-finance/entries/${id}`, data)
     return res.data
   },
 
   async getSavings(): Promise<FinanceSavings> {
-    const res = await api.get('/finance/savings')
+    const res = await api.get('/ga-finance/savings')
     return res.data
   },
   async saveSavings(data: FinanceSavings): Promise<FinanceSavings> {
-    const res = await api.post('/finance/savings', data)
+    const res = await api.put('/ga-finance/savings', data)
     return res.data
   },
 
   async listRevolut(): Promise<RevolutMovement[]> {
-    const res = await api.get('/finance/revolut')
+    const res = await api.get('/ga-finance/revolut')
     return res.data
   },
   async createRevolut(data: { label: string; amount: number; category: string; date: string; notes?: string; entity_name?: string; entity_id?: string; source_name?: string; source_id?: string }): Promise<RevolutMovement> {
-    const res = await api.post('/finance/revolut', data)
+    const res = await api.post('/ga-finance/revolut', data)
     return res.data
   },
   async deleteRevolut(id: string): Promise<void> {
-    await api.delete(`/finance/revolut/${id}`)
+    await api.delete(`/ga-finance/revolut/${id}`)
   },
 
   async importOcr(file: File): Promise<OCRParsed[]> {
     const form = new FormData()
     form.append('file', file)
-    const res = await api.post('/finance/import/ocr', form, {
+    const res = await api.post('/ga-finance/import/ocr', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     return res.data
   },
 
   async houseSummary(): Promise<HouseSummary> {
-    const res = await api.get('/finance/house/summary')
+    const res = await api.get('/ga-finance/summary')
     return res.data
   },
 
   async listLabels(): Promise<FinanceLabel[]> {
-    const res = await api.get('/finance/labels')
+    const res = await api.get('/ga-finance/labels')
     return res.data
   },
 
   async listEntities(): Promise<FinanceEntity[]> {
-    const res = await api.get('/finance/entities')
+    const res = await api.get('/ga-finance/entities')
     return res.data
   },
   async createEntity(data: { name: string; category?: string }): Promise<FinanceEntity> {
-    const res = await api.post('/finance/entities', data)
+    const res = await api.post('/ga-finance/entities', data)
     return res.data
   },
   async deleteEntity(id: string): Promise<void> {
-    await api.delete(`/finance/entities/${id}`)
+    await api.delete(`/ga-finance/entities/${id}`)
   },
 
   async listSources(): Promise<FinanceSource[]> {
-    const res = await api.get('/finance/sources')
+    const res = await api.get('/ga-finance/sources')
     return res.data
   },
   async createSource(data: { name: string; description?: string }): Promise<FinanceSource> {
-    const res = await api.post('/finance/sources', data)
+    const res = await api.post('/ga-finance/sources', data)
     return res.data
   },
   async deleteSource(id: string): Promise<void> {
-    await api.delete(`/finance/sources/${id}`)
+    await api.delete(`/ga-finance/sources/${id}`)
   },
 }
 
